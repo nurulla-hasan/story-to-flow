@@ -1,0 +1,82 @@
+"use client";
+
+import * as React from "react";
+import { Download, FileArchive, FileJson, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+
+export function ExportDialog({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Export production package"
+      description="Download your scene prompts, full planning JSON, or a complete zip archive containing all prompts and available keyframe/clip assets."
+      size="md"
+      footer={
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <div className="grid gap-3">
+        <a
+          href="/api/export?format=txt"
+          download
+          className="flex items-center gap-3.5 rounded-[10px] border border-border bg-[#fbfcfd] p-3.5 transition-colors hover:border-[#0f766e] hover:bg-[#f2faf8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#eef1f4] text-[#3f4d5a]">
+            <FileText className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Prompts (.txt)</p>
+            <p className="text-xs text-muted-foreground">
+              Plain text formatted with clear scene dividers, ready for easy copy-paste.
+            </p>
+          </div>
+          <Download className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </a>
+
+        <a
+          href="/api/export?format=json"
+          download
+          className="flex items-center gap-3.5 rounded-[10px] border border-border bg-[#fbfcfd] p-3.5 transition-colors hover:border-[#0f766e] hover:bg-[#f2faf8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#e6f4f1] text-[#0b5f58]">
+            <FileJson className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Complete Plan (.json)</p>
+            <p className="text-xs text-muted-foreground">
+              Story bible, locked characters, locations, settings, and all scene metadata.
+            </p>
+          </div>
+          <Download className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </a>
+
+        <a
+          href="/api/export?format=zip"
+          download
+          className="flex items-center gap-3.5 rounded-[10px] border border-border bg-[#fbfcfd] p-3.5 transition-colors hover:border-[#0f766e] hover:bg-[#f2faf8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#fdf3dd] text-[#8a5300]">
+            <FileArchive className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Full Archive (.zip)</p>
+            <p className="text-xs text-muted-foreground">
+              Contains prompts.txt, plan.json, and all stored keyframes, last frames, and clips.
+            </p>
+          </div>
+          <Download className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </a>
+      </div>
+    </Dialog>
+  );
+}

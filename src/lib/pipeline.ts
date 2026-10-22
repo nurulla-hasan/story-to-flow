@@ -68,6 +68,8 @@ export async function buildBible(
     styleLock: bible.style_lock,
   });
   repo.replaceBible(projectId, bible);
+  // Old scenes belonged to old characters/locations that no longer exist in this bible.
+  repo.replaceScenes(projectId, []);
   return bible;
 }
 

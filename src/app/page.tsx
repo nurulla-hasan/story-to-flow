@@ -295,11 +295,32 @@ export default function WorkspacePage() {
               <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
                 <Layers className="size-6" />
               </span>
-              <h3 className="mt-3 text-sm font-semibold">No scenes planned yet</h3>
+              <h3 className="mt-3 text-sm font-semibold">
+                {data.characters.length > 0 ? "Story bible ready" : "No scenes planned yet"}
+              </h3>
               <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-                Paste your story in the left panel, click &quot;Create story bible&quot;, then
-                &quot;Re-plan scenes&quot; to generate your 8–10 second production clips.
+                {data.characters.length > 0
+                  ? `${data.characters.length} characters and ${data.locations.length} locations are locked. Click below to plan scenes for this story!`
+                  : "Paste your story in the left panel, click \"Create story bible\", then \"Re-plan scenes\" to generate your 8–10 second production clips."}
               </p>
+              {data.characters.length > 0 ? (
+                <Button
+                  type="button"
+                  className="mt-4 gap-1.5 text-xs"
+                  onClick={async () => {
+                    try {
+                      const res = await api<{ job: JobRecord }>("/api/plan", { method: "POST" });
+                      setActiveJob(res.job);
+                      notify("Scene planning started. You can watch the progress here.", "info");
+                    } catch (err) {
+                      notify(err instanceof ApiError ? err.message : String(err), "error");
+                    }
+                  }}
+                >
+                  <Sparkles className="size-3.5" aria-hidden />
+                  Plan scenes for this story
+                </Button>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-3">

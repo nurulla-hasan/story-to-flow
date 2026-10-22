@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import { api, ApiError, copyText, fileUrl, STATUS_META, upload } from "@/lib/apiClient";
-import type { ProjectData, SceneRecord } from "@/lib/types";
+import type { JobRecord, ProjectData, SceneRecord } from "@/lib/types";
 import { languageLabel } from "@/lib/types";
 
 export function SceneCard({
@@ -32,6 +32,7 @@ export function SceneCard({
   onToggle,
   onChanged,
   onOpenReview,
+  onJobStarted,
   notify,
 }: {
   data: ProjectData;
@@ -40,6 +41,7 @@ export function SceneCard({
   onToggle: () => void;
   onChanged: () => Promise<void>;
   onOpenReview: (n: number) => void;
+  onJobStarted?: (job: JobRecord) => void;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -149,6 +151,17 @@ export function SceneCard({
     });
   }
 
+  async function generateFlowVideo() {
+    await act("flow", async () => {
+      const result = await api<{ job: JobRecord }>(
+        `/api/scenes/${scene.n}/flow-generate`,
+        { method: "POST" },
+      );
+      notify("Google Flow generation started! Watch progress above.", "info");
+      onJobStarted?.(result.job);
+    });
+  }
+
   const busyLabel: Record<string, string> = {
     status: "Saving…",
     assemble: "Assembling…",
@@ -156,6 +169,7 @@ export function SceneCard({
     clip: "Uploading clip…",
     keyframe: "Uploading…",
     generate: "Generating…",
+    flow: "Submitting to Flow…",
   };
 
   return (
@@ -361,6 +375,21 @@ export function SceneCard({
                 <Button
                   type="button"
                   size="sm"
+                  className="h-9 gap-1.5 text-xs font-semibold"
+                  onClick={generateFlowVideo}
+                  disabled={Boolean(busy)}
+                >
+                  {busy === "flow" ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="size-3.5" aria-hidden />
+                  )}
+                  {scene.clipPath ? "Re-generate (Flow)" : "Generate Video (Flow)"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
                   className="h-9 text-xs"
                   onClick={copyPrompt}
                   disabled={!prompt}

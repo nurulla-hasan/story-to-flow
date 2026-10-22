@@ -64,9 +64,15 @@ export function assemblePrompt(
   const speakerName = speaker?.name ?? scene.dialogue?.speaker ?? "";
   const dialogueLanguage = speaker?.language ?? settings.dialogueLanguage;
   if (settings.dialogueEnabled && scene.dialogue) {
-    lines.push(
-      `DIALOGUE: ${speakerName} says in ${languageLabel(dialogueLanguage)}, "${scene.dialogue.line}". Same voice as in every other scene.`,
-    );
+    if (scene.dialogue.line.includes(":") || scene.dialogue.speaker.includes(",") || scene.dialogue.speaker.includes("&")) {
+      lines.push(
+        `DIALOGUE: Short conversation in ${languageLabel(dialogueLanguage)}: "${scene.dialogue.line}". Voices and accents match the character locks.`,
+      );
+    } else {
+      lines.push(
+        `DIALOGUE: ${speakerName} says in ${languageLabel(dialogueLanguage)}, "${scene.dialogue.line}". Same voice as in every other scene.`,
+      );
+    }
   } else {
     lines.push("DIALOGUE: No dialogue.");
   }
@@ -109,7 +115,7 @@ export function assemblePrompt(
   must.push("One continuous take. One main action. No cut inside the clip.");
   if (scene.dialogue && settings.dialogueEnabled) {
     must.push(
-      `One speaker only. Lip movement matches the single line. Maximum ${settings.maxDialogueWords} words.`,
+      `Lip movement matches the spoken dialogue accurately. Maximum ${settings.maxDialogueWords} words.`,
     );
   } else {
     must.push("No speech, no lip movement.");

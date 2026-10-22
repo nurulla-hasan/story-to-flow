@@ -16,6 +16,9 @@ export const sceneStatusSchema = z.enum([
 ]);
 export type SceneStatus = z.infer<typeof sceneStatusSchema>;
 
+export const sceneCountModeSchema = z.enum(["auto", "custom"]);
+export type SceneCountMode = z.infer<typeof sceneCountModeSchema>;
+
 export const modelsSchema = z.object({
   planner: z.string().max(200).default(""),
   validator: z.string().max(200).default(""),
@@ -23,6 +26,7 @@ export const modelsSchema = z.object({
 });
 
 export const settingsSchema = z.object({
+  sceneCountMode: sceneCountModeSchema.default("auto"),
   dialogueLanguage: languageSchema.default("bn"),
   accentNote: z.string().max(400).default(""),
   totalMinutes: z.coerce.number().min(0.2).max(120).default(1),
@@ -226,7 +230,7 @@ export const chatOpSchema = z.discriminatedUnion("op", [
 export type ChatOp = z.infer<typeof chatOpSchema>;
 export const chatOpsSchema = z.object({
   summary: z.string().max(1000).default(""),
-  ops: z.array(chatOpSchema).min(1).max(30),
+  ops: z.array(chatOpSchema).default([]),
 });
 
 /* ------------------------------ records ----------------------------- */

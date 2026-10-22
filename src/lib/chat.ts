@@ -41,7 +41,8 @@ Rules:
 - For update_scene, send the FULL new value for the field, not a fragment.
 - Dialogue must be in the speaker's language and native script, at most the project's max dialogue words. Use {"speaker":"id","line":"..."} or null.
 - Max people per scene must be respected.
-- If the user asks for something you cannot express as these ops, return zero ops and explain in summary. But ops must contain at least one item, so in that case use add_rule with a note only if it is genuinely a global rule.
+- If the user asks a conversational question, greeting (e.g. "kemon acho?", "hi"), or asks a general question about the project without requesting changes, provide a friendly and helpful response in "summary" (reply in Bangla if asked in Bangla) and return an empty array "ops": [].
+- If the user requests a change, return the smallest set of structured operations in "ops" and a concise description in "summary".
 - Keep scene numbering automatic: split/merge/delete renumber every following scene.`;
 
 export async function planChat(projectId: string, message: string) {

@@ -12,6 +12,7 @@ import { SimpleSelect } from "@/components/simple-select";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { api, ApiError, fileUrl, upload } from "@/lib/apiClient";
 import type { CharacterRecord, ProjectData } from "@/lib/types";
 
@@ -48,6 +49,7 @@ export function CharactersPanel({
   const [sourceId, setSourceId] = React.useState("");
   const [targetId, setTargetId] = React.useState("");
   const [refTarget, setRefTarget] = React.useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
   const refInput = React.useRef<HTMLInputElement>(null);
 
   function openAdd() {
@@ -104,10 +106,7 @@ export function CharactersPanel({
     }
   }
 
-  async function remove() {
-    if (!window.confirm(`Delete ${draft.name}? Scenes using this character will drop them.`)) {
-      return;
-    }
+  async function doDelete() {
     setSaving(true);
     try {
       await api(`/api/characters/${draft.id}`, { method: "DELETE" });
@@ -284,7 +283,7 @@ export function CharactersPanel({
               <Button
                 type="button"
                 variant="destructive"
-                onClick={remove}
+                onClick={() => setConfirmDeleteOpen(true)}
                 disabled={saving}
                 className="mr-auto"
               >
@@ -400,6 +399,17 @@ export function CharactersPanel({
           </Field>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={`Delete character "${draft.name}"?`}
+        description="Scenes using this character will drop them from the scene. Are you sure you want to proceed?"
+        confirmLabel="Delete character"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={doDelete}
+      />
     </Card>
   );
 }

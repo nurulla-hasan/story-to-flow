@@ -49,7 +49,12 @@ export function ChatDialog({
         body: JSON.stringify({ message }),
       });
       setProposal(res);
-      notify("Plan proposed. Review the changes below before confirming.", "info");
+      notify(
+        res.ops.length > 0
+          ? "Plan proposed. Review the changes below before confirming."
+          : "AI replied.",
+        "info",
+      );
     } catch (error) {
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {
@@ -132,60 +137,86 @@ export function ChatDialog({
         </div>
 
         {proposal ? (
-          <div className="rounded-xl border border-brand-border bg-brand-subtle p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
-                  <FileDiff className="size-3" aria-hidden />
-                  Proposed changes
-                </span>
-                <p className="mt-2 text-sm font-semibold text-secondary-foreground">
-                  {proposal.summary || "Operations planned:"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setProposal(null)}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Discard proposal"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-1.5">
-              {proposal.diff.map((line, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-2 rounded-md border border-brand-border bg-card px-3 py-2 font-mono text-xs leading-5 text-secondary-foreground"
-                >
-                  <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
-                  <span>{line}</span>
+          proposal.ops.length > 0 ? (
+            <div className="rounded-xl border border-brand-border bg-brand-subtle p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                    <FileDiff className="size-3" aria-hidden />
+                    Proposed changes
+                  </span>
+                  <p className="mt-2 text-sm font-semibold text-secondary-foreground">
+                    {proposal.summary || "Operations planned:"}
+                  </p>
                 </div>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setProposal(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Discard proposal"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
 
-            <div className="mt-4 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setProposal(null)}
-                disabled={applying}
-              >
-                Discard
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={apply}
-                disabled={applying}
-              >
-                {applying ? <Spinner className="size-3.5" /> : <Check className="size-3.5" />}
-                Confirm & Apply
-              </Button>
+              <div className="mt-3 space-y-1.5">
+                {proposal.diff.map((line, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-start gap-2 rounded-md border border-brand-border bg-card px-3 py-2 font-mono text-xs leading-5 text-secondary-foreground"
+                  >
+                    <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
+                    <span>{line}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setProposal(null)}
+                  disabled={applying}
+                >
+                  Discard
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={apply}
+                  disabled={applying}
+                >
+                  {applying ? <Spinner className="size-3.5" /> : <Check className="size-3.5" />}
+                  Confirm & Apply
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+                    <Bot className="size-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">AI Assistant</p>
+                    <p className="mt-1 text-sm leading-6 text-foreground">
+                      {proposal.summary}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setProposal(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Dismiss reply"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </div>
+          )
         ) : null}
       </div>
     </Modal>

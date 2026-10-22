@@ -54,14 +54,40 @@ function loadFileEnv(): void {
   }
 }
 
+function normalizeBaseUrl(rawUrl: string): string {
+  let cleaned = rawUrl.trim().replace(/\/+$/, "");
+  // Localhost gateways run on unencrypted HTTP, not HTTPS
+  if (cleaned.startsWith("https://localhost") || cleaned.startsWith("https://127.0.0.1")) {
+    cleaned = cleaned.replace(/^https:/, "http:");
+  }
+  if (!cleaned.endsWith("/v1") && !cleaned.includes("/v1/")) {
+    cleaned = `${cleaned}/v1`;
+  }
+  return cleaned;
+}
+
 export function getEnv(): EnvConfig {
   loadFileEnv();
+  const rawUrl =
+    process.env.AI_BASE_URL ||
+    process.env.LLM_BASE_URL ||
+    process.env.OPENAI_BASE_URL ||
+    process.env.BASE_URL ||
+    process.env.OMNIROUTE_BASE_URL ||
+    process.env.OMNIROUTE_ENDPOINT ||
+    "http://localhost:20128/v1";
+
+  const apiKey =
+    process.env.AI_API_KEY ||
+    process.env.LLM_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.API_KEY ||
+    process.env.OMNIROUTE_API_KEY ||
+    "";
+
   return {
-    baseUrl: (process.env.OMNIROUTE_BASE_URL || "http://localhost:20128/v1").replace(
-      /\/+$/,
-      "",
-    ),
-    apiKey: process.env.OMNIROUTE_API_KEY || "",
+    baseUrl: normalizeBaseUrl(rawUrl),
+    apiKey,
     models: {
       planner: process.env.MODEL_PLANNER || DEFAULTS.planner,
       validator: process.env.MODEL_VALIDATOR || DEFAULTS.validator,

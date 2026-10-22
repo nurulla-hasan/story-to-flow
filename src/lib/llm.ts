@@ -73,7 +73,7 @@ function fallbackModel(): string {
 function friendlyFetchFailure(baseUrl: string, error: unknown): LlmError {
   const msg = error instanceof Error ? error.message : String(error);
   return new LlmError(
-    `Could not reach OmniRoute at ${baseUrl}. Is it running? (${msg})`,
+    `Could not reach AI provider at ${baseUrl}. Is it running or reachable? (${msg})`,
     "network",
     { detail: msg },
   );
@@ -151,41 +151,41 @@ async function requestOnce(
     const detail = text.slice(0, 1200);
     if (res.status === 401 || res.status === 403) {
       throw new LlmError(
-        "OmniRoute rejected the API key. Check OMNIROUTE_API_KEY in .env.local.",
+        "AI provider rejected the API key (401/403). Check your API key in .env.local.",
         "unauthorized",
         { status: res.status, model, detail },
       );
     }
     if (res.status === 404) {
       throw new LlmError(
-        `OmniRoute returned 404 for model "${model}". Check the model id and that OMNIROUTE_BASE_URL ends in /v1 exactly once.`,
+        `AI provider returned 404 for model "${model}". Check the model name and BASE_URL in .env.local.`,
         "not_found",
         { status: res.status, model, detail },
       );
     }
     if (res.status === 429) {
       throw new LlmError(
-        `OmniRoute rate-limited model "${model}" (429).`,
+        `AI provider rate-limited model "${model}" (429).`,
         "rate_limit",
         { status: res.status, model, detail },
       );
     }
     if (res.status === 400) {
       throw new LlmError(
-        `OmniRoute rejected the request for model "${model}" (400): ${detail.slice(0, 300)}`,
+        `AI provider rejected the request for model "${model}" (400): ${detail.slice(0, 300)}`,
         "bad_request",
         { status: res.status, model, detail },
       );
     }
     if (res.status >= 500) {
       throw new LlmError(
-        `OmniRoute failed for model "${model}" (${res.status}).`,
+        `AI provider failed for model "${model}" (${res.status}).`,
         "server",
         { status: res.status, model, detail },
       );
     }
     throw new LlmError(
-      `OmniRoute error ${res.status} for model "${model}": ${detail.slice(0, 300)}`,
+      `AI provider error ${res.status} for model "${model}": ${detail.slice(0, 300)}`,
       "unknown",
       { status: res.status, model, detail },
     );
@@ -196,7 +196,7 @@ async function requestOnce(
     payload = JSON.parse(text);
   } catch {
     throw new LlmError(
-      `OmniRoute returned non-JSON for model "${model}".`,
+      `AI provider returned non-JSON for model "${model}".`,
       "invalid_json",
       { model, detail: text.slice(0, 500) },
     );
@@ -205,7 +205,7 @@ async function requestOnce(
   const content = extractContent(payload);
   if (content === null) {
     throw new LlmError(
-      `OmniRoute response for model "${model}" had no message content. Raw shape: ${text.slice(0, 400)}`,
+      `AI provider response for model "${model}" had no message content. Raw shape: ${text.slice(0, 400)}`,
       "invalid_json",
       { model, detail: text.slice(0, 1000) },
     );

@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { api, ApiError } from "@/lib/apiClient";
 import type { JobRecord, ProjectData } from "@/lib/types";
 import { sceneCount } from "@/lib/types";
@@ -35,6 +36,7 @@ export function LeftPanel({
   const [story, setStory] = React.useState(data.project.story);
   const [prevStory, setPrevStory] = React.useState(data.project.story);
   const [busy, setBusy] = React.useState<"save" | "bible" | "plan" | "full" | "reset" | null>(null);
+  const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
 
   if (data.project.story !== prevStory) {
     setPrevStory(data.project.story);
@@ -62,13 +64,15 @@ export function LeftPanel({
     }
   }
 
-  async function resetNewStory() {
-    if (
-      (data.project.story.trim() || hasBible || hasScenes) &&
-      !window.confirm("Start a new story? This will clear current story, characters, and scenes.")
-    ) {
+  function handleNewStoryClick() {
+    if (data.project.story.trim() || hasBible || hasScenes) {
+      setConfirmResetOpen(true);
       return;
     }
+    void doReset();
+  }
+
+  async function doReset() {
     setBusy("reset");
     try {
       await api("/api/project", { method: "DELETE" });
@@ -175,7 +179,7 @@ export function LeftPanel({
           </div>
           <button
             type="button"
-            onClick={resetNewStory}
+            onClick={handleNewStoryClick}
             disabled={Boolean(busy)}
             className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="Clear and start a fresh story"
@@ -293,7 +297,7 @@ export function LeftPanel({
             <Row label="Language" value={settings.dialogueLanguage === "bn" ? "Bangla" : "English"} />
             <Row
               label="Format"
-              value={`${sceneCount(settings)} clips · ${settings.clipSeconds}s · ${settings.aspectRatio}`}
+              value={`${settings.sceneCountMode === "auto" ? "Auto clips" : `${sceneCount(settings)} clips`} · ${settings.clipSeconds}s · ${settings.aspectRatio}`}
             />
             <Row label="Style" value={settings.stylePreset} />
             <Row label="Dialogue" value={settings.dialogueEnabled ? "Enabled" : "Disabled"} />
@@ -308,6 +312,17 @@ export function LeftPanel({
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Start a new story?"
+        description="This will clear the current story, locked characters, locations, and planned scenes. Are you sure you want to proceed?"
+        confirmLabel="Clear and start new"
+        cancelLabel="Keep current story"
+        variant="destructive"
+        onConfirm={doReset}
+      />
     </div>
   );
 }

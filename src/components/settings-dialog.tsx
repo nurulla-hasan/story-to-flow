@@ -102,26 +102,60 @@ export function SettingsDialog({
       }
     >
       <form id="settings-form" onSubmit={submit} className="grid gap-5">
-        {/* Scene Count & Runtime */}
+        {/* Scene Planning Mode & Duration */}
         <section className="grid gap-4 sm:grid-cols-3">
           <Field
-            label="Target scene count"
-            htmlFor="targetScenes"
-            hint="Number of clips to plan"
+            label="Scene planning mode"
+            htmlFor="sceneCountMode"
+            hint="Story pacing control"
           >
-            <Input
-              id="targetScenes"
-              type="number"
-              min={1}
-              max={60}
-              value={scenes}
-              onChange={(event) => {
-                const count = Math.max(1, Math.min(60, Number(event.target.value) || 1));
-                const mins = Math.round(((count * form.clipSeconds) / 60) * 10) / 10;
-                set("totalMinutes", mins);
-              }}
+            <SimpleSelect
+              id="sceneCountMode"
+              value={form.sceneCountMode}
+              onValueChange={(val) =>
+                set("sceneCountMode", val as Settings["sceneCountMode"])
+              }
+              options={[
+                { value: "auto", label: "Auto — AI decides from story" },
+                { value: "custom", label: "Custom — specify exact count" },
+              ]}
             />
           </Field>
+
+          {form.sceneCountMode === "custom" ? (
+            <Field
+              label="Target scene count"
+              htmlFor="targetScenes"
+              hint={`Total ~${scenes * form.clipSeconds}s (${formatRuntime(scenes * form.clipSeconds)})`}
+            >
+              <Input
+                id="targetScenes"
+                type="number"
+                min={1}
+                max={60}
+                value={scenes}
+                onChange={(event) => {
+                  const count = Math.max(1, Math.min(60, Number(event.target.value) || 1));
+                  const mins = Math.round(((count * form.clipSeconds) / 60) * 10) / 10;
+                  set("totalMinutes", mins);
+                }}
+              />
+            </Field>
+          ) : (
+            <Field
+              label="Scene count"
+              htmlFor="autoPacing"
+              hint="Story-driven pacing"
+            >
+              <div
+                id="autoPacing"
+                className="flex h-9 items-center rounded-lg border border-border bg-muted px-3 text-sm text-foreground"
+              >
+                Auto-detected from story
+              </div>
+            </Field>
+          )}
+
           <Field label="Clip length" htmlFor="clipSeconds">
             <SimpleSelect
               id="clipSeconds"
@@ -137,14 +171,6 @@ export function SettingsDialog({
                 { value: "8", label: "8 seconds" },
               ]}
             />
-          </Field>
-          <Field label="Estimated runtime" htmlFor="runtime">
-            <div
-              id="runtime"
-              className="flex h-9 items-center rounded-lg border border-border bg-muted px-3 text-xs font-semibold tabular-nums text-foreground"
-            >
-              {formatRuntime(scenes * form.clipSeconds)} ({scenes} clips)
-            </div>
           </Field>
         </section>
 

@@ -78,7 +78,7 @@ Planning rules, in order of importance:
 6. Dress and voice never change unless the character has outfit_changes true and the scene says so explicitly.
 7. Use only location ids and character ids from the bible. No new characters or locations.
 8. The number of scenes requested is exact; establishing shots count toward that number. Do not add scenes beyond the requested count.
-9. Dialogue is optional. Most scenes can have no dialogue; never put two speakers in one scene.
+9. Dialogue is flexible based on the story. A scene can feature one character speaking, or a brief natural dialogue exchange between visible characters if the story calls for it. For longer conversations, alternate across consecutive scenes (shot-reverse-shot) to maintain cinematic rhythm and clean lip sync. Keep total dialogue words within limits.
 10. For a scene after a location change, the establishing shot re-establishes the place, then the next scene may chain from it.
 11. Keep camera language simple and shootable in one clip.
 12. If a character is not visible in a scene, do not list them in characters.`;
@@ -150,12 +150,13 @@ const sceneResponseSchema = scenePlanSchema.or(sceneArraySchema);
 export async function planSceneBatch(opts: {
   data: ProjectData;
   startN: number;
-  count: number;
+  count?: number;
+  isAuto?: boolean;
   previousScenes: Scene[];
   models?: { planner?: string; validator?: string; image?: string };
   signal?: AbortSignal;
 }): Promise<Scene[]> {
-  const { data, startN, count, previousScenes, models, signal } = opts;
+  const { data, startN, count = 5, isAuto = false, previousScenes, models, signal } = opts;
   const settings = data.project.settings;
   const bible = {
     title: data.project.name,
@@ -180,8 +181,8 @@ STORY BIBLE:
 ${JSON.stringify(bible, null, 2)}
 
 PROJECT SETTINGS:
-- Scene count target: ${settings.totalMinutes * 60} seconds / ${settings.clipSeconds}s = ${Math.ceil((settings.totalMinutes * 60) / settings.clipSeconds)} scenes total
-- Clip length: ${settings.clipSeconds} seconds
+- Mode: ${isAuto ? "Auto (Story-driven scene count)" : `Custom target (${count} scenes in this batch)`}
+- Clip length: ${settings.clipSeconds} seconds per scene
 - Max people per scene: ${settings.maxPeople}
 - Dialogue enabled: ${settings.dialogueEnabled}
 - Max dialogue words per scene: ${settings.maxDialogueWords}
@@ -197,8 +198,13 @@ PROJECT SETTINGS:
 PREVIOUS SCENES (the last two already planned, for continuity):
 ${previousScenes.length ? JSON.stringify(previousScenes, null, 2) : "(none — this is the first batch)"}
 
-TASK:
-Write scenes ${startN} through ${startN + count - 1} (exactly ${count} scenes). Set n sequentially. Continue the location grouping and chaining from the previous scenes. Include establishing shots before location changes (they count toward the ${count}). Return {"scenes":[...]} only.`;
+${
+  isAuto
+    ? `TASK:
+Analyze the complete story text and divide it into a natural, complete sequence of continuous 8-10 second shots from beginning to end. Create as many scenes as needed to tell the complete narrative faithfully without rushing or unnecessary filler. Number scenes sequentially starting at ${startN}. Include establishing shots before location changes. Return {"scenes":[...]} only.`
+    : `TASK:
+Write scenes ${startN} through ${startN + count - 1} (exactly ${count} scenes). Set n sequentially. Continue the location grouping and chaining from the previous scenes. Include establishing shots before location changes (they count toward the ${count}). Return {"scenes":[...]} only.`
+}`;
 
   const raw = await chatJSON({
     role: "planner",

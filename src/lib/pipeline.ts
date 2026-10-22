@@ -418,36 +418,22 @@ async function runPlanJob(
   const availableRange = 100 - startProgressOffset;
   const planRange = availableRange * 0.65;
 
-  for (let offset = 0; offset < total; offset += batchSize) {
-    if (signal?.aborted) {
-      repo.updateJob(jobId, {
-        status: "cancelled",
-        message: "Scene planning cancelled",
-      });
-      return;
-    }
+  const isAuto = settings.sceneCountMode === "auto";
 
-    const count = Math.min(batchSize, total - offset);
-    const startN = offset + 1;
-    const baseProgress = startProgressOffset + Math.max(8, Math.round((offset / total) * planRange));
-    const targetBatchProgress = startProgressOffset + Math.round(((offset + count) / total) * planRange);
-
+  if (isAuto) {
+    const baseProgress = startProgressOffset + 10;
     let currentProgress = baseProgress;
     repo.updateJob(jobId, {
       progress: currentProgress,
-      message: `Writing scenes ${startN}–${startN + count - 1} of ${total}…`,
+      message: "Analyzing story narrative and pacing scenes naturally…",
     });
 
-    const data = repo.getProjectData(projectId);
-    const previous = planned.slice(-2).map((scene) => canonicalScene(scene));
-
-    // Dynamic ticker to increment progress while LLM generates the batch
     const ticker = setInterval(() => {
-      if (currentProgress < targetBatchProgress - 2) {
+      if (currentProgress < startProgressOffset + 58) {
         currentProgress += 2;
         repo.updateJob(jobId, {
           progress: currentProgress,
-          message: `Writing scenes ${startN}–${startN + count - 1} of ${total}…`,
+          message: "Analyzing story narrative and pacing scenes naturally…",
         });
       }
     }, 600);
@@ -455,10 +441,10 @@ async function runPlanJob(
     let batch: Scene[];
     try {
       batch = await planSceneBatch({
-        data,
-        startN,
-        count,
-        previousScenes: previous,
+        data: first,
+        startN: 1,
+        isAuto: true,
+        previousScenes: [],
         models: settings.models,
         signal,
       });
@@ -472,9 +458,7 @@ async function runPlanJob(
         return;
       }
       throw new Error(
-        `Scene planning failed at batch starting ${startN}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `Scene planning failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     } finally {
       clearInterval(ticker);
@@ -488,18 +472,46 @@ async function runPlanJob(
       return;
     }
 
-    currentProgress = targetBatchProgress;
-    repo.updateJob(jobId, {
-      progress: currentProgress,
-      message: `Completed scenes ${startN}–${startN + count - 1}…`,
-    });
+    planned = sanitizeScenePlan(first, batch).scenes;
+    repo.replaceScenes(projectId, planned);
+  } else {
+    for (let offset = 0; offset < total; offset += batchSize) {
+      if (signal?.aborted) {
+        repo.updateJob(jobId, {
+          status: "cancelled",
+          message: "Scene planning cancelled",
+        });
+        return;
+      }
 
-    if (batch.length !== count) {
-      warnings.push(
-        `Batch ${startN}: model returned ${batch.length} scenes instead of ${count}; retried once.`,
-      );
+      const count = Math.min(batchSize, total - offset);
+      const startN = offset + 1;
+      const baseProgress = startProgressOffset + Math.max(8, Math.round((offset / total) * planRange));
+      const targetBatchProgress = startProgressOffset + Math.round(((offset + count) / total) * planRange);
+
+      let currentProgress = baseProgress;
+      repo.updateJob(jobId, {
+        progress: currentProgress,
+        message: `Writing scenes ${startN}–${startN + count - 1} of ${total}…`,
+      });
+
+      const data = repo.getProjectData(projectId);
+      const previous = planned.slice(-2).map((scene) => canonicalScene(scene));
+
+      // Dynamic ticker to increment progress while LLM generates the batch
+      const ticker = setInterval(() => {
+        if (currentProgress < targetBatchProgress - 2) {
+          currentProgress += 2;
+          repo.updateJob(jobId, {
+            progress: currentProgress,
+            message: `Writing scenes ${startN}–${startN + count - 1} of ${total}…`,
+          });
+        }
+      }, 600);
+
+      let batch: Scene[];
       try {
-        const retry = await planSceneBatch({
+        batch = await planSceneBatch({
           data,
           startN,
           count,
@@ -507,19 +519,65 @@ async function runPlanJob(
           models: settings.models,
           signal,
         });
-        if (retry.length === count) batch = retry;
-        else
-          warnings.push(
-            `Batch ${startN}: retry returned ${retry.length} scenes instead of ${count}.`,
-          );
-      } catch {
-        // keep first batch
+      } catch (error) {
+        clearInterval(ticker);
+        if (signal?.aborted) {
+          repo.updateJob(jobId, {
+            status: "cancelled",
+            message: "Scene planning cancelled",
+          });
+          return;
+        }
+        throw new Error(
+          `Scene planning failed at batch starting ${startN}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      } finally {
+        clearInterval(ticker);
       }
+
+      if (signal?.aborted) {
+        repo.updateJob(jobId, {
+          status: "cancelled",
+          message: "Scene planning cancelled",
+        });
+        return;
+      }
+
+      currentProgress = targetBatchProgress;
+      repo.updateJob(jobId, {
+        progress: currentProgress,
+        message: `Completed scenes ${startN}–${startN + count - 1}…`,
+      });
+
+      if (batch.length !== count) {
+        warnings.push(
+          `Batch ${startN}: model returned ${batch.length} scenes instead of ${count}; retried once.`,
+        );
+        try {
+          const retry = await planSceneBatch({
+            data,
+            startN,
+            count,
+            previousScenes: previous,
+            models: settings.models,
+            signal,
+          });
+          if (retry.length === count) batch = retry;
+          else
+            warnings.push(
+              `Batch ${startN}: retry returned ${retry.length} scenes instead of ${count}.`,
+            );
+        } catch {
+          // keep first batch
+        }
+      }
+      planned = planned.concat(batch);
+      const sanitized = sanitizeScenePlan(first, planned).scenes;
+      repo.replaceScenes(projectId, sanitized);
+      planned = sanitized;
     }
-    planned = planned.concat(batch);
-    const sanitized = sanitizeScenePlan(first, planned).scenes;
-    repo.replaceScenes(projectId, sanitized);
-    planned = sanitized;
   }
 
   if (signal?.aborted) {
@@ -646,14 +704,19 @@ export function sanitizeScenePlan(
     }
 
     if (!settings.dialogueEnabled) scene.dialogue = null;
-    if (scene.dialogue && !scene.characters.includes(scene.dialogue.speaker)) {
-      warnings.push(
-        `Scene ${scene.n}: dialogue speaker is not visible; dialogue removed.`,
-      );
-      scene.dialogue = null;
-    }
-    if (scene.dialogue && !data.characters.some((character) => character.id === scene.dialogue?.speaker)) {
-      scene.dialogue = null;
+    if (scene.dialogue) {
+      const speakerTokens = scene.dialogue.speaker
+        .split(/[,&/]/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const isVisible = speakerTokens.some((token) => scene.characters.includes(token));
+      const isKnown = speakerTokens.some((token) => data.characters.some((c) => c.id === token));
+      if (!isVisible && !isKnown) {
+        warnings.push(
+          `Scene ${scene.n}: dialogue speaker is not visible; dialogue removed.`,
+        );
+        scene.dialogue = null;
+      }
     }
 
     const locationChanged = previous && previous.location_id !== scene.location_id;

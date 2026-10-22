@@ -62,6 +62,12 @@ export function SceneCard({
   const dialogueCharacter = scene.dialogue
     ? data.characters.find((character) => character.id === scene.dialogue?.speaker)
     : undefined;
+  const speakerNames = scene.dialogue
+    ? scene.dialogue.speaker
+        .split(/[,&/]/)
+        .map((s) => data.characters.find((c) => c.id === s.trim())?.name ?? s.trim())
+        .join(" & ")
+    : "";
   const dialogueLanguage =
     dialogueCharacter?.language ?? data.project.settings.dialogueLanguage;
 
@@ -318,11 +324,11 @@ export function SceneCard({
               {scene.dialogue ? (
                 <div className="rounded-lg border border-brand-border bg-brand-subtle p-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-secondary-foreground">
-                    Dialogue · {dialogueCharacter?.name ?? scene.dialogue.speaker} ·{" "}
+                    Dialogue · {speakerNames || dialogueCharacter?.name || scene.dialogue.speaker} ·{" "}
                     {languageLabel(dialogueLanguage)}
                   </p>
                   <p
-                    className={`mt-1 text-base leading-7 text-secondary-foreground ${
+                    className={`mt-1 text-base leading-7 text-secondary-foreground whitespace-pre-line ${
                       dialogueLanguage === "bn" ? "font-bangla" : ""
                     }`}
                     lang={dialogueLanguage}

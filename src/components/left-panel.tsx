@@ -3,8 +3,10 @@
 import * as React from "react";
 import {
   BookOpen,
+  FilePlus,
   ListOrdered,
   Loader2,
+  Play,
   RefreshCw,
   Save,
   Settings2,
@@ -33,7 +35,7 @@ export function LeftPanel({
 }) {
   const [story, setStory] = React.useState(data.project.story);
   const [prevStory, setPrevStory] = React.useState(data.project.story);
-  const [busy, setBusy] = React.useState<"save" | "bible" | "plan" | null>(null);
+  const [busy, setBusy] = React.useState<"save" | "bible" | "plan" | "full" | "reset" | null>(null);
 
   if (data.project.story !== prevStory) {
     setPrevStory(data.project.story);
@@ -42,6 +44,8 @@ export function LeftPanel({
 
   const settings = data.project.settings;
   const dirty = story !== data.project.story;
+  const hasBible = data.characters.length > 0;
+  const hasScenes = data.scenes.length > 0;
 
   async function saveStory() {
     setBusy("save");
@@ -59,13 +63,58 @@ export function LeftPanel({
     }
   }
 
-  async function createBible() {
+  async function resetNewStory() {
     if (
-      data.characters.length &&
-      !window.confirm(
-        "Replacing the story bible replaces characters and locations. Existing scenes keep their ids and may need re-planning. Continue?",
-      )
+      (data.project.story.trim() || hasBible || hasScenes) &&
+      !window.confirm("Start a new story? This will clear current story, characters, and scenes.")
     ) {
+      return;
+    }
+    setBusy("reset");
+    try {
+      await api("/api/project", { method: "DELETE" });
+      setStory("");
+      await onChanged();
+      notify("Started fresh new story.", "success");
+    } catch (error) {
+      notify(error instanceof ApiError ? error.message : String(error), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function generateFullPlan() {
+    if (!story.trim()) {
+      notify("Please paste a story first.", "error");
+      return;
+    }
+    setBusy("full");
+    try {
+      if (dirty) {
+        await api("/api/project", {
+          method: "PATCH",
+          body: JSON.stringify({ story }),
+        });
+      }
+      notify("Step 1/2: Analyzing story & locking characters...", "info");
+      await api("/api/bible", { method: "POST" });
+      await onChanged();
+
+      notify("Step 2/2: Planning scenes in batches...", "info");
+      const planRes = await api<{ job: JobRecord }>("/api/plan", {
+        method: "POST",
+      });
+      onPlanStarted(planRes.job);
+    } catch (error) {
+      notify(error instanceof ApiError ? error.message : String(error), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createBible() {
+    if (!story.trim()) {
+      notify("Please paste a story first.", "error");
       return;
     }
     setBusy("bible");
@@ -78,7 +127,7 @@ export function LeftPanel({
       }
       await api("/api/bible", { method: "POST" });
       await onChanged();
-      notify("Story bible created. Characters and locations are locked.", "success");
+      notify("Story bible created! Click 'Plan scenes' to generate clips.", "success");
     } catch (error) {
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {
@@ -86,7 +135,15 @@ export function LeftPanel({
     }
   }
 
-  async function rePlan() {
+  async function planScenes() {
+    if (!story.trim()) {
+      notify("Please paste a story first.", "error");
+      return;
+    }
+    if (!hasBible) {
+      notify("Create the story bible first so characters and locations are locked.", "error");
+      return;
+    }
     setBusy("plan");
     try {
       if (dirty) {
@@ -110,13 +167,23 @@ export function LeftPanel({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
               <BookOpen className="size-4" aria-hidden />
             </span>
             <CardTitle>Story</CardTitle>
           </div>
+          <button
+            type="button"
+            onClick={resetNewStory}
+            disabled={Boolean(busy)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title="Clear and start a fresh story"
+          >
+            <FilePlus className="size-3.5" aria-hidden />
+            New story
+          </button>
         </CardHeader>
         <CardContent className="space-y-3 pt-2">
           <label htmlFor="story" className="sr-only">
@@ -126,7 +193,7 @@ export function LeftPanel({
             id="story"
             value={story}
             onChange={(event) => setStory(event.target.value)}
-            placeholder="Paste your story here. Bangla or English."
+            placeholder="Paste your story here (Bangla or English)..."
             rows={8}
             className="min-h-44 text-xs leading-6"
           />
@@ -148,36 +215,59 @@ export function LeftPanel({
               {dirty ? "Save story" : "Saved"}
             </button>
           </div>
+
           <div className="grid gap-2">
+            {/* Primary 1-Click Action */}
             <Button
               type="button"
-              onClick={createBible}
+              onClick={generateFullPlan}
               disabled={!story.trim() || Boolean(busy)}
+              className="gap-2"
             >
-              {busy === "bible" ? (
+              {busy === "full" ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
               ) : (
-                <Sparkles className="size-4" aria-hidden />
+                <Play className="size-4 fill-current" aria-hidden />
               )}
-              {data.characters.length ? "Rebuild story bible" : "Create story bible"}
+              {hasScenes ? "Generate Full Plan (New Story)" : "Generate Full Plan (1-Click)"}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={rePlan}
-              disabled={!data.characters.length || Boolean(busy)}
-            >
-              {busy === "plan" ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Wand2 className="size-4" aria-hidden />
-              )}
-              Re-plan scenes
-            </Button>
+
+            {/* Individual Steps (if user wants granular control) */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={createBible}
+                disabled={!story.trim() || Boolean(busy)}
+                className="text-xs"
+              >
+                {busy === "bible" ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="size-3.5" aria-hidden />
+                )}
+                {hasBible ? "Update Bible" : "Create Bible"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={planScenes}
+                disabled={!hasBible || Boolean(busy)}
+                className="text-xs"
+              >
+                {busy === "plan" ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Wand2 className="size-3.5" aria-hidden />
+                )}
+                {hasScenes ? "Re-plan Scenes" : "Plan Scenes"}
+              </Button>
+            </div>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
-            The bible detects every character and location. Scenes are planned in
-            batches and prompts are assembled by code, never by the model.
+            &quot;Generate Full Plan&quot; detects characters, locks visual/voice attributes, and plans all scenes automatically.
           </p>
         </CardContent>
       </Card>
@@ -229,7 +319,7 @@ export function LeftPanel({
         </CardContent>
       </Card>
 
-      {busy === "bible" ? (
+      {busy === "bible" || busy === "full" ? (
         <div className="flex items-start gap-2 rounded-lg border border-brand-border bg-brand-subtle p-3 text-xs leading-5 text-secondary-foreground">
           <RefreshCw className="mt-0.5 size-4 shrink-0 animate-spin" aria-hidden />
           Reading the story and locking characters, dress, voice and locations…

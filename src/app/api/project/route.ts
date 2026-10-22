@@ -33,3 +33,24 @@ export async function PATCH(request: Request) {
     return errorResponse(error);
   }
 }
+
+export async function DELETE() {
+  try {
+    const repo = getRepo();
+    repo.updateProject(DEFAULT_PROJECT_ID, {
+      name: "Untitled story",
+      story: "",
+      styleLock: "",
+    });
+    repo.replaceBible(DEFAULT_PROJECT_ID, {
+      title: "Untitled story",
+      style_lock: "",
+      characters: [],
+      locations: [],
+    });
+    repo.replaceScenes(DEFAULT_PROJECT_ID, []);
+    return Response.json(repo.getProjectData(DEFAULT_PROJECT_ID));
+  } catch (error) {
+    return errorResponse(error);
+  }
+}

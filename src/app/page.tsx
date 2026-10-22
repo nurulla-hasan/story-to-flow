@@ -147,7 +147,7 @@ export default function WorkspacePage() {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Top bar */}
       <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-xs">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
+        <div className="flex h-14 w-full items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary font-bold text-xs tracking-wider text-primary-foreground shadow-xs">
               STF
@@ -206,7 +206,7 @@ export default function WorkspacePage() {
       {/* Planning Job Progress Banner */}
       {activeJob && activeJob.status === "running" ? (
         <div className="border-b border-brand-border bg-brand-subtle px-4 py-2.5 text-xs text-secondary-foreground">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <div className="flex w-full items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <RefreshCw className="size-3.5 animate-spin text-primary" />
               <span className="font-semibold">{activeJob.message || "Planning scenes…"}</span>
@@ -225,7 +225,7 @@ export default function WorkspacePage() {
       ) : null}
 
       {/* Main 3-column Workspace */}
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 sm:p-6 lg:flex-row">
+      <main className="flex w-full flex-1 flex-col gap-6 p-4 sm:p-6 lg:flex-row">
         {/* Left Column: Story & Settings Overview (320px) */}
         <aside className="w-full shrink-0 lg:w-80">
           <LeftPanel

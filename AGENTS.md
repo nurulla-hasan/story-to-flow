@@ -24,4 +24,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **ALWAYS** use Tailwind's modern linear numeric scale:
   - Example: Instead of `w-[500px]`, write `w-125` (Tailwind 4 supports numeric multiples: $125 \times 4\text{px} = 500\text{px}$).
   - Example: Instead of `h-[400px]`, write `h-100`.
-  - Use standard Tailwind utility classes (`w-full`, `max-w-7xl`, `maxWidth`, `h-96`, `p-6`, `gap-8`, `rounded-2xl`, etc.) rather than arbitrary bracket syntax.
+  - Use standard Tailwind utility classes (`w-full`, `max-w-480`, `max-w-7xl`, `h-96`, `p-6`, `gap-8`, `rounded-2xl`, etc.) rather than arbitrary bracket syntax.

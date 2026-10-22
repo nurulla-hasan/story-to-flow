@@ -16,7 +16,6 @@ import {
   PlayCircle,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +54,9 @@ export function SceneCard({
     .map((id) => data.characters.find((character) => character.id === id))
     .filter(Boolean);
   const keyframe = fileUrl(scene.keyframePath);
+  const startFrame = fileUrl(scene.startFramePath);
+  const displayImage = startFrame || keyframe;
+  const isChained = Boolean(startFrame);
   const prompt = scene.prompt?.text ?? "";
   const imagePrompt = scene.prompt?.imagePrompt ?? "";
   const dialogueCharacter = scene.dialogue
@@ -139,23 +141,12 @@ export function SceneCard({
     });
   }
 
-  async function generateKeyframe() {
-    await act("generate", async () => {
-      const result = await api<{ note?: string }>(`/api/scenes/${scene.n}/keyframe`, {
-        method: "POST",
-        body: JSON.stringify({ generate: true }),
-      });
-      notify(result.note ? `Keyframe generated (${result.note}).` : "Keyframe generated.", "success");
-    });
-  }
-
   const busyLabel: Record<string, string> = {
     status: "Saving…",
     assemble: "Assembling…",
     validate: "Validating…",
     clip: "Uploading clip…",
     keyframe: "Uploading…",
-    generate: "Generating…",
   };
 
   return (
@@ -234,10 +225,10 @@ export function SceneCard({
                     : "aspect-video"
                 }`}
               >
-                {keyframe ? (
+                {displayImage ? (
                   <Image
-                    src={keyframe}
-                    alt={`Keyframe for scene ${scene.n}`}
+                    src={displayImage}
+                    alt={isChained ? `Start frame from Scene ${scene.chainedFrom ?? scene.n - 1}` : `Keyframe for scene ${scene.n}`}
                     fill
                     unoptimized
                     className="object-cover"
@@ -251,14 +242,14 @@ export function SceneCard({
                       <ImagePlus className="size-7 text-muted-foreground" aria-hidden />
                     )}
                     <p className="text-xs font-medium leading-4 text-muted-foreground">
-                      No keyframe yet
+                      No frame yet
                     </p>
                   </div>
                 )}
-                {scene.chainedFrom || scene.startFramePath ? (
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-primary/90 px-2 py-1 text-xs font-semibold text-primary-foreground shadow">
+                {isChained ? (
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-primary/95 px-2.5 py-1 text-xs font-semibold text-primary-foreground shadow">
                     <Link2 className="size-3" aria-hidden />
-                    Chained from Scene {scene.chainedFrom ?? scene.n - 1}
+                    Start frame from Scene {scene.chainedFrom ?? scene.n - 1}
                   </span>
                 ) : null}
               </div>
@@ -272,30 +263,14 @@ export function SceneCard({
                   disabled={Boolean(busy)}
                 >
                   <Upload className="size-3.5" aria-hidden />
-                  Keyframe
+                  {displayImage ? "Replace" : "Upload Keyframe"}
                 </Button>
-                {data.project.settings.imageProvider === "omniroute" ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-9 text-xs"
-                    onClick={generateKeyframe}
-                    disabled={Boolean(busy)}
-                  >
-                    {busy === "generate" ? (
-                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                    ) : (
-                      <Sparkles className="size-3.5" aria-hidden />
-                    )}
-                    Generate
-                  </Button>
-                ) : null}
-                {keyframe ? (
+                {displayImage ? (
                   <a
-                    href={keyframe}
-                    download={`scene-${scene.n}-keyframe`}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-primary underline-offset-4 hover:bg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    href={displayImage}
+                    download={isChained ? `scene-${scene.n}-start-frame-for-flow.png` : `scene-${scene.n}-keyframe.png`}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title={isChained ? "Download this frame to use as Start Frame in Flow" : "Download image"}
                   >
                     <Download className="size-3.5" aria-hidden />
                     Download

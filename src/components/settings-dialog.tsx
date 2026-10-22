@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Save } from "lucide-react";
+import { ChevronDown, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/modal";
 import { Field } from "@/components/field";
@@ -17,6 +17,13 @@ import {
   type ProjectData,
   type Settings,
 } from "@/lib/types";
+
+function formatRuntime(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
 
 export function SettingsDialog({
   data,
@@ -34,6 +41,7 @@ export function SettingsDialog({
   const [form, setForm] = React.useState<Settings>(data.project.settings);
   const [prevSettings, setPrevSettings] = React.useState<Settings>(data.project.settings);
   const [saving, setSaving] = React.useState(false);
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
 
   if (open && data.project.settings !== prevSettings) {
     setPrevSettings(data.project.settings);
@@ -79,7 +87,7 @@ export function SettingsDialog({
       open={open}
       onClose={onClose}
       title="Project settings"
-      description="Every setting is dynamic. Changing locks, style or rules re-assembles the prompts; it never re-plans the scenes."
+      description="Configure video style, duration, and dialogue. Prompts update dynamically."
       size="lg"
       footer={
         <>
@@ -94,69 +102,53 @@ export function SettingsDialog({
       }
     >
       <form id="settings-form" onSubmit={submit} className="grid gap-5">
-        <section className="grid gap-4 sm:grid-cols-2">
-          <Field label="Dialogue language" htmlFor="dialogueLanguage">
-            <SimpleSelect
-              id="dialogueLanguage"
-              value={form.dialogueLanguage}
-              onValueChange={(val) =>
-                set("dialogueLanguage", val as Settings["dialogueLanguage"])
-              }
-              options={[
-                { value: "bn", label: "Bangla" },
-                { value: "en", label: "English" },
-              ]}
-            />
-          </Field>
+        {/* Scene Count & Runtime */}
+        <section className="grid gap-4 sm:grid-cols-3">
           <Field
-            label="Accent note"
-            htmlFor="accentNote"
-            hint="Free text, added to every dialogue scene."
+            label="Target scene count"
+            htmlFor="targetScenes"
+            hint="Number of clips to plan"
           >
             <Input
-              id="accentNote"
-              value={form.accentNote}
-              onChange={(event) => set("accentNote", event.target.value)}
-              placeholder="e.g. soft rural Bengali accent"
-            />
-          </Field>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-3">
-          <Field label="Total length (minutes)" htmlFor="totalMinutes">
-            <Input
-              id="totalMinutes"
+              id="targetScenes"
               type="number"
-              min={0.2}
-              max={120}
-              step={0.5}
-              value={form.totalMinutes}
-              onChange={(event) => set("totalMinutes", Number(event.target.value))}
+              min={1}
+              max={60}
+              value={scenes}
+              onChange={(event) => {
+                const count = Math.max(1, Math.min(60, Number(event.target.value) || 1));
+                const mins = Math.round(((count * form.clipSeconds) / 60) * 10) / 10;
+                set("totalMinutes", mins);
+              }}
             />
           </Field>
           <Field label="Clip length" htmlFor="clipSeconds">
             <SimpleSelect
               id="clipSeconds"
               value={String(form.clipSeconds)}
-              onValueChange={(val) =>
-                set("clipSeconds", Number(val) as 8 | 10)
-              }
+              onValueChange={(val) => {
+                const secs = Number(val) as 8 | 10;
+                set("clipSeconds", secs);
+                const mins = Math.round(((scenes * secs) / 60) * 10) / 10;
+                set("totalMinutes", mins);
+              }}
               options={[
-                { value: "8", label: "8 seconds" },
                 { value: "10", label: "10 seconds" },
+                { value: "8", label: "8 seconds" },
               ]}
             />
           </Field>
-          <Field
-            label="Scene count"
-            hint={`${scenes} scenes — ceil(${form.totalMinutes * 60}s / ${form.clipSeconds}s)`}
-          >
-            <div className="flex h-9 items-center rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums">
-              {scenes}
+          <Field label="Estimated runtime" htmlFor="runtime">
+            <div
+              id="runtime"
+              className="flex h-9 items-center rounded-lg border border-border bg-muted px-3 text-xs font-semibold tabular-nums text-foreground"
+            >
+              {formatRuntime(scenes * form.clipSeconds)} ({scenes} clips)
             </div>
           </Field>
         </section>
 
+        {/* Style & Aspect Ratio */}
         <section className="grid gap-4 sm:grid-cols-2">
           <Field label="Aspect ratio" htmlFor="aspectRatio">
             <SimpleSelect
@@ -166,8 +158,8 @@ export function SettingsDialog({
                 set("aspectRatio", val as Settings["aspectRatio"])
               }
               options={[
-                { value: "16:9", label: "16:9 — landscape" },
-                { value: "9:16", label: "9:16 — vertical" },
+                { value: "16:9", label: "16:9 — Landscape" },
+                { value: "9:16", label: "9:16 — Vertical (Shorts/Reels)" },
               ]}
             />
           </Field>
@@ -183,144 +175,155 @@ export function SettingsDialog({
             label="Style notes"
             htmlFor="styleNote"
             className="sm:col-span-2"
-            hint="Look, lens, light, grade, mood. Folded into the style lock when the bible is generated."
+            hint="Mood, lighting, and camera lens look."
           >
             <Textarea
               id="styleNote"
               value={form.styleNote}
               onChange={(event) => set("styleNote", event.target.value)}
-              placeholder="e.g. 35mm, warm sunrise haze, muted greens, intimate handheld"
-              rows={3}
+              placeholder="e.g. 35mm film, warm sunrise haze, muted greens, cinematic realism"
+              rows={2}
             />
           </Field>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-2">
-          <Field label="Max people per scene" htmlFor="maxPeople">
-            <Input
-              id="maxPeople"
-              type="number"
-              min={1}
-              max={8}
-              value={form.maxPeople}
-              onChange={(event) => set("maxPeople", Number(event.target.value))}
-            />
-          </Field>
-          <Field label="Max dialogue words" htmlFor="maxDialogueWords">
-            <Input
-              id="maxDialogueWords"
-              type="number"
-              min={1}
-              max={80}
-              value={form.maxDialogueWords}
-              onChange={(event) =>
-                set("maxDialogueWords", Number(event.target.value))
-              }
-            />
-          </Field>
-          <LabeledCheckbox
-            label="Dialogue on"
-            description="Planner may add one line per scene."
-            checked={form.dialogueEnabled}
-            onCheckedChange={(checked) => set("dialogueEnabled", checked)}
-          />
-          <LabeledCheckbox
-            label="Ambient sound on"
-            description="Keep diegetic sound; no background music otherwise."
-            checked={form.ambientSound}
-            onCheckedChange={(checked) => set("ambientSound", checked)}
-          />
-          <LabeledCheckbox
-            label="Frame chaining"
-            description="Scene N starts from the last frame of scene N-1."
-            checked={form.frameChaining}
-            onCheckedChange={(checked) => set("frameChaining", checked)}
-          />
-          <Field label="Validator strictness" htmlFor="validatorStrictness">
+        {/* Language & Dialogue */}
+        <section className="grid gap-4 sm:grid-cols-2">
+          <Field label="Dialogue language" htmlFor="dialogueLanguage">
             <SimpleSelect
-              id="validatorStrictness"
-              value={form.validatorStrictness}
+              id="dialogueLanguage"
+              value={form.dialogueLanguage}
               onValueChange={(val) =>
-                set(
-                  "validatorStrictness",
-                  val as Settings["validatorStrictness"],
-                )
+                set("dialogueLanguage", val as Settings["dialogueLanguage"])
               }
               options={[
-                { value: "off", label: "Off — deterministic checks only" },
-                { value: "light", label: "Light — one validation pass" },
-                { value: "strict", label: "Strict — two fix rounds" },
+                { value: "bn", label: "Bangla" },
+                { value: "en", label: "English" },
               ]}
             />
           </Field>
-        </section>
-
-        <Field
-          label="Negative list"
-          htmlFor="negativeList"
-          hint="Inserted verbatim into every prompt under AVOID."
-        >
-          <Textarea
-            id="negativeList"
-            value={form.negativeList}
-            onChange={(event) => set("negativeList", event.target.value)}
-            rows={3}
-          />
-        </Field>
-
-        <section className="grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
           <Field
-            label="Image provider"
-            htmlFor="imageProvider"
-            hint="Manual is the safe default: copy the keyframe prompt, generate in Flow, upload."
+            label="Accent note (optional)"
+            htmlFor="accentNote"
+            hint="Added to dialogue lines (e.g. rural dialect, calm tone)."
           >
-            <SimpleSelect
-              id="imageProvider"
-              value={form.imageProvider}
-              onValueChange={(val) =>
-                set("imageProvider", val as Settings["imageProvider"])
-              }
-              options={[
-                { value: "manual", label: "Manual — copy prompt + upload" },
-                { value: "omniroute", label: "OmniRoute — try to generate" },
-              ]}
-            />
-          </Field>
-          <div className="flex items-end pb-1 text-xs leading-5 text-muted-foreground">
-            The probe showed no image returned from the chat-tagged model, so
-            manual is the evidence-based default.
-          </div>
-          <Field label="Planner model override" htmlFor="modelPlanner">
             <Input
-              id="modelPlanner"
-              value={form.models.planner}
-              onChange={(event) =>
-                set("models", { ...form.models, planner: event.target.value })
-              }
-              placeholder="Default from .env.local"
-            />
-          </Field>
-          <Field label="Validator model override" htmlFor="modelValidator">
-            <Input
-              id="modelValidator"
-              value={form.models.validator}
-              onChange={(event) =>
-                set("models", { ...form.models, validator: event.target.value })
-              }
-              placeholder="Default from .env.local"
-            />
-          </Field>
-          <Field label="Image model override" htmlFor="modelImage">
-            <Input
-              id="modelImage"
-              value={form.models.image}
-              onChange={(event) =>
-                set("models", { ...form.models, image: event.target.value })
-              }
-              placeholder="Default from .env.local"
+              id="accentNote"
+              value={form.accentNote}
+              onChange={(event) => set("accentNote", event.target.value)}
+              placeholder="e.g. soft rural Bengali accent"
             />
           </Field>
         </section>
+
+        {/* Advanced Settings Toggle */}
+        <div className="border-t border-border pt-1">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline focus-visible:outline-none"
+          >
+            {showAdvanced ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+            {showAdvanced ? "Hide advanced settings" : "Show advanced settings (prompts, models, limits)"}
+          </button>
+        </div>
+
+        {showAdvanced ? (
+          <div className="grid gap-4 rounded-xl border border-border bg-muted/40 p-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <LabeledCheckbox
+                label="Dialogue on"
+                description="Planner may add dialogue to dialogue-driven scenes."
+                checked={form.dialogueEnabled}
+                onCheckedChange={(checked) => set("dialogueEnabled", checked)}
+              />
+              <LabeledCheckbox
+                label="Ambient sound on"
+                description="Add natural background ambience to shot audio."
+                checked={form.ambientSound}
+                onCheckedChange={(checked) => set("ambientSound", checked)}
+              />
+              <LabeledCheckbox
+                label="Frame chaining"
+                description="Scene N starts from the last frame of scene N-1."
+                checked={form.frameChaining}
+                onCheckedChange={(checked) => set("frameChaining", checked)}
+              />
+              <Field
+                label="AI validator strictness"
+                htmlFor="validatorStrictness"
+                hint="Deterministic rules always run."
+              >
+                <SimpleSelect
+                  id="validatorStrictness"
+                  value={form.validatorStrictness}
+                  onValueChange={(val) =>
+                    set(
+                      "validatorStrictness",
+                      val as Settings["validatorStrictness"],
+                    )
+                  }
+                  options={[
+                    { value: "off", label: "Off (Fastest) — rules check only" },
+                    { value: "light", label: "Light — 1 AI review pass" },
+                    { value: "strict", label: "Strict — 2 AI review passes" },
+                  ]}
+                />
+              </Field>
+            </div>
+
+            <Field
+              label="Negative prompt list"
+              htmlFor="negativeList"
+              hint="Common visual artifacts to avoid."
+            >
+              <Textarea
+                id="negativeList"
+                value={form.negativeList}
+                onChange={(event) => set("negativeList", event.target.value)}
+                rows={2}
+                className="text-xs"
+              />
+            </Field>
+
+            <section className="grid gap-3 border-t border-border pt-3 sm:grid-cols-3">
+              <Field label="Planner model override" htmlFor="modelPlanner">
+                <Input
+                  id="modelPlanner"
+                  value={form.models.planner}
+                  onChange={(event) =>
+                    set("models", { ...form.models, planner: event.target.value })
+                  }
+                  placeholder="From .env.local"
+                />
+              </Field>
+              <Field label="Validator model override" htmlFor="modelValidator">
+                <Input
+                  id="modelValidator"
+                  value={form.models.validator}
+                  onChange={(event) =>
+                    set("models", { ...form.models, validator: event.target.value })
+                  }
+                  placeholder="From .env.local"
+                />
+              </Field>
+              <Field label="Image model override" htmlFor="modelImage">
+                <Input
+                  id="modelImage"
+                  value={form.models.image}
+                  onChange={(event) =>
+                    set("models", { ...form.models, image: event.target.value })
+                  }
+                  placeholder="From .env.local"
+                />
+              </Field>
+            </section>
+          </div>
+        ) : null}
       </form>
     </Modal>
   );

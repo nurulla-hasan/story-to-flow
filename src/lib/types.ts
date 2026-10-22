@@ -30,9 +30,9 @@ export const settingsSchema = z.object({
   aspectRatio: aspectRatioSchema.default("16:9"),
   stylePreset: z.string().max(120).default("Cinematic realism"),
   styleNote: z.string().max(600).default(""),
-  maxPeople: z.coerce.number().int().min(1).max(8).default(2),
+  maxPeople: z.coerce.number().int().min(1).max(12).default(4),
   dialogueEnabled: z.boolean().default(true),
-  maxDialogueWords: z.coerce.number().int().min(1).max(80).default(15),
+  maxDialogueWords: z.coerce.number().int().min(1).max(100).default(25),
   ambientSound: z.boolean().default(true),
   frameChaining: z.boolean().default(true),
   negativeList: z
@@ -41,7 +41,7 @@ export const settingsSchema = z.object({
     .default(
       "no text, no captions, no subtitles, no watermark, no logo, no extra people, no extra faces, no deformed hands, no split screen, no scene cut inside the clip",
     ),
-  validatorStrictness: strictnessSchema.default("light"),
+  validatorStrictness: strictnessSchema.default("off"),
   imageProvider: imageProviderSchema.default("manual"),
   models: modelsSchema
     .default({ planner: "", validator: "", image: "" }),
@@ -288,7 +288,7 @@ export interface JobRecord {
   id: string;
   projectId: string;
   type: string;
-  status: "running" | "done" | "error";
+  status: "running" | "done" | "error" | "cancelled";
   progress: number;
   message: string;
   error: string | null;

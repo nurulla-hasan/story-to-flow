@@ -46,6 +46,26 @@ Rules:
 - Keep action under 25 words. Keep dialogue under the project limit.
 - start_state must equal the previous scene's end_state when chain_from_previous is true.`;
 
+const jobControllers = new Map<string, AbortController>();
+
+export function cancelJob(jobId: string) {
+  const repo = getRepo();
+  const controller = jobControllers.get(jobId);
+  if (controller) {
+    controller.abort();
+    jobControllers.delete(jobId);
+  }
+  const job = repo.getJob(jobId);
+  if (!job) return null;
+  if (job.status === "running") {
+    return repo.updateJob(jobId, {
+      status: "cancelled",
+      message: "Job cancelled by user",
+    });
+  }
+  return job;
+}
+
 export class PipelineError extends Error {
   status: number;
   constructor(message: string, status = 400) {
@@ -56,6 +76,7 @@ export class PipelineError extends Error {
 
 export async function buildBible(
   projectId = DEFAULT_PROJECT_ID,
+  options: { preserveScenes?: boolean } = {},
 ): Promise<Bible> {
   const repo = getRepo();
   const data = repo.getProjectData(projectId);
@@ -68,9 +89,259 @@ export async function buildBible(
     styleLock: bible.style_lock,
   });
   repo.replaceBible(projectId, bible);
-  // Old scenes belonged to old characters/locations that no longer exist in this bible.
-  repo.replaceScenes(projectId, []);
+
+  if (data.scenes.length > 0) {
+    if (options.preserveScenes === false) {
+      repo.replaceScenes(projectId, []);
+    } else {
+      // Preserve scenes and update their prompts with the fresh character & location locks
+      reassembleAll(projectId);
+    }
+  }
   return bible;
+}
+
+export function startBibleJob(
+  projectId = DEFAULT_PROJECT_ID,
+  options: { preserveScenes?: boolean } = {},
+) {
+  const repo = getRepo();
+  const data = repo.getProjectData(projectId);
+  if (!data.project.story.trim()) {
+    throw new PipelineError("Paste a story before creating the story bible.");
+  }
+
+  // Gracefully auto-cancel any currently running job
+  const running = repo.getLastJob(projectId);
+  if (running?.status === "running") {
+    const prevController = jobControllers.get(running.id);
+    if (prevController) {
+      prevController.abort();
+      jobControllers.delete(running.id);
+    }
+    repo.updateJob(running.id, {
+      status: "cancelled",
+      message: "Superseded by new request",
+    });
+  }
+
+  const controller = new AbortController();
+  const job = repo.createJob(projectId, "bible");
+  repo.updateJob(job.id, {
+    progress: 10,
+    message: "Reading story, locking characters, dress, voice and locations…",
+  });
+  jobControllers.set(job.id, controller);
+
+  void runBibleJob(job.id, projectId, controller.signal, options)
+    .catch((error) => {
+      if (controller.signal.aborted) {
+        repo.updateJob(job.id, {
+          status: "cancelled",
+          message: "Bible creation cancelled",
+        });
+        return;
+      }
+      repo.updateJob(job.id, {
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+        message: "Bible creation failed",
+      });
+    })
+    .finally(() => {
+      jobControllers.delete(job.id);
+    });
+
+  return job;
+}
+
+async function runBibleJob(
+  jobId: string,
+  projectId: string,
+  signal: AbortSignal,
+  options: { preserveScenes?: boolean } = {},
+): Promise<Bible> {
+  const repo = getRepo();
+  let progress = 15;
+
+  const ticker = setInterval(() => {
+    if (progress < 85) {
+      progress += 4;
+      repo.updateJob(jobId, {
+        progress,
+        message: "Reading story, locking characters, dress, voice and locations…",
+      });
+    }
+  }, 600);
+
+  let bible: Bible;
+  try {
+    const data = repo.getProjectData(projectId);
+    bible = await generateBible(data, data.project.settings.models, signal);
+  } catch (error) {
+    clearInterval(ticker);
+    if (signal.aborted) {
+      repo.updateJob(jobId, {
+        status: "cancelled",
+        message: "Bible creation cancelled",
+      });
+      throw error;
+    }
+    throw error;
+  } finally {
+    clearInterval(ticker);
+  }
+
+  if (signal.aborted) {
+    repo.updateJob(jobId, {
+      status: "cancelled",
+      message: "Bible creation cancelled",
+    });
+    throw new Error("Cancelled");
+  }
+
+  repo.updateJob(jobId, {
+    progress: 88,
+    message: "Saving visual & voice locks to database…",
+  });
+
+  repo.updateProject(projectId, {
+    name: bible.title,
+    styleLock: bible.style_lock,
+  });
+  repo.replaceBible(projectId, bible);
+
+  const data = repo.getProjectData(projectId);
+  if (data.scenes.length > 0) {
+    if (options.preserveScenes === false) {
+      repo.replaceScenes(projectId, []);
+    } else {
+      repo.updateJob(jobId, {
+        progress: 95,
+        message: "Updating scene prompts with new locks…",
+      });
+      reassembleAll(projectId);
+    }
+  }
+
+  repo.updateJob(jobId, {
+    status: "done",
+    progress: 100,
+    message: `Locked ${bible.characters.length} characters and ${bible.locations.length} locations.`,
+    result: { bible },
+  });
+
+  return bible;
+}
+
+export function startFullPlanJob(projectId = DEFAULT_PROJECT_ID) {
+  const repo = getRepo();
+  const data = repo.getProjectData(projectId);
+  if (!data.project.story.trim()) {
+    throw new PipelineError("Paste a story before generating the production plan.");
+  }
+
+  const running = repo.getLastJob(projectId);
+  if (running?.status === "running") {
+    const prevController = jobControllers.get(running.id);
+    if (prevController) {
+      prevController.abort();
+      jobControllers.delete(running.id);
+    }
+    repo.updateJob(running.id, {
+      status: "cancelled",
+      message: "Superseded by new request",
+    });
+  }
+
+  const controller = new AbortController();
+  const job = repo.createJob(projectId, "full_plan");
+  repo.updateJob(job.id, {
+    progress: 8,
+    message: "Step 1/2: Reading story and locking characters, dress & locations…",
+  });
+  jobControllers.set(job.id, controller);
+
+  void runFullPlanJob(job.id, projectId, controller.signal)
+    .catch((error) => {
+      if (controller.signal.aborted) {
+        repo.updateJob(job.id, {
+          status: "cancelled",
+          message: "Full plan generation cancelled",
+        });
+        return;
+      }
+      repo.updateJob(job.id, {
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+        message: "Full plan generation failed",
+      });
+    })
+    .finally(() => {
+      jobControllers.delete(job.id);
+    });
+
+  return job;
+}
+
+async function runFullPlanJob(
+  jobId: string,
+  projectId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const repo = getRepo();
+  let progress = 10;
+
+  const ticker = setInterval(() => {
+    if (progress < 32) {
+      progress += 2;
+      repo.updateJob(jobId, {
+        progress,
+        message: "Step 1/2: Reading story and locking characters, dress & locations…",
+      });
+    }
+  }, 600);
+
+  let bible: Bible;
+  try {
+    const data = repo.getProjectData(projectId);
+    bible = await generateBible(data, data.project.settings.models, signal);
+  } catch (error) {
+    clearInterval(ticker);
+    if (signal.aborted) {
+      repo.updateJob(jobId, {
+        status: "cancelled",
+        message: "Full plan generation cancelled",
+      });
+      return;
+    }
+    throw error;
+  } finally {
+    clearInterval(ticker);
+  }
+
+  if (signal.aborted) {
+    repo.updateJob(jobId, {
+      status: "cancelled",
+      message: "Full plan generation cancelled",
+    });
+    return;
+  }
+
+  repo.updateJob(jobId, {
+    progress: 35,
+    message: `Step 1/2 complete: ${bible.characters.length} characters locked. Moving to scene planning…`,
+  });
+
+  repo.updateProject(projectId, {
+    name: bible.title,
+    styleLock: bible.style_lock,
+  });
+  repo.replaceBible(projectId, bible);
+  repo.replaceScenes(projectId, []);
+
+  // Step 2: Scene planning continues seamlessly from 35% to 100%
+  await runPlanJob(jobId, projectId, signal, 35);
 }
 
 export function startPlanJob(projectId = DEFAULT_PROJECT_ID) {
@@ -82,22 +353,57 @@ export function startPlanJob(projectId = DEFAULT_PROJECT_ID) {
   if (!data.characters.length || !data.locations.length) {
     throw new PipelineError("Create the story bible first so scenes have locks.");
   }
-  const running = repo.getLastJob(projectId, "plan");
+
+  // Gracefully auto-cancel any previously running/stuck job instead of blocking user with 409
+  const running = repo.getLastJob(projectId);
   if (running?.status === "running") {
-    throw new PipelineError("A scene plan is already running. Please wait.", 409);
-  }
-  const job = repo.createJob(projectId, "plan");
-  void runPlanJob(job.id, projectId).catch((error) => {
-    repo.updateJob(job.id, {
-      status: "error",
-      error: error instanceof Error ? error.message : String(error),
-      message: "Scene planning failed",
+    const prevController = jobControllers.get(running.id);
+    if (prevController) {
+      prevController.abort();
+      jobControllers.delete(running.id);
+    }
+    repo.updateJob(running.id, {
+      status: "cancelled",
+      message: "Superseded by new planning request",
     });
+  }
+
+  const controller = new AbortController();
+  const job = repo.createJob(projectId, "plan");
+  repo.updateJob(job.id, {
+    progress: 10,
+    message: "Initializing scene planner...",
   });
+  jobControllers.set(job.id, controller);
+
+  void runPlanJob(job.id, projectId, controller.signal)
+    .catch((error) => {
+      if (controller.signal.aborted) {
+        repo.updateJob(job.id, {
+          status: "cancelled",
+          message: "Scene planning cancelled",
+        });
+        return;
+      }
+      repo.updateJob(job.id, {
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+        message: "Scene planning failed",
+      });
+    })
+    .finally(() => {
+      jobControllers.delete(job.id);
+    });
+
   return job;
 }
 
-async function runPlanJob(jobId: string, projectId: string): Promise<void> {
+async function runPlanJob(
+  jobId: string,
+  projectId: string,
+  signal?: AbortSignal,
+  startProgressOffset = 0,
+): Promise<void> {
   const repo = getRepo();
   const first = repo.getProjectData(projectId);
   const settings = first.project.settings;
@@ -105,19 +411,47 @@ async function runPlanJob(jobId: string, projectId: string): Promise<void> {
     1,
     Math.ceil((settings.totalMinutes * 60) / settings.clipSeconds),
   );
-  const batchSize = 10;
+  const batchSize = 5;
   let planned: Scene[] = [];
   const warnings: string[] = [];
 
+  const availableRange = 100 - startProgressOffset;
+  const planRange = availableRange * 0.65;
+
   for (let offset = 0; offset < total; offset += batchSize) {
+    if (signal?.aborted) {
+      repo.updateJob(jobId, {
+        status: "cancelled",
+        message: "Scene planning cancelled",
+      });
+      return;
+    }
+
     const count = Math.min(batchSize, total - offset);
     const startN = offset + 1;
+    const baseProgress = startProgressOffset + Math.max(8, Math.round((offset / total) * planRange));
+    const targetBatchProgress = startProgressOffset + Math.round(((offset + count) / total) * planRange);
+
+    let currentProgress = baseProgress;
     repo.updateJob(jobId, {
-      progress: Math.round((offset / total) * 60),
-      message: `Planning scenes ${startN}–${startN + count - 1} of ${total}…`,
+      progress: currentProgress,
+      message: `Writing scenes ${startN}–${startN + count - 1} of ${total}…`,
     });
+
     const data = repo.getProjectData(projectId);
     const previous = planned.slice(-2).map((scene) => canonicalScene(scene));
+
+    // Dynamic ticker to increment progress while LLM generates the batch
+    const ticker = setInterval(() => {
+      if (currentProgress < targetBatchProgress - 2) {
+        currentProgress += 2;
+        repo.updateJob(jobId, {
+          progress: currentProgress,
+          message: `Writing scenes ${startN}–${startN + count - 1} of ${total}…`,
+        });
+      }
+    }, 600);
+
     let batch: Scene[];
     try {
       batch = await planSceneBatch({
@@ -126,14 +460,40 @@ async function runPlanJob(jobId: string, projectId: string): Promise<void> {
         count,
         previousScenes: previous,
         models: settings.models,
+        signal,
       });
     } catch (error) {
+      clearInterval(ticker);
+      if (signal?.aborted) {
+        repo.updateJob(jobId, {
+          status: "cancelled",
+          message: "Scene planning cancelled",
+        });
+        return;
+      }
       throw new Error(
         `Scene planning failed at batch starting ${startN}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+    } finally {
+      clearInterval(ticker);
     }
+
+    if (signal?.aborted) {
+      repo.updateJob(jobId, {
+        status: "cancelled",
+        message: "Scene planning cancelled",
+      });
+      return;
+    }
+
+    currentProgress = targetBatchProgress;
+    repo.updateJob(jobId, {
+      progress: currentProgress,
+      message: `Completed scenes ${startN}–${startN + count - 1}…`,
+    });
+
     if (batch.length !== count) {
       warnings.push(
         `Batch ${startN}: model returned ${batch.length} scenes instead of ${count}; retried once.`,
@@ -145,6 +505,7 @@ async function runPlanJob(jobId: string, projectId: string): Promise<void> {
           count,
           previousScenes: previous,
           models: settings.models,
+          signal,
         });
         if (retry.length === count) batch = retry;
         else
@@ -161,6 +522,14 @@ async function runPlanJob(jobId: string, projectId: string): Promise<void> {
     planned = sanitized;
   }
 
+  if (signal?.aborted) {
+    repo.updateJob(jobId, {
+      status: "cancelled",
+      message: "Scene planning cancelled",
+    });
+    return;
+  }
+
   planned = sanitizeScenePlan(repo.getProjectData(projectId), planned).scenes;
   repo.replaceScenes(projectId, planned);
 
@@ -172,21 +541,40 @@ async function runPlanJob(jobId: string, projectId: string): Promise<void> {
         ? 2
         : 1;
 
+  const assembleBase = startProgressOffset + planRange;
+  const assembleRange = 100 - assembleBase - 2;
+
   for (let index = 0; index < data.scenes.length; index += 1) {
+    if (signal?.aborted) {
+      repo.updateJob(jobId, {
+        status: "cancelled",
+        message: "Scene planning cancelled",
+      });
+      return;
+    }
+
     const scene = data.scenes[index];
+    const assembleProgress = Math.round(assembleBase + ((index + 1) / data.scenes.length) * assembleRange);
     repo.updateJob(jobId, {
-      progress: 60 + Math.round(((index + 1) / data.scenes.length) * 38),
+      progress: assembleProgress,
       message:
         rounds === 0
-          ? `Assembling prompt ${scene.n} of ${data.scenes.length}…`
-          : `Validating scene ${scene.n} of ${data.scenes.length}…`,
+          ? `Assembling prompt for Scene ${scene.n} of ${data.scenes.length}…`
+          : `Validating Scene ${scene.n} of ${data.scenes.length}…`,
     });
     try {
-      const result = await validateAndVersionScene(projectId, scene.n, rounds);
+      const result = await validateAndVersionScene(projectId, scene.n, rounds, signal);
       if (result.status === "needs_attention") {
         warnings.push(`Scene ${scene.n}: ${result.reasons.join("; ")}`);
       }
     } catch (error) {
+      if (signal?.aborted) {
+        repo.updateJob(jobId, {
+          status: "cancelled",
+          message: "Scene planning cancelled",
+        });
+        return;
+      }
       await versionOnly(projectId, scene.n, [
         `Validation skipped: ${error instanceof Error ? error.message : String(error)}`,
       ]);
@@ -194,6 +582,14 @@ async function runPlanJob(jobId: string, projectId: string): Promise<void> {
         `Scene ${scene.n}: validator failed (${error instanceof Error ? error.message : String(error)}).`,
       );
     }
+  }
+
+  if (signal?.aborted) {
+    repo.updateJob(jobId, {
+      status: "cancelled",
+      message: "Scene planning cancelled",
+    });
+    return;
   }
 
   repo.updateJob(jobId, {
@@ -226,12 +622,21 @@ export function sanitizeScenePlan(
     if (deduped.length !== scene.characters.length) {
       warnings.push(`Scene ${scene.n}: removed unknown character ids.`);
     }
-    if (deduped.length > settings.maxPeople) {
+    const allowedLimit = Math.max(settings.maxPeople, data.characters.length);
+    if (deduped.length > allowedLimit) {
       warnings.push(
-        `Scene ${scene.n}: people count ${deduped.length} exceeded max ${settings.maxPeople}; trimmed.`,
+        `Scene ${scene.n}: character count (${deduped.length}) exceeded limit (${allowedLimit}); prioritized visible speaker.`,
       );
+      const speakerId = scene.dialogue?.speaker;
+      if (speakerId && deduped.includes(speakerId)) {
+        const others = deduped.filter((id) => id !== speakerId);
+        scene.characters = [speakerId, ...others.slice(0, Math.max(1, allowedLimit - 1))];
+      } else {
+        scene.characters = deduped.slice(0, allowedLimit);
+      }
+    } else {
+      scene.characters = deduped;
     }
-    scene.characters = deduped.slice(0, settings.maxPeople);
 
     if (!knownLocations.has(scene.location_id) && data.locations[0]) {
       warnings.push(
@@ -294,6 +699,7 @@ export async function validateAndVersionScene(
   projectId: string,
   n: number,
   maxRounds: number,
+  signal?: AbortSignal,
 ): Promise<{ status: "ready" | "needs_attention"; reasons: string[] }> {
   const repo = getRepo();
   let scene = repo.getScene(projectId, n);
@@ -301,6 +707,9 @@ export async function validateAndVersionScene(
   const models = repo.getProject(projectId).settings.models;
 
   for (let round = 0; round <= maxRounds; round += 1) {
+    if (signal?.aborted) {
+      throw new Error("Validation cancelled");
+    }
     const data = repo.getProjectData(projectId);
     scene = data.scenes.find((item) => item.n === n) ?? scene;
     const built = assembleScene(data, scene);
@@ -338,12 +747,14 @@ Return the validation JSON.`;
         schema: validatorResultSchema,
         temperature: 0.1,
         models,
+        signal,
         messages: [
           { role: "system", content: VALIDATOR_SYSTEM },
           { role: "user", content: user },
         ],
       });
     } catch (error) {
+      if (signal?.aborted) throw error;
       await versionOnly(projectId, n, [
         ...issues.map((issue) => issue.message),
         `LLM validator failed: ${error instanceof Error ? error.message : String(error)}`,

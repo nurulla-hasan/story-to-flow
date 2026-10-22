@@ -114,7 +114,7 @@ export function assemblePrompt(
   } else {
     must.push("No speech, no lip movement.");
   }
-  if (settings.accentNote.trim()) {
+  if (settings.accentNote.trim() && scene.dialogue && settings.dialogueEnabled) {
     must.push(`Accent: ${settings.accentNote.trim()}.`);
   }
   for (const rule of rules) must.push(rule.text);

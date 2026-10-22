@@ -31,6 +31,7 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${hind.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col font-sans max-w-480 mx-auto">
         <ThemeProvider

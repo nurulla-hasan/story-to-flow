@@ -6,7 +6,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { cn } from "cn";
 
@@ -25,10 +24,13 @@ export function SimpleSelect({
   placeholder?: string;
   className?: string;
 }) {
+  const selectedLabel =
+    options.find((opt) => opt.value === value)?.label ?? placeholder ?? value;
+
   return (
     <Select value={value} onValueChange={(val) => val && onValueChange?.(val)}>
       <SelectTrigger id={id} className={cn("w-full bg-card", className)}>
-        <SelectValue placeholder={placeholder} />
+        <span className="flex-1 text-left truncate">{selectedLabel}</span>
       </SelectTrigger>
       <SelectContent>
         {options.map((opt) => (

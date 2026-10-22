@@ -1,29 +1,22 @@
 "use client";
 
 import * as React from "react";
-import {
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  ChevronsUpDown,
-  Download,
-  Layers,
-  RefreshCw,
-  Settings2,
-  Sparkles,
-} from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LeftPanel } from "@/components/left-panel";
 import { CharactersPanel } from "@/components/characters-panel";
 import { LocationsPanel } from "@/components/locations-panel";
 import { RulesPanel } from "@/components/rules-panel";
-import { SceneCard } from "@/components/scene-card";
+import { WorkspaceHeader } from "@/components/workspace-header";
+import { JobProgressBanner } from "@/components/job-progress-banner";
+import { ScenesSection } from "@/components/scenes-section";
+import { ToastNotification, type ToastState } from "@/components/toast-notification";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ReviewModal } from "@/components/review-modal";
 import { ChatDialog } from "@/components/chat-panel";
 import { ExportDialog } from "@/components/export-dialog";
 import { api, ApiError } from "@/lib/apiClient";
-import type { JobRecord, ProjectData, SceneStatus } from "@/lib/types";
+import type { JobRecord, ProjectData } from "@/lib/types";
 
 export default function WorkspacePage() {
   const [data, setData] = React.useState<ProjectData | null>(null);
@@ -31,20 +24,15 @@ export default function WorkspacePage() {
   const [error, setError] = React.useState<string | null>(null);
 
   const [openSceneN, setOpenSceneN] = React.useState<number | null>(1);
-  const [filter, setFilter] = React.useState<SceneStatus | "all">("all");
   const [reviewSceneN, setReviewSceneN] = React.useState<number | null>(null);
 
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [chatOpen, setChatOpen] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
 
-  const [toast, setToast] = React.useState<{
-    id: number;
-    message: string;
-    kind: "info" | "error" | "success";
-  } | null>(null);
-
+  const [toast, setToast] = React.useState<ToastState | null>(null);
   const [activeJob, setActiveJob] = React.useState<JobRecord | null>(null);
+  const [cancellingJob, setCancellingJob] = React.useState(false);
 
   const notify = React.useCallback(
     (message: string, kind: "info" | "error" | "success" = "info") => {
@@ -68,6 +56,23 @@ export default function WorkspacePage() {
       setLoading(false);
     }
   }, []);
+
+  const handleCancelJob = React.useCallback(async () => {
+    if (!activeJob) return;
+    setCancellingJob(true);
+    try {
+      const res = await api<{ job: JobRecord }>(`/api/jobs/${activeJob.id}/cancel`, {
+        method: "POST",
+      });
+      setActiveJob(res.job);
+      await refreshData();
+      notify("Planning stopped by user.", "info");
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : String(err), "error");
+    } finally {
+      setCancellingJob(false);
+    }
+  }, [activeJob, refreshData, notify]);
 
   React.useEffect(() => {
     let ignore = false;
@@ -103,12 +108,14 @@ export default function WorkspacePage() {
             notify(res.job.message || "Planning complete!", "success");
           } else if (res.job.status === "error") {
             notify(res.job.error || "Planning job failed.", "error");
+          } else if (res.job.status === "cancelled") {
+            notify(res.job.message || "Planning was stopped.", "info");
           }
         }
       } catch {
         // ignore poll errors
       }
-    }, 1500);
+    }, 500);
     return () => window.clearInterval(interval);
   }, [activeJob, refreshData, notify]);
 
@@ -139,90 +146,25 @@ export default function WorkspacePage() {
   }
 
   const doneCount = data.scenes.filter((s) => s.status === "done").length;
-  const filteredScenes = data.scenes.filter((s) =>
-    filter === "all" ? true : s.status === filter,
-  );
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Top bar */}
-      <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-xs">
-        <div className="flex h-14 w-full items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary font-bold text-xs tracking-wider text-primary-foreground shadow-xs">
-              STF
-            </span>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-bold tracking-tight">
-                {data.project.name || "Story to Flow"}
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                AI video production plan · Google Flow consistency
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground sm:inline-flex">
-              <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
-              {doneCount} of {data.scenes.length} clips done
-            </span>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setChatOpen(true)}
-              className="h-9 gap-1.5 text-xs"
-            >
-              <Bot className="size-3.5" aria-hidden />
-              <span className="hidden sm:inline">Chat edit</span>
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setSettingsOpen(true)}
-              className="h-9 gap-1.5 text-xs"
-            >
-              <Settings2 className="size-3.5" aria-hidden />
-              <span className="hidden sm:inline">Settings</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setExportOpen(true)}
-              className="h-9 gap-1.5 text-xs"
-            >
-              <Download className="size-3.5" aria-hidden />
-              Export
-            </Button>
-          </div>
-        </div>
-      </header>
+      <WorkspaceHeader
+        projectName={data.project.name}
+        doneCount={doneCount}
+        totalScenes={data.scenes.length}
+        onOpenChat={() => setChatOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenExport={() => setExportOpen(true)}
+      />
 
       {/* Planning Job Progress Banner */}
-      {activeJob && activeJob.status === "running" ? (
-        <div className="border-b border-brand-border bg-brand-subtle px-4 py-2.5 text-xs text-secondary-foreground">
-          <div className="flex w-full items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <RefreshCw className="size-3.5 animate-spin text-primary" />
-              <span className="font-semibold">{activeJob.message || "Planning scenes…"}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-2 w-32 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full bg-primary transition-all duration-300"
-                  style={{ width: `${activeJob.progress}%` }}
-                />
-              </div>
-              <span className="font-mono font-medium tabular-nums">{activeJob.progress}%</span>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <JobProgressBanner
+        job={activeJob}
+        onCancel={handleCancelJob}
+        cancelling={cancellingJob}
+      />
 
       {/* Main 3-column Workspace */}
       <main className="flex w-full flex-1 flex-col gap-6 p-4 sm:p-6 lg:flex-row">
@@ -238,109 +180,18 @@ export default function WorkspacePage() {
         </aside>
 
         {/* Center Column: Scenes (N) list */}
-        <section className="min-w-0 flex-1 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold tracking-tight">
-                Scenes ({data.scenes.length})
-              </h2>
-              {data.scenes.length > 0 ? (
-                <span className="text-xs text-muted-foreground">
-                  ~{data.scenes.length * data.project.settings.clipSeconds}s total runtime
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Filter */}
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-muted p-0.5 text-xs font-medium">
-                {(["all", "ready", "needs_attention", "done"] as const).map((status) => (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => setFilter(status)}
-                    className={`rounded-md px-2 py-1 transition-colors ${
-                      filter === status
-                        ? "bg-card font-semibold text-foreground shadow-xs ring-1 ring-border"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {status === "all"
-                      ? "All"
-                      : status === "ready"
-                        ? "Ready"
-                        : status === "needs_attention"
-                          ? "Attention"
-                          : "Done"}
-                  </button>
-                ))}
-              </div>
-
-              {/* Expand / Collapse All */}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs text-muted-foreground"
-                onClick={() => setOpenSceneN(openSceneN !== null ? null : (data.scenes[0]?.n ?? 1))}
-              >
-                <ChevronsUpDown className="size-3.5" aria-hidden />
-                {openSceneN !== null ? "Collapse" : "Expand"}
-              </Button>
-            </div>
-          </div>
-
-          {data.scenes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-16 text-center">
-              <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-                <Layers className="size-6" />
-              </span>
-              <h3 className="mt-3 text-sm font-semibold">
-                {data.characters.length > 0 ? "Story bible ready" : "No scenes planned yet"}
-              </h3>
-              <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-                {data.characters.length > 0
-                  ? `${data.characters.length} characters and ${data.locations.length} locations are locked. Click below to plan scenes for this story!`
-                  : "Paste your story in the left panel, click \"Create story bible\", then \"Re-plan scenes\" to generate your 8–10 second production clips."}
-              </p>
-              {data.characters.length > 0 ? (
-                <Button
-                  type="button"
-                  className="mt-4 gap-1.5 text-xs"
-                  onClick={async () => {
-                    try {
-                      const res = await api<{ job: JobRecord }>("/api/plan", { method: "POST" });
-                      setActiveJob(res.job);
-                      notify("Scene planning started. You can watch the progress here.", "info");
-                    } catch (err) {
-                      notify(err instanceof ApiError ? err.message : String(err), "error");
-                    }
-                  }}
-                >
-                  <Sparkles className="size-3.5" aria-hidden />
-                  Plan scenes for this story
-                </Button>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredScenes.map((scene) => (
-                <SceneCard
-                  key={scene.n}
-                  data={data}
-                  scene={scene}
-                  open={openSceneN === scene.n}
-                  onToggle={() =>
-                    setOpenSceneN(openSceneN === scene.n ? null : scene.n)
-                  }
-                  onChanged={refreshData}
-                  onOpenReview={(n) => setReviewSceneN(n)}
-                  notify={notify}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        <ScenesSection
+          data={data}
+          openSceneN={openSceneN}
+          onToggleScene={(n) => setOpenSceneN(openSceneN === n ? null : n)}
+          onExpandCollapseAll={() =>
+            setOpenSceneN(openSceneN !== null ? null : (data.scenes[0]?.n ?? 1))
+          }
+          onChanged={refreshData}
+          onOpenReview={(n) => setReviewSceneN(n)}
+          notify={notify}
+          onPlanStarted={(job) => setActiveJob(job)}
+        />
 
         {/* Right Column: Characters, Locations, Rules (320px) */}
         <aside className="w-full shrink-0 space-y-4 lg:w-80">
@@ -384,18 +235,7 @@ export default function WorkspacePage() {
       />
 
       {/* Toast Notification */}
-      {toast ? (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-lg border border-border bg-foreground px-4 py-3 text-xs font-medium text-background shadow-2xl animate-in fade-in slide-in-from-bottom-3">
-          {toast.kind === "success" ? (
-            <CheckCircle2 className="size-4 text-primary" />
-          ) : toast.kind === "error" ? (
-            <AlertTriangle className="size-4 text-destructive" />
-          ) : (
-            <Sparkles className="size-4 text-primary" />
-          )}
-          <span>{toast.message}</span>
-        </div>
-      ) : null}
+      <ToastNotification toast={toast} />
     </div>
   );
 }

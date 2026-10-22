@@ -106,4 +106,45 @@ describe("sanitizeScenePlan", () => {
     const sanitized = sanitizeScenePlan(mockData, rawScenes);
     expect(sanitized.scenes[1].start_state).toBe(sanitized.scenes[0].end_state);
   });
+
+  it("does not truncate valid story characters even if maxPeople was set low", () => {
+    const dataWithMoreCharacters = {
+      ...mockData,
+      characters: [
+        { id: "c1", name: "C1", visual_lock: "v", voice_lock: "vo", language: "bn" as const, outfit_changes: false, refImage: null },
+        { id: "c2", name: "C2", visual_lock: "v", voice_lock: "vo", language: "bn" as const, outfit_changes: false, refImage: null },
+        { id: "c3", name: "C3", visual_lock: "v", voice_lock: "vo", language: "bn" as const, outfit_changes: false, refImage: null },
+        { id: "c4", name: "C4", visual_lock: "v", voice_lock: "vo", language: "bn" as const, outfit_changes: false, refImage: null },
+      ],
+      project: {
+        ...mockData.project,
+        settings: {
+          ...mockData.project.settings,
+          maxPeople: 2, // low setting should not cut off story characters
+        },
+      },
+    };
+
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["c1", "c2", "c3", "c4"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Group talking.",
+        camera: { shot: "wide", angle: "eye", movement: "static" },
+        start_state: "State",
+        end_state: "State",
+        dialogue: { speaker: "c4", line: "Hello" },
+        sound: "Audio",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(dataWithMoreCharacters, rawScenes);
+    // All 4 story characters are preserved
+    expect(sanitized.scenes[0].characters).toHaveLength(4);
+    expect(sanitized.scenes[0].characters).toContain("c4");
+    expect(sanitized.scenes[0].dialogue?.speaker).toBe("c4");
+  });
 });

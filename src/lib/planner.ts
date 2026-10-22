@@ -86,6 +86,7 @@ Planning rules, in order of importance:
 export async function generateBible(
   data: ProjectData,
   models?: { planner?: string; validator?: string; image?: string },
+  signal?: AbortSignal,
 ): Promise<Bible> {
   const settings = data.project.settings;
   const user = `STORY:
@@ -104,6 +105,7 @@ Return the story bible JSON.`;
     schema: bibleSchema,
     temperature: 0.7,
     models,
+    signal,
     messages: [
       { role: "system", content: BIBLE_SYSTEM },
       { role: "user", content: user },
@@ -151,8 +153,9 @@ export async function planSceneBatch(opts: {
   count: number;
   previousScenes: Scene[];
   models?: { planner?: string; validator?: string; image?: string };
+  signal?: AbortSignal;
 }): Promise<Scene[]> {
-  const { data, startN, count, previousScenes, models } = opts;
+  const { data, startN, count, previousScenes, models, signal } = opts;
   const settings = data.project.settings;
   const bible = {
     title: data.project.name,
@@ -202,6 +205,7 @@ Write scenes ${startN} through ${startN + count - 1} (exactly ${count} scenes). 
     schema: sceneResponseSchema,
     temperature: 0.2,
     models,
+    signal,
     messages: [
       { role: "system", content: SCENE_SYSTEM },
       { role: "user", content: user },

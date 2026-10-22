@@ -7,7 +7,6 @@ import {
   ListOrdered,
   Loader2,
   Play,
-  RefreshCw,
   Save,
   Settings2,
   Sparkles,
@@ -96,15 +95,12 @@ export function LeftPanel({
           body: JSON.stringify({ story }),
         });
       }
-      notify("Step 1/2: Analyzing story & locking characters...", "info");
-      await api("/api/bible", { method: "POST" });
-      await onChanged();
-
-      notify("Step 2/2: Planning scenes in batches...", "info");
       const planRes = await api<{ job: JobRecord }>("/api/plan", {
         method: "POST",
+        body: JSON.stringify({ full: true }),
       });
       onPlanStarted(planRes.job);
+      notify("Production plan started. Tracking progress above.", "info");
     } catch (error) {
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {
@@ -125,9 +121,12 @@ export function LeftPanel({
           body: JSON.stringify({ story }),
         });
       }
-      await api("/api/bible", { method: "POST" });
-      await onChanged();
-      notify("Story bible created! Click 'Plan scenes' to generate clips.", "success");
+      const res = await api<{ job: JobRecord }>("/api/bible", {
+        method: "POST",
+        body: JSON.stringify({ preserveScenes: true, async: true }),
+      });
+      onPlanStarted(res.job);
+      notify("Locking characters & locations. Tracking progress above.", "info");
     } catch (error) {
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {
@@ -195,7 +194,7 @@ export function LeftPanel({
             onChange={(event) => setStory(event.target.value)}
             placeholder="Paste your story here (Bangla or English)..."
             rows={8}
-            className="min-h-44 text-xs leading-6"
+            className="min-h-36 max-h-72 overflow-y-auto text-xs leading-6"
           />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
@@ -293,20 +292,11 @@ export function LeftPanel({
           <dl className="divide-y divide-border text-xs">
             <Row label="Language" value={settings.dialogueLanguage === "bn" ? "Bangla" : "English"} />
             <Row
-              label="Length"
-              value={`${settings.totalMinutes} min · ${settings.clipSeconds}s clips`}
-            />
-            <Row
-              label="Plan"
-              value={`${sceneCount(settings)} scenes · ${settings.aspectRatio}`}
+              label="Format"
+              value={`${sceneCount(settings)} clips · ${settings.clipSeconds}s · ${settings.aspectRatio}`}
             />
             <Row label="Style" value={settings.stylePreset} />
-            <Row label="People" value={`Max ${settings.maxPeople} per scene`} />
-            <Row label="Dialogue" value={settings.dialogueEnabled ? `On · ≤${settings.maxDialogueWords} words` : "Off"} />
-            <Row label="Ambient" value={settings.ambientSound ? "On" : "Off"} />
-            <Row label="Chaining" value={settings.frameChaining ? "On" : "Off"} />
-            <Row label="Validator" value={settings.validatorStrictness} />
-            <Row label="Images" value={settings.imageProvider === "manual" ? "Manual" : "OmniRoute"} />
+            <Row label="Dialogue" value={settings.dialogueEnabled ? "Enabled" : "Disabled"} />
           </dl>
           <div className="mt-3 rounded-lg border border-border bg-surface-subtle p-2.5 text-xs leading-5 text-muted-foreground">
             <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
@@ -318,13 +308,6 @@ export function LeftPanel({
           </div>
         </CardContent>
       </Card>
-
-      {busy === "bible" || busy === "full" ? (
-        <div className="flex items-start gap-2 rounded-lg border border-brand-border bg-brand-subtle p-3 text-xs leading-5 text-secondary-foreground">
-          <RefreshCw className="mt-0.5 size-4 shrink-0 animate-spin" aria-hidden />
-          Reading the story and locking characters, dress, voice and locations…
-        </div>
-      ) : null}
     </div>
   );
 }

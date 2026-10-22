@@ -86,14 +86,13 @@ export class OmnirouteImageProvider implements ImageProvider {
           return { buffer, mime, ext: extForMime(mime), note: "images/generations b64" };
         }
         if (found.url) return downloadImage(found.url);
-        imageError = `images/generations responded without image data (${text.slice(0, 180)})`;
+        imageError = "Server responded without image data";
       } else {
-        imageError = `images/generations ${res.status}: ${text.slice(0, 220)}`;
+        const parsedErr = safeJson(text) as { error?: { message?: string } } | null;
+        imageError = parsedErr?.error?.message ?? `Status ${res.status}`;
       }
     } catch (error) {
-      imageError = `images/generations failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
+      imageError = error instanceof Error ? error.message : String(error);
     }
 
     // Fallback: some gateways route image-capable chat models through chat.
@@ -105,15 +104,12 @@ export class OmnirouteImageProvider implements ImageProvider {
         return { buffer, mime, ext: extForMime(mime), note: chat.note };
       }
       if (chat.url) return downloadImage(chat.url);
-      imageError += `; ${chat.note}`;
-    } catch (error) {
-      imageError += `; chat attempt: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
+    } catch {
+      // ignore chat fallback error
     }
 
     throw new LlmError(
-      `No image came back from OmniRoute. ${imageError} Switch Settings → Image provider to "manual", copy the keyframe prompt, generate it in Flow, and upload it.`,
+      `Image model "${this.model}" does not support image generation (${imageError}). Use "Copy image prompt" to generate in Flow / Midjourney, then click "Keyframe" to upload.`,
       "bad_request",
       { model: this.model },
     );

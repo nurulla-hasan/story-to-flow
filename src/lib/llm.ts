@@ -87,8 +87,13 @@ async function requestOnce(
     temperature: number;
     responseFormat: boolean;
     timeoutMs: number;
+    signal?: AbortSignal;
   },
 ): Promise<{ raw: string; model: string }> {
+  if (options.signal?.aborted) {
+    throw new LlmError("Request was cancelled", "unknown");
+  }
+
   const env = getEnv();
   const url = `${env.baseUrl}/chat/completions`;
   const body: Record<string, unknown> = {
@@ -106,15 +111,23 @@ async function requestOnce(
   };
   if (env.apiKey) headers.Authorization = `Bearer ${env.apiKey}`;
 
+  const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
+  const effectiveSignal = options.signal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : timeoutSignal;
+
   let res: Response;
   try {
     res = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(options.timeoutMs),
+      signal: effectiveSignal,
     });
   } catch (error) {
+    if (options.signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+      throw new LlmError("Request was cancelled", "unknown");
+    }
     throw friendlyFetchFailure(env.baseUrl, error);
   }
 
@@ -276,14 +289,21 @@ function zodErrors(schema: z.ZodType, value: unknown): string {
 async function requestWithRetries(
   model: string,
   messages: ChatMessage[],
-  options: { json: boolean; temperature: number; timeoutMs: number },
+  options: { json: boolean; temperature: number; timeoutMs: number; signal?: AbortSignal },
 ): Promise<{ raw: string; model: string }> {
+  if (options.signal?.aborted) {
+    throw new LlmError("Request was cancelled", "unknown");
+  }
   const settings = { ...options, responseFormat: true };
   try {
     return await requestOnce(model, messages, settings);
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     if (error instanceof LlmError && isRetryable(error)) {
       await sleep(500);
+      if (options.signal?.aborted) {
+        throw new LlmError("Request was cancelled", "unknown");
+      }
       return requestOnce(model, messages, settings);
     }
     throw error;
@@ -296,20 +316,29 @@ export async function chat(opts: {
   temperature?: number;
   models?: LlmModels;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<ChatResult> {
+  if (opts.signal?.aborted) {
+    throw new LlmError("Request was cancelled", "unknown");
+  }
   const primary = resolveModel(opts.role, opts.models);
   const fallback = fallbackModel();
   const models = [primary, ...(fallback && fallback !== primary ? [fallback] : [])];
   let last: unknown;
   for (const model of models) {
+    if (opts.signal?.aborted) {
+      throw new LlmError("Request was cancelled", "unknown");
+    }
     try {
       const result = await requestWithRetries(model, opts.messages, {
         json: false,
         temperature: opts.temperature ?? 0.2,
         timeoutMs: opts.timeoutMs ?? 180_000,
+        signal: opts.signal,
       });
       return { content: result.raw, model: result.model };
     } catch (error) {
+      if (opts.signal?.aborted) throw error;
       last = error;
     }
   }
@@ -330,23 +359,35 @@ export async function chatJSON<T>(
     temperature?: number;
     models?: LlmModels;
     timeoutMs?: number;
+    signal?: AbortSignal;
   },
 ): Promise<T> {
+  if (opts.signal?.aborted) {
+    throw new LlmError("Request was cancelled", "unknown");
+  }
   const primary = resolveModel(opts.role, opts.models);
   const fallback = fallbackModel();
   const models = [primary, ...(fallback && fallback !== primary ? [fallback] : [])];
   let last: unknown;
 
   for (const model of models) {
+    if (opts.signal?.aborted) {
+      throw new LlmError("Request was cancelled", "unknown");
+    }
     try {
       const first = await requestWithRetries(model, opts.messages, {
         json: true,
         temperature: opts.temperature ?? 0.1,
         timeoutMs: opts.timeoutMs ?? 180_000,
+        signal: opts.signal,
       });
       const parsed = tryParseJson(first.raw);
       const firstErrors = parsed === undefined ? "response was not JSON" : zodErrors(opts.schema, parsed);
       if (!firstErrors) return opts.schema.parse(parsed);
+
+      if (opts.signal?.aborted) {
+        throw new LlmError("Request was cancelled", "unknown");
+      }
 
       const repairMessages: ChatMessage[] = [
         ...opts.messages,
@@ -360,6 +401,7 @@ export async function chatJSON<T>(
         json: true,
         temperature: 0.1,
         timeoutMs: opts.timeoutMs ?? 180_000,
+        signal: opts.signal,
       });
       const repairedParsed = tryParseJson(repaired.raw);
       const repairedErrors =
@@ -371,6 +413,7 @@ export async function chatJSON<T>(
         { model, detail: repaired.raw.slice(0, 800) },
       );
     } catch (error) {
+      if (opts.signal?.aborted) throw error;
       if (error instanceof LlmError && error.code === "invalid_json") {
         last = error;
         continue;

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Hind_Siliguri, Inter } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/providers/theme-provider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -21,16 +22,25 @@ export const metadata: Metadata = {
     "Turn a story into a consistent, scene-by-scene production plan for Google Flow.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
       lang="en"
       className={`${inter.variable} ${hind.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">
-        <div className="mx-auto flex min-h-full w-full max-w-480 flex-1 flex-col">
-          {children}
-        </div>
+      <body className="min-h-full flex flex-col font-sans max-w-480 mx-auto">
+        <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {children}
+          </ThemeProvider>
       </body>
     </html>
   );

@@ -45,7 +45,6 @@ export default function WorkspacePage() {
   } | null>(null);
 
   const [activeJob, setActiveJob] = React.useState<JobRecord | null>(null);
-  const [flowStatus, setFlowStatus] = React.useState<{ connected: boolean; message: string } | null>(null);
 
   const notify = React.useCallback(
     (message: string, kind: "info" | "error" | "success" = "info") => {
@@ -68,20 +67,6 @@ export default function WorkspacePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  React.useEffect(() => {
-    let ignore = false;
-    api<{ status: { connected: boolean; message: string } }>("/api/flow/status")
-      .then((res) => {
-        if (!ignore) setFlowStatus(res.status);
-      })
-      .catch(() => {
-        // ignore
-      });
-    return () => {
-      ignore = true;
-    };
   }, []);
 
   React.useEffect(() => {
@@ -178,32 +163,6 @@ export default function WorkspacePage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {flowStatus?.connected ? (
-              <span
-                className="hidden items-center gap-1.5 rounded-full border border-brand-border bg-brand-subtle px-2.5 py-1 text-xs font-medium text-secondary-foreground sm:inline-flex"
-                title={flowStatus.message}
-              >
-                <span className="size-1.5 rounded-full bg-primary" aria-hidden />
-                Flow Ready
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() =>
-                  notify(
-                    flowStatus?.message ||
-                      "Open flow.google.com in Chrome or Edge with Flow Connector extension enabled.",
-                    "info",
-                  )
-                }
-                className="hidden items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/80 sm:inline-flex"
-                title="Click for instructions"
-              >
-                <span className="size-1.5 rounded-full bg-muted-foreground" aria-hidden />
-                Flow Connector
-              </button>
-            )}
-
             <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground sm:inline-flex">
               <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
               {doneCount} of {data.scenes.length} clips done
@@ -376,7 +335,6 @@ export default function WorkspacePage() {
                   }
                   onChanged={refreshData}
                   onOpenReview={(n) => setReviewSceneN(n)}
-                  onJobStarted={(job) => setActiveJob(job)}
                   notify={notify}
                 />
               ))}

@@ -26,11 +26,11 @@ let fileEnvLoaded = false;
  * parse it here without overriding real process env values.
  */
 function loadFileEnv(): void {
-  if (fileEnvLoaded) return;
+  if (fileEnvLoaded || process.env.NEXT_RUNTIME) return;
   fileEnvLoaded = true;
   for (const file of [".env.local", ".env"]) {
     try {
-      const full = path.join(process.cwd(), file);
+      const full = path.join(/*turbopackIgnore: true*/ process.cwd(), file);
       if (!fs.existsSync(full)) continue;
       const text = fs.readFileSync(full, "utf8");
       for (const line of text.split(/\r?\n/)) {

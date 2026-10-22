@@ -86,7 +86,7 @@ export function SettingsDialog({
             Cancel
           </Button>
           <Button type="submit" form="settings-form" disabled={saving}>
-            {saving ? <Spinner /> : <Save className="h-4 w-4" aria-hidden />}
+            {saving ? <Spinner /> : <Save className="size-4" aria-hidden />}
             Save settings
           </Button>
         </>
@@ -115,7 +115,7 @@ export function SettingsDialog({
               id="accentNote"
               value={form.accentNote}
               onChange={(event) => set("accentNote", event.target.value)}
-              placeholder="e.g. soft rural Bangladeshi accent"
+              placeholder="e.g. soft rural Bengali accent"
             />
           </Field>
         </section>
@@ -148,7 +148,7 @@ export function SettingsDialog({
             label="Scene count"
             hint={`${scenes} scenes — ceil(${form.totalMinutes * 60}s / ${form.clipSeconds}s)`}
           >
-            <div className="flex h-11 items-center rounded-[10px] border border-border bg-muted px-3 text-sm font-semibold tabular-nums">
+            <div className="flex h-11 items-center rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums">
               {scenes}
             </div>
           </Field>

@@ -20,6 +20,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "cn";
 import { api, ApiError, copyText, fileUrl, STATUS_META, upload } from "@/lib/apiClient";
 import type { ProjectData, SceneRecord } from "@/lib/types";
 import { languageLabel } from "@/lib/types";
@@ -159,19 +160,19 @@ export function SceneCard({
 
   return (
     <article
-      className={`overflow-hidden rounded-[12px] border bg-card transition-shadow ${
+      className={`overflow-hidden rounded-xl border bg-card transition-shadow ${
         open
-          ? "border-[#b9cbc8] shadow-[0_2px_4px_rgba(20,32,43,0.04),0_16px_40px_-24px_rgba(15,118,110,0.35)]"
-          : "border-border card-shadow hover:border-[#c4ced6]"
+          ? "border-brand-border shadow-md"
+          : "border-border shadow-xs hover:border-muted-foreground/30"
       }`}
     >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-primary/20"
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] border border-border bg-[#f8fafb] font-mono text-xs font-semibold tabular-nums text-[#3f4d5a]">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-muted font-mono text-xs font-semibold tabular-nums text-foreground">
           {String(scene.n).padStart(2, "0")}
         </span>
         <span className="min-w-0 flex-1">
@@ -180,7 +181,7 @@ export function SceneCard({
               {scene.action || "Untitled scene"}
             </span>
             {scene.is_establishing ? (
-              <span className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:inline">
+              <span className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:inline">
                 Establishing
               </span>
             ) : null}
@@ -195,16 +196,15 @@ export function SceneCard({
             ) : null}
           </span>
         </span>
-        <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-[#3f4d5a] sm:inline-flex">
+        <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground sm:inline-flex">
           <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: meta.dot }}
+            className={cn("size-1.5 rounded-full", meta.dot)}
             aria-hidden
           />
           {meta.label}
         </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
         />
       </button>
@@ -212,10 +212,10 @@ export function SceneCard({
       {open ? (
         <div className="border-t border-border px-4 pb-4 pt-4">
           {scene.status === "needs_attention" && scene.reasons.length ? (
-            <div className="mb-4 flex gap-2.5 rounded-[10px] border border-[#f0d9a8] bg-[#fff9ec] p-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#b45309]" aria-hidden />
-              <div className="min-w-0 text-[13px] leading-6 text-[#7a4b05]">
-                <p className="font-semibold">Needs attention</p>
+            <div className="mb-4 flex gap-2.5 rounded-lg border border-warning/30 bg-warning-subtle p-3">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+              <div className="min-w-0 text-xs leading-6 text-foreground">
+                <p className="font-semibold text-warning">Needs attention</p>
                 <ul className="list-inside list-disc">
                   {scene.reasons.slice(0, 6).map((reason) => (
                     <li key={reason}>{reason}</li>
@@ -225,12 +225,12 @@ export function SceneCard({
             </div>
           ) : null}
 
-          <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-            <div>
+          <div className="flex flex-col gap-4 md:flex-row">
+            <div className="w-full md:w-56 md:shrink-0">
               <div
-                className={`relative overflow-hidden rounded-[10px] border border-border bg-[#e9edf0] ${
+                className={`relative overflow-hidden rounded-lg border border-border bg-muted ${
                   data.project.settings.aspectRatio === "9:16"
-                    ? "mx-auto aspect-[9/16] w-full max-w-[190px]"
+                    ? "mx-auto aspect-9/16 w-full max-w-48"
                     : "aspect-video"
                 }`}
               >
@@ -246,18 +246,18 @@ export function SceneCard({
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
                     {scene.status === "done" ? (
-                      <Clapperboard className="h-7 w-7 text-[#8a99a8]" aria-hidden />
+                      <Clapperboard className="size-7 text-muted-foreground" aria-hidden />
                     ) : (
-                      <ImagePlus className="h-7 w-7 text-[#8a99a8]" aria-hidden />
+                      <ImagePlus className="size-7 text-muted-foreground" aria-hidden />
                     )}
-                    <p className="text-[11px] font-medium leading-4 text-[#68798a]">
+                    <p className="text-xs font-medium leading-4 text-muted-foreground">
                       No keyframe yet
                     </p>
                   </div>
                 )}
                 {scene.chainedFrom || scene.startFramePath ? (
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[#0b4f4a]/90 px-2 py-1 text-[10px] font-semibold text-white shadow">
-                    <Link2 className="h-3 w-3" aria-hidden />
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-primary/90 px-2 py-1 text-xs font-semibold text-primary-foreground shadow">
+                    <Link2 className="size-3" aria-hidden />
                     Chained from Scene {scene.chainedFrom ?? scene.n - 1}
                   </span>
                 ) : null}
@@ -271,7 +271,7 @@ export function SceneCard({
                   onClick={() => keyframeInput.current?.click()}
                   disabled={Boolean(busy)}
                 >
-                  <Upload className="h-3.5 w-3.5" aria-hidden />
+                  <Upload className="size-3.5" aria-hidden />
                   Keyframe
                 </Button>
                 {data.project.settings.imageProvider === "omniroute" ? (
@@ -284,9 +284,9 @@ export function SceneCard({
                     disabled={Boolean(busy)}
                   >
                     {busy === "generate" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
                     ) : (
-                      <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                      <Sparkles className="size-3.5" aria-hidden />
                     )}
                     Generate
                   </Button>
@@ -295,9 +295,9 @@ export function SceneCard({
                   <a
                     href={keyframe}
                     download={`scene-${scene.n}-keyframe`}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-[8px] px-2.5 text-xs font-medium text-[#0b5f58] underline-offset-4 hover:bg-[#e6f4f1] hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-primary underline-offset-4 hover:bg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <Download className="h-3.5 w-3.5" aria-hidden />
+                    <Download className="size-3.5" aria-hidden />
                     Download
                   </a>
                 ) : null}
@@ -314,19 +314,19 @@ export function SceneCard({
 
             <div className="min-w-0 space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[10px] border border-border bg-[#fbfcfd] p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <div className="rounded-lg border border-border bg-surface-subtle p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Start state
                   </p>
-                  <p className="mt-1 text-[13px] leading-6 text-[#283643]">
+                  <p className="mt-1 text-xs leading-6 text-foreground">
                     {scene.start_state || "—"}
                   </p>
                 </div>
-                <div className="rounded-[10px] border border-border bg-[#fbfcfd] p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <div className="rounded-lg border border-border bg-surface-subtle p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     End state
                   </p>
-                  <p className="mt-1 text-[13px] leading-6 text-[#283643]">
+                  <p className="mt-1 text-xs leading-6 text-foreground">
                     {scene.end_state || "—"}
                   </p>
                 </div>
@@ -334,20 +334,20 @@ export function SceneCard({
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
-                  <Film className="h-3.5 w-3.5" aria-hidden />
+                  <Film className="size-3.5" aria-hidden />
                   {scene.camera.shot} · {scene.camera.angle} · {scene.camera.movement}
                 </span>
                 {scene.sound ? <span>Sound: {scene.sound}</span> : null}
               </div>
 
               {scene.dialogue ? (
-                <div className="rounded-[10px] border border-[#cfe6e2] bg-[#f2faf8] p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#0b5f58]">
+                <div className="rounded-lg border border-brand-border bg-brand-subtle p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-secondary-foreground">
                     Dialogue · {dialogueCharacter?.name ?? scene.dialogue.speaker} ·{" "}
                     {languageLabel(dialogueLanguage)}
                   </p>
                   <p
-                    className={`mt-1 text-[15px] leading-7 text-[#173d39] ${
+                    className={`mt-1 text-base leading-7 text-secondary-foreground ${
                       dialogueLanguage === "bn" ? "font-bangla" : ""
                     }`}
                     lang={dialogueLanguage}
@@ -366,9 +366,9 @@ export function SceneCard({
                   disabled={!prompt}
                 >
                   {copied ? (
-                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    <Check className="size-3.5" aria-hidden />
                   ) : (
-                    <Copy className="h-3.5 w-3.5" aria-hidden />
+                    <Copy className="size-3.5" aria-hidden />
                   )}
                   Copy prompt
                 </Button>
@@ -393,9 +393,9 @@ export function SceneCard({
                   disabled={Boolean(busy)}
                 >
                   {busy === "clip" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
                   ) : (
-                    <Upload className="h-3.5 w-3.5" aria-hidden />
+                    <Upload className="size-3.5" aria-hidden />
                   )}
                   {scene.clipPath ? "Replace clip" : "Upload clip"}
                 </Button>
@@ -406,7 +406,7 @@ export function SceneCard({
                   className="h-9 text-xs"
                   onClick={() => onOpenReview(scene.n)}
                 >
-                  <PlayCircle className="h-3.5 w-3.5" aria-hidden />
+                  <PlayCircle className="size-3.5" aria-hidden />
                   Review
                 </Button>
                 <Button
@@ -418,9 +418,9 @@ export function SceneCard({
                   disabled={Boolean(busy)}
                 >
                   {busy === "validate" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
                   ) : (
-                    <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                    <ShieldCheck className="size-3.5" aria-hidden />
                   )}
                   Validate
                 </Button>
@@ -433,7 +433,7 @@ export function SceneCard({
                     onClick={() => patchStatus("ready")}
                     disabled={Boolean(busy)}
                   >
-                    <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                    <RefreshCw className="size-3.5" aria-hidden />
                     Reopen
                   </Button>
                 ) : (
@@ -445,7 +445,7 @@ export function SceneCard({
                     onClick={() => patchStatus("done")}
                     disabled={Boolean(busy)}
                   >
-                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    <Check className="size-3.5" aria-hidden />
                     Mark done
                   </Button>
                 )}
@@ -467,11 +467,11 @@ export function SceneCard({
           <div className="mt-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Master prompt
                 </p>
                 {scene.prompt ? (
-                  <span className="rounded-full border border-border bg-white px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <span className="rounded-full border border-border bg-card px-2 py-0.5 text-xs font-medium text-muted-foreground">
                     v{scene.prompt.version}
                   </span>
                 ) : null}
@@ -481,23 +481,23 @@ export function SceneCard({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-8 text-[11px]"
+                  className="h-8 text-xs"
                   onClick={async () => {
                     await copyText(imagePrompt);
                     notify("Keyframe prompt copied.", "success");
                   }}
                 >
-                  <Copy className="h-3.5 w-3.5" aria-hidden />
+                  <Copy className="size-3.5" aria-hidden />
                   Copy image prompt
                 </Button>
               ) : null}
             </div>
             {prompt ? (
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-[10px] border border-border bg-[#fbfcfd] p-4 font-mono text-[12.5px] leading-6 text-[#24313d]">
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-subtle p-4 font-mono text-xs leading-6 text-foreground">
                 {prompt}
               </pre>
             ) : (
-              <div className="rounded-[10px] border border-dashed border-[#c4ced6] bg-[#fbfcfd] p-5 text-center text-[13px] text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-border bg-surface-subtle p-5 text-center text-xs text-muted-foreground">
                 No prompt assembled for this scene yet.
               </div>
             )}

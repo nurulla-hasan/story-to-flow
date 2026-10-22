@@ -4,8 +4,9 @@ import { cn } from "cn";
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
+      data-slot="card"
       className={cn(
-        "rounded-[12px] border border-border bg-card text-card-foreground card-shadow",
+        "rounded-xl border border-border bg-card text-card-foreground shadow-xs",
         className,
       )}
       {...props}
@@ -14,20 +15,60 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("flex items-start justify-between gap-3 p-4 pb-0", className)} {...props} />;
+  return (
+    <div
+      data-slot="card-header"
+      className={cn("flex items-start justify-between gap-3 p-4 pb-0", className)}
+      {...props}
+    />
+  );
 }
 
 function CardTitle({ className, ...props }: React.ComponentProps<"h2">) {
   return (
     <h2
+      data-slot="card-title"
       className={cn("text-sm font-semibold tracking-tight text-foreground", className)}
       {...props}
     />
   );
 }
 
-function CardContent({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("p-4", className)} {...props} />;
+function CardDescription({ className, ...props }: React.ComponentProps<"p">) {
+  return (
+    <p
+      data-slot="card-description"
+      className={cn("text-xs text-muted-foreground", className)}
+      {...props}
+    />
+  );
 }
 
-export { Card, CardHeader, CardTitle, CardContent };
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("p-4", className)}
+      {...props}
+    />
+  );
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn("flex items-center p-4 pt-0", className)}
+      {...props}
+    />
+  );
+}
+
+export {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+};

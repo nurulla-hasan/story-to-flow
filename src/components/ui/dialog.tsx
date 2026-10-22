@@ -46,7 +46,7 @@ export function Dialog({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
       <div
-        className="absolute inset-0 bg-[#0b141c]/45 backdrop-blur-[2px]"
+        className="fixed inset-0 bg-foreground/40 backdrop-blur-xs"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -58,7 +58,7 @@ export function Dialog({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         className={cn(
-          "relative flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-2xl outline-none sm:rounded-[14px]",
+          "relative flex max-h-screen w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-2xl outline-none sm:rounded-xl sm:max-h-5/6",
           size === "md" && "sm:max-w-xl",
           size === "lg" && "sm:max-w-3xl",
           size === "xl" && "sm:max-w-5xl",
@@ -70,7 +70,7 @@ export function Dialog({
               {title}
             </h2>
             {description ? (
-              <p id={descId} className="mt-1 text-[13px] leading-5 text-muted-foreground">
+              <p id={descId} className="mt-1 text-xs leading-5 text-muted-foreground">
                 {description}
               </p>
             ) : null}
@@ -79,14 +79,14 @@ export function Dialog({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-5 w-5" aria-hidden />
           </button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
         {footer ? (
-          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-[#fafbfc] px-5 py-3.5">
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-subtle px-5 py-3.5">
             {footer}
           </footer>
         ) : null}

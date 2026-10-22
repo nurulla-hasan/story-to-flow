@@ -112,8 +112,8 @@ export function LeftPanel({
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[#e6f4f1] text-[#0b5f58]">
-              <BookOpen className="h-4 w-4" aria-hidden />
+            <span className="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+              <BookOpen className="size-4" aria-hidden />
             </span>
             <CardTitle>Story</CardTitle>
           </div>
@@ -128,9 +128,9 @@ export function LeftPanel({
             onChange={(event) => setStory(event.target.value)}
             placeholder="Paste your story here. Bangla or English."
             rows={8}
-            className="min-h-[176px] text-[13px] leading-6"
+            className="min-h-44 text-xs leading-6"
           />
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
               {story.trim() ? `${story.trim().length.toLocaleString()} characters` : "Empty"}
             </span>
@@ -138,12 +138,12 @@ export function LeftPanel({
               type="button"
               onClick={saveStory}
               disabled={!dirty || Boolean(busy)}
-              className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[#0b5f58] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+              className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
             >
               {busy === "save" ? (
-                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                <Loader2 className="size-3 animate-spin" aria-hidden />
               ) : (
-                <Save className="h-3 w-3" aria-hidden />
+                <Save className="size-3" aria-hidden />
               )}
               {dirty ? "Save story" : "Saved"}
             </button>
@@ -155,9 +155,9 @@ export function LeftPanel({
               disabled={!story.trim() || Boolean(busy)}
             >
               {busy === "bible" ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                <Loader2 className="size-4 animate-spin" aria-hidden />
               ) : (
-                <Sparkles className="h-4 w-4" aria-hidden />
+                <Sparkles className="size-4" aria-hidden />
               )}
               {data.characters.length ? "Rebuild story bible" : "Create story bible"}
             </Button>
@@ -168,14 +168,14 @@ export function LeftPanel({
               disabled={!data.characters.length || Boolean(busy)}
             >
               {busy === "plan" ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                <Loader2 className="size-4 animate-spin" aria-hidden />
               ) : (
-                <Wand2 className="h-4 w-4" aria-hidden />
+                <Wand2 className="size-4" aria-hidden />
               )}
               Re-plan scenes
             </Button>
           </div>
-          <p className="text-[11px] leading-5 text-muted-foreground">
+          <p className="text-xs leading-5 text-muted-foreground">
             The bible detects every character and location. Scenes are planned in
             batches and prompts are assembled by code, never by the model.
           </p>
@@ -185,22 +185,22 @@ export function LeftPanel({
       <Card>
         <CardHeader className="pb-1">
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[#eef1f4] text-[#3f4d5a]">
-              <Settings2 className="h-4 w-4" aria-hidden />
+            <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Settings2 className="size-4" aria-hidden />
             </span>
             <CardTitle>Project settings</CardTitle>
           </div>
           <button
             type="button"
             onClick={onOpenSettings}
-            className="inline-flex h-9 items-center gap-1.5 rounded-[8px] px-2 text-[11px] font-semibold text-[#0b5f58] underline-offset-4 hover:bg-[#e6f4f1] hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-primary underline-offset-4 hover:bg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Settings2 className="h-3.5 w-3.5" aria-hidden />
+            <Settings2 className="size-3.5" aria-hidden />
             Edit
           </button>
         </CardHeader>
         <CardContent className="pt-2">
-          <dl className="divide-y divide-border/80 text-[12.5px]">
+          <dl className="divide-y divide-border text-xs">
             <Row label="Language" value={settings.dialogueLanguage === "bn" ? "Bangla" : "English"} />
             <Row
               label="Length"
@@ -218,9 +218,9 @@ export function LeftPanel({
             <Row label="Validator" value={settings.validatorStrictness} />
             <Row label="Images" value={settings.imageProvider === "manual" ? "Manual" : "OmniRoute"} />
           </dl>
-          <div className="mt-3 rounded-[9px] border border-border bg-[#fbfcfd] p-2.5 text-[11px] leading-5 text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 font-medium text-[#3f4d5a]">
-              <ListOrdered className="h-3.5 w-3.5" aria-hidden />
+          <div className="mt-3 rounded-lg border border-border bg-surface-subtle p-2.5 text-xs leading-5 text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+              <ListOrdered className="size-3.5" aria-hidden />
               {data.characters.length} characters · {data.locations.length} locations
             </span>
             <br />
@@ -230,8 +230,8 @@ export function LeftPanel({
       </Card>
 
       {busy === "bible" ? (
-        <div className="flex items-start gap-2 rounded-[10px] border border-[#cfe6e2] bg-[#f2faf8] p-3 text-[12px] leading-5 text-[#0b5f58]">
-          <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden />
+        <div className="flex items-start gap-2 rounded-lg border border-brand-border bg-brand-subtle p-3 text-xs leading-5 text-secondary-foreground">
+          <RefreshCw className="mt-0.5 size-4 shrink-0 animate-spin" aria-hidden />
           Reading the story and locking characters, dress, voice and locations…
         </div>
       ) : null}
@@ -243,7 +243,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3 py-2">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-right font-medium text-[#283643]">{value}</dd>
+      <dd className="min-w-0 text-right font-medium text-foreground">{value}</dd>
     </div>
   );
 }

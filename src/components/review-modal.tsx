@@ -214,9 +214,9 @@ function ReviewModalContent({
         </div>
       }
     >
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+      <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
-          <div className="overflow-hidden rounded-[12px] border border-border bg-[#0f172a]">
+          <div className="overflow-hidden rounded-xl border border-border bg-foreground/95">
             {clipSrc ? (
               <video
                 ref={videoRef}
@@ -224,13 +224,13 @@ function ReviewModalContent({
                 controls
                 playsInline
                 crossOrigin="anonymous"
-                className="aspect-video w-full bg-black object-contain"
+                className="aspect-video w-full bg-foreground object-contain"
               />
             ) : (
-              <div className="flex aspect-video flex-col items-center justify-center gap-2 p-6 text-center text-slate-400">
-                <Film className="h-10 w-10 text-slate-500" aria-hidden />
+              <div className="flex aspect-video flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+                <Film className="size-10 text-muted-foreground" aria-hidden />
                 <p className="text-sm font-medium">No clip uploaded yet</p>
-                <p className="max-w-xs text-xs text-slate-400">
+                <p className="max-w-xs text-xs text-muted-foreground">
                   Generate this clip in Flow using the master prompt, then upload it
                   here.
                 </p>
@@ -241,7 +241,7 @@ function ReviewModalContent({
                   className="mt-2 text-xs"
                   onClick={() => clipInputRef.current?.click()}
                 >
-                  <Upload className="h-3.5 w-3.5" aria-hidden />
+                  <Upload className="size-3.5" aria-hidden />
                   Upload clip
                 </Button>
               </div>
@@ -255,7 +255,7 @@ function ReviewModalContent({
               size="sm"
               onClick={() => clipInputRef.current?.click()}
             >
-              <Upload className="h-3.5 w-3.5" aria-hidden />
+              <Upload className="size-3.5" aria-hidden />
               {scene.clipPath ? "Replace clip" : "Upload clip"}
             </Button>
             {clipSrc ? (
@@ -267,9 +267,9 @@ function ReviewModalContent({
                 disabled={extracting}
               >
                 {extracting ? (
-                  <Spinner className="h-3.5 w-3.5" />
+                  <Spinner className="size-3.5" />
                 ) : (
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  <Sparkles className="size-3.5" aria-hidden />
                 )}
                 Extract last frame
               </Button>
@@ -294,7 +294,7 @@ function ReviewModalContent({
             />
           </div>
 
-          <div className="rounded-[10px] border border-border bg-[#fbfcfd] p-3.5">
+          <div className="rounded-lg border border-border bg-surface-subtle p-3.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Last frame
@@ -303,15 +303,15 @@ function ReviewModalContent({
                 <a
                   href={lastFrameSrc}
                   download={`scene-${scene.n}-last-frame.png`}
-                  className="inline-flex items-center gap-1 text-xs text-[#0b5f58] underline-offset-4 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
                 >
-                  <Download className="h-3 w-3" aria-hidden />
+                  <Download className="size-3" aria-hidden />
                   Download PNG
                 </a>
               ) : null}
             </div>
             <div className="mt-2 flex items-start gap-3">
-              <div className="relative h-24 w-36 shrink-0 overflow-hidden rounded-[8px] border border-border bg-[#e9edf0]">
+              <div className="relative h-24 w-36 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
                 {lastFrameSrc ? (
                   <Image
                     src={lastFrameSrc}
@@ -322,7 +322,7 @@ function ReviewModalContent({
                     sizes="144px"
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                     None
                   </div>
                 )}
@@ -341,14 +341,14 @@ function ReviewModalContent({
                     disabled={!scene.lastFramePath || busy === "chain"}
                   >
                     {busy === "chain" ? (
-                      <Spinner className="h-3.5 w-3.5" />
+                      <Spinner className="size-3.5" />
                     ) : (
-                      <Link2 className="h-3.5 w-3.5" aria-hidden />
+                      <Link2 className="size-3.5" aria-hidden />
                     )}
                     Send to Scene {nextScene.n}
                   </Button>
                 ) : (
-                  <span className="inline-block text-[11px] italic text-muted-foreground">
+                  <span className="inline-block text-xs italic text-muted-foreground">
                     This is the final scene.
                   </span>
                 )}
@@ -358,7 +358,7 @@ function ReviewModalContent({
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-[10px] border border-border bg-[#fbfcfd] p-4">
+          <div className="rounded-lg border border-border bg-surface-subtle p-4">
             <h3 className="text-sm font-semibold text-foreground">What went wrong?</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Tick what drifted in your Flow clip. The validator will generate 1–3
@@ -400,9 +400,9 @@ function ReviewModalContent({
                 className="flex-1 text-xs"
               >
                 {busy === "regenerate" ? (
-                  <Spinner className="h-3.5 w-3.5" />
+                  <Spinner className="size-3.5" />
                 ) : (
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  <Sparkles className="size-3.5" aria-hidden />
                 )}
                 Regenerate prompt for Scene {scene.n}
               </Button>
@@ -410,36 +410,36 @@ function ReviewModalContent({
           </div>
 
           {proposal ? (
-            <div className="rounded-[10px] border border-[#a7d7cd] bg-[#f0faf7] p-4">
+            <div className="rounded-xl border border-brand-border bg-brand-subtle p-4">
               <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0f766e] text-white">
-                  <Check className="h-3.5 w-3.5" aria-hidden />
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="size-3.5" aria-hidden />
                 </span>
-                <h4 className="text-sm font-semibold text-[#0b4f4a]">
+                <h4 className="text-sm font-semibold text-secondary-foreground">
                   Proposed reinforcement lines
                 </h4>
               </div>
 
               <div className="mt-3 space-y-1.5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#0b5f58]">
+                <p className="text-xs font-semibold uppercase tracking-wider text-secondary-foreground">
                   Added to MUST (diff):
                 </p>
                 {proposal.reinforcements.map((line, index) => (
                   <div
                     key={index}
-                    className="flex items-start gap-2 rounded-[6px] border border-[#8fd1c3] bg-white px-2.5 py-1.5 font-mono text-[11.5px] leading-5 text-[#0d5045]"
+                    className="flex items-start gap-2 rounded-md border border-brand-border bg-card px-2.5 py-1.5 font-mono text-xs leading-5 text-secondary-foreground"
                   >
-                    <span className="font-bold text-[#0f766e]">+</span>
+                    <span className="font-bold text-primary">+</span>
                     <span>{line}</span>
                   </div>
                 ))}
               </div>
 
               {proposal.customRule ? (
-                <div className="mt-3 border-t border-[#a7d7cd] pt-3">
+                <div className="mt-3 border-t border-brand-border pt-3">
                   <Checkbox
                     label={
-                      <span className="text-xs font-semibold text-[#0b4f4a]">
+                      <span className="text-xs font-semibold text-secondary-foreground">
                         Save as custom rule for all scenes
                       </span>
                     }
@@ -468,9 +468,9 @@ function ReviewModalContent({
                   className="flex-1 text-xs"
                 >
                   {busy === "apply" ? (
-                    <Spinner className="h-3.5 w-3.5" />
+                    <Spinner className="size-3.5" />
                   ) : (
-                    <CheckSquare className="h-3.5 w-3.5" aria-hidden />
+                    <CheckSquare className="size-3.5" aria-hidden />
                   )}
                   Save new prompt version
                 </Button>

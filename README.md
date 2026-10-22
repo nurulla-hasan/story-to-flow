@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Story to Flow
 
-## Getting Started
+A personal, local-only web application that turns any story into a production plan for Google Flow / Veo with strict character, dress, voice, and location consistency.
 
-First, run the development server:
+## Highlights
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Story Bible with Visual & Voice Locks:** Detects characters and locations, locking exact visual facts and voice attributes.
+- **Code-Assembled Prompts:** Prompts are assembled deterministically by code (never hallucinated by the model), inserting locks verbatim.
+- **Batched Scene Planner:** Plans 8–10 second clips in batches, preserving continuity from scene $N$ to $N+1$, inserting establishing shots on location transitions.
+- **Consistency Chaining:** Extract the last frame of a generated clip directly in the browser and send it to the next scene as its starting reference.
+- **Review & Feedback Loop:** Report drifted elements (face, dress, lighting, voice) to get tailored reinforcement lines in the `MUST` prompt section with green diff preview.
+- **Chat Editing:** Natural language planning (e.g., "Change Rina's saree to green from now on") translates into validated diff operations and updates all affected prompts automatically.
+- **Flexible Export:** Download prompts as formatted `.txt`, full plan as `.json`, or a `.zip` archive with all prompts and media assets.
+- **Strict Semantic Design:** Clean, accessible light theme using semantic tokens and modern Tailwind linear numeric scaling.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Requirements
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Node.js 18+ (tested on v24.22.0)
+- pnpm 9+
+- Windows, macOS, or Linux
+- OmniRoute local gateway running on `http://localhost:20128/v1`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Setup & Running on Windows
 
-## Learn More
+1. **Install dependencies:**
+   ```powershell
+   pnpm install
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. **Configure `.env.local`:**
+   Copy `.env.local.example` to `.env.local`:
+   ```powershell
+   copy .env.local.example .env.local
+   ```
+   Verify `OMNIROUTE_BASE_URL` and `OMNIROUTE_API_KEY`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. **Run tests:**
+   ```powershell
+   pnpm test
+   pnpm typecheck
+   pnpm lint
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. **Start the development server:**
+   ```powershell
+   pnpm dev
+   ```
+   Visit [http://localhost:3000](http://localhost:3000).
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+5. **First Steps in the App:**
+   - Paste your story in the left sidebar.
+   - Click **Create story bible** to lock characters and locations.
+   - Click **Re-plan scenes** to generate your clips.
+   - Expand a scene card and click **Copy prompt** to paste into Flow!

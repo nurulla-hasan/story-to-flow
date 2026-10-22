@@ -39,6 +39,16 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-muted: var(--surface-muted);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-border: var(--brand-border);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -67,6 +77,16 @@
   --border: #dde3e8;
   --input: #8a99a8;
   --ring: #0f766e;
+  --success: #166534;
+  --success-foreground: #ffffff;
+  --success-subtle: #e8f5ec;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+  --warning-subtle: #fdf3dd;
+  --surface-subtle: #fbfcfd;
+  --surface-muted: #f8fafb;
+  --brand-subtle: #f0faf7;
+  --brand-border: #a7d7cd;
   --chart-1: #0f766e;
   --chart-2: #2f9e8f;
   --chart-3: #7cc4ba;
@@ -102,6 +122,16 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --success: oklch(0.627 0.194 149.214);
+  --success-foreground: oklch(0.985 0 0);
+  --success-subtle: oklch(0.269 0.05 149.214);
+  --warning: oklch(0.769 0.188 70.08);
+  --warning-foreground: oklch(0.145 0 0);
+  --warning-subtle: oklch(0.269 0.05 70.08);
+  --surface-subtle: oklch(0.22 0 0);
+  --surface-muted: oklch(0.24 0 0);
+  --brand-subtle: oklch(0.25 0.05 180);
+  --brand-border: oklch(0.35 0.08 180);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -127,21 +157,6 @@
   html {
     @apply font-sans;
   }
-}
-@layer base {
-  body {
-    background-color: var(--background);
-    color: var(--foreground);
-    background-image: radial-gradient(
-      1200px 520px at 18% -12%,
-      rgba(15, 118, 110, 0.07),
-      transparent 60%
-    );
-    background-repeat: no-repeat;
-  }
-  ::selection {
-    background: rgba(15, 118, 110, 0.18);
-  }
   button,
   [role="button"],
   label[for],
@@ -152,10 +167,4 @@
 
 @utility font-bangla {
   font-family: var(--font-hind-siliguri), var(--font-inter), sans-serif;
-}
-
-@utility card-shadow {
-  box-shadow:
-    0 1px 2px rgba(20, 32, 43, 0.04),
-    0 8px 24px -12px rgba(20, 32, 43, 0.12);
 }

@@ -116,13 +116,13 @@ export function ChatDialog({
             disabled={!message.trim() || busy || applying}
             className="shrink-0 text-xs"
           >
-            {busy ? <Spinner className="h-4 w-4" /> : <Bot className="h-4 w-4" aria-hidden />}
+            {busy ? <Spinner className="size-4" /> : <Bot className="size-4" aria-hidden />}
             Plan change
           </Button>
         </form>
 
-        <div className="rounded-[10px] border border-border bg-[#f8fafb] p-3 text-xs leading-5 text-muted-foreground">
-          <p className="font-medium text-[#283643]">Examples of what you can ask:</p>
+        <div className="rounded-lg border border-border bg-surface-muted p-3 text-xs leading-5 text-muted-foreground">
+          <p className="font-medium text-foreground">Examples of what you can ask:</p>
           <ul className="mt-1 list-inside list-disc space-y-0.5">
             <li>Change character locks (dress, voice, accent) — affected scenes re-assemble instantly.</li>
             <li>Split or merge scenes, or delete an extra scene.</li>
@@ -132,14 +132,14 @@ export function ChatDialog({
         </div>
 
         {proposal ? (
-          <div className="rounded-[12px] border border-[#a7d7cd] bg-[#f0faf7] p-4">
+          <div className="rounded-xl border border-brand-border bg-brand-subtle p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0f766e] px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                  <FileDiff className="h-3 w-3" aria-hidden />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                  <FileDiff className="size-3" aria-hidden />
                   Proposed changes
                 </span>
-                <p className="mt-2 text-sm font-semibold text-[#0b4f4a]">
+                <p className="mt-2 text-sm font-semibold text-secondary-foreground">
                   {proposal.summary || "Operations planned:"}
                 </p>
               </div>
@@ -149,7 +149,7 @@ export function ChatDialog({
                 className="text-muted-foreground hover:text-foreground"
                 aria-label="Discard proposal"
               >
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               </button>
             </div>
 
@@ -157,9 +157,9 @@ export function ChatDialog({
               {proposal.diff.map((line, idx) => (
                 <div
                   key={idx}
-                  className="flex items-start gap-2 rounded-[6px] border border-[#8fd1c3] bg-white px-3 py-2 font-mono text-[11.5px] leading-5 text-[#0d5045]"
+                  className="flex items-start gap-2 rounded-md border border-brand-border bg-card px-3 py-2 font-mono text-xs leading-5 text-secondary-foreground"
                 >
-                  <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#0f766e]" aria-hidden />
+                  <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
                   <span>{line}</span>
                 </div>
               ))}
@@ -181,7 +181,7 @@ export function ChatDialog({
                 onClick={apply}
                 disabled={applying}
               >
-                {applying ? <Spinner className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                {applying ? <Spinner className="size-3.5" /> : <Check className="size-3.5" />}
                 Confirm & Apply
               </Button>
             </div>

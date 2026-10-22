@@ -10,13 +10,13 @@ function Checkbox({
   return (
     <label
       className={cn(
-        "flex min-h-11 cursor-pointer items-start gap-3 rounded-[10px] border border-transparent px-1 py-2 text-sm leading-5 transition-colors hover:bg-muted/60",
+        "flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-transparent px-1 py-2 text-sm leading-5 transition-colors hover:bg-muted/60",
         className,
       )}
     >
       <input
         type="checkbox"
-        className="mt-0.5 h-5 w-5 shrink-0 rounded border-input accent-[#0f766e] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+        className="mt-0.5 h-5 w-5 shrink-0 rounded border-input accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         {...props}
       />
       <span className="min-w-0">

@@ -71,13 +71,13 @@ export const STATUS_META: Record<
   SceneStatus,
   { label: string; variant: "neutral" | "brand" | "success" | "warning"; dot: string }
 > = {
-  draft: { label: "Waiting", variant: "neutral", dot: "#8a99a8" },
-  ready: { label: "Ready for Flow", variant: "brand", dot: "#0f766e" },
-  done: { label: "Done", variant: "success", dot: "#15803d" },
+  draft: { label: "Waiting", variant: "neutral", dot: "bg-muted-foreground" },
+  ready: { label: "Ready for Flow", variant: "brand", dot: "bg-primary" },
+  done: { label: "Done", variant: "success", dot: "bg-success" },
   needs_attention: {
     label: "Needs attention",
     variant: "warning",
-    dot: "#b45309",
+    dot: "bg-warning",
   },
 };
 

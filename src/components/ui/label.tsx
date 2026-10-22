@@ -1,10 +1,16 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "cn";
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {
   return (
     <label
-      className={cn("text-[13px] font-medium leading-none text-foreground", className)}
+      data-slot="label"
+      className={cn(
+        "flex items-center gap-2 text-xs leading-none font-medium select-none text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        className,
+      )}
       {...props}
     />
   );

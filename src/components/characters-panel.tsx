@@ -155,18 +155,18 @@ export function CharactersPanel({
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[#e6f4f1] text-[#0b5f58]">
-            <Users className="h-4 w-4" aria-hidden />
+          <span className="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+            <Users className="size-4" aria-hidden />
           </span>
           <CardTitle>Characters</CardTitle>
-          <span className="ml-auto text-[11px] font-medium tabular-nums text-muted-foreground">
+          <span className="ml-auto text-xs font-medium tabular-nums text-muted-foreground">
             {data.characters.length}
           </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 pt-1">
         {data.characters.length === 0 ? (
-          <p className="rounded-[9px] border border-dashed border-border bg-[#fbfcfd] p-3 text-[12px] leading-5 text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border bg-surface-subtle p-3 text-xs leading-5 text-muted-foreground">
             Characters appear here after the story bible is created. You can also add
             one by hand.
           </p>
@@ -177,10 +177,10 @@ export function CharactersPanel({
           return (
             <div
               key={character.id}
-              className="rounded-[10px] border border-border bg-[#fbfcfd] p-3"
+              className="rounded-lg border border-border bg-surface-subtle p-3"
             >
               <div className="flex items-start gap-2.5">
-                <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#cfe6e2] bg-[#e6f4f1] text-[11px] font-bold text-[#0b5f58]">
+                <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-brand-border bg-secondary text-xs font-bold text-secondary-foreground">
                   {ref ? (
                     <Image
                       src={ref}
@@ -196,18 +196,18 @@ export function CharactersPanel({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="truncate text-[13px] font-semibold text-foreground">
+                    <p className="truncate text-sm font-semibold text-foreground">
                       {character.name}
                     </p>
-                    <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground ring-1 ring-border">
+                    <span className="shrink-0 rounded bg-card px-1.5 py-0.5 text-xs font-medium uppercase text-muted-foreground ring-1 ring-border">
                       {character.language}
                     </span>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-[#4a5a68]">
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                     {character.visual_lock}
                   </p>
-                  <p className="mt-1 line-clamp-1 text-[11px] leading-5 text-muted-foreground">
-                    <span className="font-medium text-[#3f4d5a]">Voice:</span>{" "}
+                  <p className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                    <span className="font-medium text-foreground">Voice:</span>{" "}
                     {character.voice_lock}
                   </p>
                 </div>
@@ -216,9 +216,9 @@ export function CharactersPanel({
                 <button
                   type="button"
                   onClick={() => openEdit(character)}
-                  className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[#0b5f58] hover:bg-[#e6f4f1] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                  className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-xs font-medium text-primary hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Pencil className="h-3 w-3" aria-hidden />
+                  <Pencil className="size-3" aria-hidden />
                   Edit lock
                 </button>
                 <button
@@ -227,9 +227,9 @@ export function CharactersPanel({
                     setRefTarget(character.id);
                     refInput.current?.click();
                   }}
-                  className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[#3f4d5a] hover:bg-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                  className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <ImagePlus className="h-3 w-3" aria-hidden />
+                  <ImagePlus className="size-3" aria-hidden />
                   {character.refImage ? "Replace ref" : "Add ref"}
                 </button>
               </div>
@@ -239,7 +239,7 @@ export function CharactersPanel({
 
         <div className="flex gap-2">
           <Button type="button" size="sm" variant="outline" className="h-9 flex-1 text-xs" onClick={openAdd}>
-            <Plus className="h-3.5 w-3.5" aria-hidden />
+            <Plus className="size-3.5" aria-hidden />
             Add
           </Button>
           <Button
@@ -254,7 +254,7 @@ export function CharactersPanel({
             }}
             disabled={data.characters.length < 2}
           >
-            <Merge className="h-3.5 w-3.5" aria-hidden />
+            <Merge className="size-3.5" aria-hidden />
             Merge
           </Button>
         </div>
@@ -374,7 +374,7 @@ export function CharactersPanel({
               onClick={merge}
               disabled={saving || !sourceId || !targetId || sourceId === targetId}
             >
-              {saving ? <Spinner /> : <Merge className="h-4 w-4" aria-hidden />}
+              {saving ? <Spinner /> : <Merge className="size-4" aria-hidden />}
               Merge
             </Button>
           </>

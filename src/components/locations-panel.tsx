@@ -70,18 +70,18 @@ export function LocationsPanel({
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[#fdf3dd] text-[#8a5300]">
-            <MapPin className="h-4 w-4" aria-hidden />
+          <span className="flex size-8 items-center justify-center rounded-lg bg-warning-subtle text-warning">
+            <MapPin className="size-4" aria-hidden />
           </span>
           <CardTitle>Locations</CardTitle>
-          <span className="ml-auto text-[11px] font-medium tabular-nums text-muted-foreground">
+          <span className="ml-auto text-xs font-medium tabular-nums text-muted-foreground">
             {data.locations.length}
           </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-2.5 pt-1">
         {data.locations.length === 0 ? (
-          <p className="rounded-[9px] border border-dashed border-border bg-[#fbfcfd] p-3 text-[12px] leading-5 text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border bg-surface-subtle p-3 text-xs leading-5 text-muted-foreground">
             Locations are detected with the story bible.
           </p>
         ) : null}
@@ -89,7 +89,7 @@ export function LocationsPanel({
           const ref = fileUrl(location.refImage);
           return (
             <div key={location.id} className="flex items-start gap-2.5">
-              <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[8px] border border-border bg-[#eef1f4]">
+              <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
                 {ref ? (
                   <Image
                     src={ref}
@@ -100,21 +100,21 @@ export function LocationsPanel({
                     sizes="36px"
                   />
                 ) : (
-                  <MapPin className="h-4 w-4 text-[#8a99a8]" aria-hidden />
+                  <MapPin className="size-4 text-muted-foreground" aria-hidden />
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-semibold text-foreground">{location.name}</p>
-                <p className="mt-0.5 line-clamp-2 text-[11px] leading-5 text-[#4a5a68]">
+                <p className="text-sm font-semibold text-foreground">{location.name}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
                   {location.visual_lock}
                 </p>
                 <div className="mt-1 flex flex-wrap gap-1">
                   <button
                     type="button"
                     onClick={() => openEdit(location)}
-                    className="inline-flex h-7 items-center gap-1 rounded px-1 text-[11px] font-medium text-[#0b5f58] hover:bg-[#e6f4f1] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                    className="inline-flex h-7 items-center gap-1 rounded px-1 text-xs font-medium text-primary hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <Pencil className="h-3 w-3" aria-hidden />
+                    <Pencil className="size-3" aria-hidden />
                     Edit
                   </button>
                   <button
@@ -123,9 +123,9 @@ export function LocationsPanel({
                       setRefTarget(location.id);
                       refInput.current?.click();
                     }}
-                    className="inline-flex h-7 items-center gap-1 rounded px-1 text-[11px] font-medium text-[#3f4d5a] hover:bg-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                    className="inline-flex h-7 items-center gap-1 rounded px-1 text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <ImagePlus className="h-3 w-3" aria-hidden />
+                    <ImagePlus className="size-3" aria-hidden />
                     {location.refImage ? "Replace ref" : "Add ref"}
                   </button>
                 </div>

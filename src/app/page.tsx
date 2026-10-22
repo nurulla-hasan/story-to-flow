@@ -116,7 +116,7 @@ export default function WorkspacePage() {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-r-transparent" />
+          <div className="size-8 animate-spin rounded-full border-2 border-primary border-r-transparent" />
           <p className="text-sm font-medium text-muted-foreground">Loading workspace…</p>
         </div>
       </div>
@@ -126,8 +126,8 @@ export default function WorkspacePage() {
   if (error || !data) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
-        <div className="max-w-md rounded-[12px] border border-border bg-card p-6 text-center shadow-lg">
-          <AlertTriangle className="mx-auto h-8 w-8 text-destructive" />
+        <div className="max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-lg">
+          <AlertTriangle className="mx-auto size-8 text-destructive" />
           <h2 className="mt-3 text-base font-semibold">Failed to load project</h2>
           <p className="mt-1 text-xs text-muted-foreground">{error}</p>
           <Button className="mt-4" onClick={() => { setLoading(true); void refreshData(); }}>
@@ -146,25 +146,25 @@ export default function WorkspacePage() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Top bar */}
-      <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-6">
+      <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-xs">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-primary text-white font-bold text-xs tracking-wider shadow">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary font-bold text-xs tracking-wider text-primary-foreground shadow-xs">
               STF
             </span>
             <div className="min-w-0">
               <h1 className="truncate text-sm font-bold tracking-tight">
                 {data.project.name || "Story to Flow"}
               </h1>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 AI video production plan · Google Flow consistency
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <span className="hidden items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1 text-xs font-semibold tabular-nums text-foreground sm:inline-flex">
-              <CheckCircle2 className="h-3.5 w-3.5 text-[#0f766e]" aria-hidden />
+            <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground sm:inline-flex">
+              <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
               {doneCount} of {data.scenes.length} clips done
             </span>
 
@@ -175,7 +175,7 @@ export default function WorkspacePage() {
               onClick={() => setChatOpen(true)}
               className="h-9 gap-1.5 text-xs"
             >
-              <Bot className="h-3.5 w-3.5" aria-hidden />
+              <Bot className="size-3.5" aria-hidden />
               <span className="hidden sm:inline">Chat edit</span>
             </Button>
 
@@ -186,7 +186,7 @@ export default function WorkspacePage() {
               onClick={() => setSettingsOpen(true)}
               className="h-9 gap-1.5 text-xs"
             >
-              <Settings2 className="h-3.5 w-3.5" aria-hidden />
+              <Settings2 className="size-3.5" aria-hidden />
               <span className="hidden sm:inline">Settings</span>
             </Button>
 
@@ -196,7 +196,7 @@ export default function WorkspacePage() {
               onClick={() => setExportOpen(true)}
               className="h-9 gap-1.5 text-xs"
             >
-              <Download className="h-3.5 w-3.5" aria-hidden />
+              <Download className="size-3.5" aria-hidden />
               Export
             </Button>
           </div>
@@ -205,16 +205,16 @@ export default function WorkspacePage() {
 
       {/* Planning Job Progress Banner */}
       {activeJob && activeJob.status === "running" ? (
-        <div className="border-b border-[#a7d7cd] bg-[#f0faf7] px-4 py-2.5 text-xs text-[#0b4f4a]">
-          <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4">
+        <div className="border-b border-brand-border bg-brand-subtle px-4 py-2.5 text-xs text-secondary-foreground">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#0f766e]" />
+              <RefreshCw className="size-3.5 animate-spin text-primary" />
               <span className="font-semibold">{activeJob.message || "Planning scenes…"}</span>
             </div>
             <div className="flex items-center gap-3">
-              <div className="h-2 w-32 overflow-hidden rounded-full bg-[#d0eee8]">
+              <div className="h-2 w-32 overflow-hidden rounded-full bg-secondary">
                 <div
-                  className="h-full bg-[#0f766e] transition-all duration-300"
+                  className="h-full bg-primary transition-all duration-300"
                   style={{ width: `${activeJob.progress}%` }}
                 />
               </div>
@@ -225,9 +225,9 @@ export default function WorkspacePage() {
       ) : null}
 
       {/* Main 3-column Workspace */}
-      <main className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-6 p-4 sm:p-6 lg:flex-row">
-        {/* Left Column: Story & Settings Overview (300px) */}
-        <aside className="w-full shrink-0 lg:w-[310px]">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 sm:p-6 lg:flex-row">
+        {/* Left Column: Story & Settings Overview (320px) */}
+        <aside className="w-full shrink-0 lg:w-80">
           <LeftPanel
             data={data}
             onChanged={refreshData}
@@ -239,7 +239,7 @@ export default function WorkspacePage() {
 
         {/* Center Column: Scenes (N) list */}
         <section className="min-w-0 flex-1 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-card p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold tracking-tight">
                 Scenes ({data.scenes.length})
@@ -253,15 +253,15 @@ export default function WorkspacePage() {
 
             <div className="flex flex-wrap items-center gap-2">
               {/* Filter */}
-              <div className="flex items-center gap-1 rounded-[8px] border border-border bg-[#f8fafb] p-0.5 text-[11px] font-medium">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-muted p-0.5 text-xs font-medium">
                 {(["all", "ready", "needs_attention", "done"] as const).map((status) => (
                   <button
                     key={status}
                     type="button"
                     onClick={() => setFilter(status)}
-                    className={`rounded-[6px] px-2 py-1 transition-colors ${
+                    className={`rounded-md px-2 py-1 transition-colors ${
                       filter === status
-                        ? "bg-white font-semibold text-foreground shadow-sm ring-1 ring-border"
+                        ? "bg-card font-semibold text-foreground shadow-xs ring-1 ring-border"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -284,16 +284,16 @@ export default function WorkspacePage() {
                 className="h-8 text-xs text-muted-foreground"
                 onClick={() => setOpenSceneN(openSceneN !== null ? null : (data.scenes[0]?.n ?? 1))}
               >
-                <ChevronsUpDown className="h-3.5 w-3.5" aria-hidden />
+                <ChevronsUpDown className="size-3.5" aria-hidden />
                 {openSceneN !== null ? "Collapse" : "Expand"}
               </Button>
             </div>
           </div>
 
           {data.scenes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-[12px] border border-dashed border-border bg-card py-16 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e6f4f1] text-[#0b5f58]">
-                <Layers className="h-6 w-6" />
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-16 text-center">
+              <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+                <Layers className="size-6" />
               </span>
               <h3 className="mt-3 text-sm font-semibold">No scenes planned yet</h3>
               <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
@@ -321,8 +321,8 @@ export default function WorkspacePage() {
           )}
         </section>
 
-        {/* Right Column: Characters, Locations, Rules (300px) */}
-        <aside className="w-full shrink-0 space-y-4 lg:w-[310px]">
+        {/* Right Column: Characters, Locations, Rules (320px) */}
+        <aside className="w-full shrink-0 space-y-4 lg:w-80">
           <CharactersPanel data={data} onChanged={refreshData} notify={notify} />
           <LocationsPanel data={data} onChanged={refreshData} notify={notify} />
           <RulesPanel data={data} onChanged={refreshData} notify={notify} />
@@ -364,13 +364,13 @@ export default function WorkspacePage() {
 
       {/* Toast Notification */}
       {toast ? (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-[10px] border border-border bg-[#14202b] px-4 py-3 text-xs font-medium text-white shadow-2xl animate-in fade-in slide-in-from-bottom-3">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-lg border border-border bg-foreground px-4 py-3 text-xs font-medium text-background shadow-2xl animate-in fade-in slide-in-from-bottom-3">
           {toast.kind === "success" ? (
-            <CheckCircle2 className="h-4 w-4 text-[#2f9e8f]" />
+            <CheckCircle2 className="size-4 text-primary" />
           ) : toast.kind === "error" ? (
-            <AlertTriangle className="h-4 w-4 text-[#ef4444]" />
+            <AlertTriangle className="size-4 text-destructive" />
           ) : (
-            <Sparkles className="h-4 w-4 text-[#7cc4ba]" />
+            <Sparkles className="size-4 text-primary" />
           )}
           <span>{toast.message}</span>
         </div>

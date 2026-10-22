@@ -29,9 +29,9 @@ export function ExportDialog({
         <a
           href="/api/export?format=txt"
           download
-          className="flex items-center gap-3.5 rounded-[10px] border border-border bg-[#fbfcfd] p-3.5 transition-colors hover:border-[#0f766e] hover:bg-[#f2faf8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+          className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3.5 transition-colors hover:border-primary hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#eef1f4] text-[#3f4d5a]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
             <FileText className="h-5 w-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
@@ -46,9 +46,9 @@ export function ExportDialog({
         <a
           href="/api/export?format=json"
           download
-          className="flex items-center gap-3.5 rounded-[10px] border border-border bg-[#fbfcfd] p-3.5 transition-colors hover:border-[#0f766e] hover:bg-[#f2faf8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+          className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3.5 transition-colors hover:border-primary hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#e6f4f1] text-[#0b5f58]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
             <FileJson className="h-5 w-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
@@ -63,9 +63,9 @@ export function ExportDialog({
         <a
           href="/api/export?format=zip"
           download
-          className="flex items-center gap-3.5 rounded-[10px] border border-border bg-[#fbfcfd] p-3.5 transition-colors hover:border-[#0f766e] hover:bg-[#f2faf8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+          className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3.5 transition-colors hover:border-primary hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#fdf3dd] text-[#8a5300]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-warning-subtle text-warning">
             <FileArchive className="h-5 w-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">

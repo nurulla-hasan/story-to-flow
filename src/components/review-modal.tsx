@@ -12,9 +12,9 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog } from "@/components/ui/dialog";
-import { Field } from "@/components/ui/label";
+import { Modal } from "@/components/modal";
+import { Field } from "@/components/field";
+import { LabeledCheckbox } from "@/components/labeled-checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { api, ApiError, fileUrl, upload } from "@/lib/apiClient";
@@ -100,10 +100,6 @@ function ReviewModalContent({
     );
   }
 
-  /**
-   * Browser-side frame extraction: hidden/in-page video seeks to duration - 0.08s,
-   * draws onto canvas, converts to Blob, and POSTs to `/api/scenes/:n/last-frame`.
-   */
   async function extractLastFrame() {
     const video = videoRef.current;
     if (!video || !clipSrc) {
@@ -197,7 +193,7 @@ function ReviewModalContent({
   }
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onClose={onClose}
       title={`Clip review · Scene ${scene.n}`}
@@ -367,12 +363,12 @@ function ReviewModalContent({
 
             <div className="mt-3 space-y-1">
               {PROBLEMS.map((problem) => (
-                <Checkbox
+                <LabeledCheckbox
                   key={problem.id}
                   label={problem.label}
                   description={problem.desc}
                   checked={problems.includes(problem.id)}
-                  onChange={() => toggleProblem(problem.id)}
+                  onCheckedChange={() => toggleProblem(problem.id)}
                 />
               ))}
             </div>
@@ -437,7 +433,7 @@ function ReviewModalContent({
 
               {proposal.customRule ? (
                 <div className="mt-3 border-t border-brand-border pt-3">
-                  <Checkbox
+                  <LabeledCheckbox
                     label={
                       <span className="text-xs font-semibold text-secondary-foreground">
                         Save as custom rule for all scenes
@@ -445,7 +441,7 @@ function ReviewModalContent({
                     }
                     description={`"${proposal.customRule}" — will be added to MUST in every scene.`}
                     checked={saveAsRule}
-                    onChange={(event) => setSaveAsRule(event.target.checked)}
+                    onCheckedChange={(checked) => setSaveAsRule(checked)}
                   />
                 </div>
               ) : null}
@@ -479,7 +475,7 @@ function ReviewModalContent({
           ) : null}
         </div>
       </div>
-    </Dialog>
+    </Modal>
   );
 }
 

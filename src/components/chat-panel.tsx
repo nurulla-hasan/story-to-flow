@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
+import { Modal } from "@/components/modal";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { api, ApiError } from "@/lib/apiClient";
@@ -85,7 +85,7 @@ export function ChatDialog({
   }
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onClose={onClose}
       title="Chat planner"
@@ -188,6 +188,6 @@ export function ChatDialog({
           </div>
         ) : null}
       </div>
-    </Dialog>
+    </Modal>
   );
 }

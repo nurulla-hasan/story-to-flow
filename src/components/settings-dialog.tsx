@@ -3,11 +3,11 @@
 import * as React from "react";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog } from "@/components/ui/dialog";
-import { Field } from "@/components/ui/label";
+import { Modal } from "@/components/modal";
+import { Field } from "@/components/field";
+import { LabeledCheckbox } from "@/components/labeled-checkbox";
+import { SimpleSelect } from "@/components/simple-select";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/apiClient";
@@ -46,9 +46,10 @@ export function SettingsDialog({
 
   const presetOptions = React.useMemo(() => {
     const list = STYLE_PRESETS as readonly string[];
-    return list.includes(form.stylePreset)
+    const all = list.includes(form.stylePreset)
       ? list
       : [form.stylePreset, ...list];
+    return all.map((preset) => ({ value: preset, label: preset }));
   }, [form.stylePreset]);
 
   const scenes = sceneCount(form);
@@ -74,7 +75,7 @@ export function SettingsDialog({
   }
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onClose={onClose}
       title="Project settings"
@@ -95,16 +96,17 @@ export function SettingsDialog({
       <form id="settings-form" onSubmit={submit} className="grid gap-5">
         <section className="grid gap-4 sm:grid-cols-2">
           <Field label="Dialogue language" htmlFor="dialogueLanguage">
-            <Select
+            <SimpleSelect
               id="dialogueLanguage"
               value={form.dialogueLanguage}
-              onChange={(event) =>
-                set("dialogueLanguage", event.target.value as Settings["dialogueLanguage"])
+              onValueChange={(val) =>
+                set("dialogueLanguage", val as Settings["dialogueLanguage"])
               }
-            >
-              <option value="bn">Bangla</option>
-              <option value="en">English</option>
-            </Select>
+              options={[
+                { value: "bn", label: "Bangla" },
+                { value: "en", label: "English" },
+              ]}
+            />
           </Field>
           <Field
             label="Accent note"
@@ -133,22 +135,23 @@ export function SettingsDialog({
             />
           </Field>
           <Field label="Clip length" htmlFor="clipSeconds">
-            <Select
+            <SimpleSelect
               id="clipSeconds"
               value={String(form.clipSeconds)}
-              onChange={(event) =>
-                set("clipSeconds", Number(event.target.value) as 8 | 10)
+              onValueChange={(val) =>
+                set("clipSeconds", Number(val) as 8 | 10)
               }
-            >
-              <option value="8">8 seconds</option>
-              <option value="10">10 seconds</option>
-            </Select>
+              options={[
+                { value: "8", label: "8 seconds" },
+                { value: "10", label: "10 seconds" },
+              ]}
+            />
           </Field>
           <Field
             label="Scene count"
             hint={`${scenes} scenes — ceil(${form.totalMinutes * 60}s / ${form.clipSeconds}s)`}
           >
-            <div className="flex h-11 items-center rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums">
+            <div className="flex h-9 items-center rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums">
               {scenes}
             </div>
           </Field>
@@ -156,29 +159,25 @@ export function SettingsDialog({
 
         <section className="grid gap-4 sm:grid-cols-2">
           <Field label="Aspect ratio" htmlFor="aspectRatio">
-            <Select
+            <SimpleSelect
               id="aspectRatio"
               value={form.aspectRatio}
-              onChange={(event) =>
-                set("aspectRatio", event.target.value as Settings["aspectRatio"])
+              onValueChange={(val) =>
+                set("aspectRatio", val as Settings["aspectRatio"])
               }
-            >
-              <option value="16:9">16:9 — landscape</option>
-              <option value="9:16">9:16 — vertical</option>
-            </Select>
+              options={[
+                { value: "16:9", label: "16:9 — landscape" },
+                { value: "9:16", label: "9:16 — vertical" },
+              ]}
+            />
           </Field>
           <Field label="Visual style preset" htmlFor="stylePreset">
-            <Select
+            <SimpleSelect
               id="stylePreset"
               value={form.stylePreset}
-              onChange={(event) => set("stylePreset", event.target.value)}
-            >
-              {presetOptions.map((preset) => (
-                <option key={preset} value={preset}>
-                  {preset}
-                </option>
-              ))}
-            </Select>
+              onValueChange={(val) => set("stylePreset", val)}
+              options={presetOptions}
+            />
           </Field>
           <Field
             label="Style notes"
@@ -219,39 +218,40 @@ export function SettingsDialog({
               }
             />
           </Field>
-          <Checkbox
+          <LabeledCheckbox
             label="Dialogue on"
             description="Planner may add one line per scene."
             checked={form.dialogueEnabled}
-            onChange={(event) => set("dialogueEnabled", event.target.checked)}
+            onCheckedChange={(checked) => set("dialogueEnabled", checked)}
           />
-          <Checkbox
+          <LabeledCheckbox
             label="Ambient sound on"
             description="Keep diegetic sound; no background music otherwise."
             checked={form.ambientSound}
-            onChange={(event) => set("ambientSound", event.target.checked)}
+            onCheckedChange={(checked) => set("ambientSound", checked)}
           />
-          <Checkbox
+          <LabeledCheckbox
             label="Frame chaining"
             description="Scene N starts from the last frame of scene N-1."
             checked={form.frameChaining}
-            onChange={(event) => set("frameChaining", event.target.checked)}
+            onCheckedChange={(checked) => set("frameChaining", checked)}
           />
           <Field label="Validator strictness" htmlFor="validatorStrictness">
-            <Select
+            <SimpleSelect
               id="validatorStrictness"
               value={form.validatorStrictness}
-              onChange={(event) =>
+              onValueChange={(val) =>
                 set(
                   "validatorStrictness",
-                  event.target.value as Settings["validatorStrictness"],
+                  val as Settings["validatorStrictness"],
                 )
               }
-            >
-              <option value="off">Off — deterministic checks only</option>
-              <option value="light">Light — one validation pass</option>
-              <option value="strict">Strict — two fix rounds</option>
-            </Select>
+              options={[
+                { value: "off", label: "Off — deterministic checks only" },
+                { value: "light", label: "Light — one validation pass" },
+                { value: "strict", label: "Strict — two fix rounds" },
+              ]}
+            />
           </Field>
         </section>
 
@@ -274,16 +274,17 @@ export function SettingsDialog({
             htmlFor="imageProvider"
             hint="Manual is the safe default: copy the keyframe prompt, generate in Flow, upload."
           >
-            <Select
+            <SimpleSelect
               id="imageProvider"
               value={form.imageProvider}
-              onChange={(event) =>
-                set("imageProvider", event.target.value as Settings["imageProvider"])
+              onValueChange={(val) =>
+                set("imageProvider", val as Settings["imageProvider"])
               }
-            >
-              <option value="manual">Manual — copy prompt + upload</option>
-              <option value="omniroute">OmniRoute — try to generate</option>
-            </Select>
+              options={[
+                { value: "manual", label: "Manual — copy prompt + upload" },
+                { value: "omniroute", label: "OmniRoute — try to generate" },
+              ]}
+            />
           </Field>
           <div className="flex items-end pb-1 text-xs leading-5 text-muted-foreground">
             The probe showed no image returned from the chat-tagged model, so
@@ -321,6 +322,6 @@ export function SettingsDialog({
           </Field>
         </section>
       </form>
-    </Dialog>
+    </Modal>
   );
 }

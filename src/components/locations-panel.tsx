@@ -5,8 +5,8 @@ import Image from "next/image";
 import { ImagePlus, MapPin, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog } from "@/components/ui/dialog";
-import { Field } from "@/components/ui/label";
+import { Modal } from "@/components/modal";
+import { Field } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -146,7 +146,7 @@ export function LocationsPanel({
         />
       </CardContent>
 
-      <Dialog
+      <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
         title={`Edit ${editing?.name ?? "location"}`}
@@ -184,7 +184,7 @@ export function LocationsPanel({
             />
           </Field>
         </div>
-      </Dialog>
+      </Modal>
     </Card>
   );
 }

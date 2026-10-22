@@ -5,11 +5,11 @@ import Image from "next/image";
 import { ImagePlus, Merge, Pencil, Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog } from "@/components/ui/dialog";
-import { Field } from "@/components/ui/label";
+import { Modal } from "@/components/modal";
+import { Field } from "@/components/field";
+import { LabeledCheckbox } from "@/components/labeled-checkbox";
+import { SimpleSelect } from "@/components/simple-select";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError, fileUrl, upload } from "@/lib/apiClient";
@@ -272,7 +272,7 @@ export function CharactersPanel({
         />
       </CardContent>
 
-      <Dialog
+      <Modal
         open={dialog === "add" || dialog === "edit"}
         onClose={() => setDialog(null)}
         title={dialog === "add" ? "Add character" : `Edit ${draft.name}`}
@@ -312,16 +312,17 @@ export function CharactersPanel({
               />
             </Field>
             <Field label="Dialogue language" htmlFor="char-language">
-              <Select
+              <SimpleSelect
                 id="char-language"
                 value={draft.language}
-                onChange={(event) =>
-                  setDraft({ ...draft, language: event.target.value as "bn" | "en" })
+                onValueChange={(val) =>
+                  setDraft({ ...draft, language: val as "bn" | "en" })
                 }
-              >
-                <option value="bn">Bangla</option>
-                <option value="en">English</option>
-              </Select>
+                options={[
+                  { value: "bn", label: "Bangla" },
+                  { value: "en", label: "English" },
+                ]}
+              />
             </Field>
           </div>
           <Field
@@ -348,18 +349,18 @@ export function CharactersPanel({
               rows={3}
             />
           </Field>
-          <Checkbox
+          <LabeledCheckbox
             label="This character changes outfit in the story"
             description="When off, dress never changes between scenes."
             checked={draft.outfit_changes}
-            onChange={(event) =>
-              setDraft({ ...draft, outfit_changes: event.target.checked })
+            onCheckedChange={(checked) =>
+              setDraft({ ...draft, outfit_changes: checked })
             }
           />
         </div>
-      </Dialog>
+      </Modal>
 
-      <Dialog
+      <Modal
         open={dialog === "merge"}
         onClose={() => setDialog(null)}
         title="Merge two characters"
@@ -382,33 +383,23 @@ export function CharactersPanel({
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Remove (source)" htmlFor="merge-source">
-            <Select
+            <SimpleSelect
               id="merge-source"
               value={sourceId}
-              onChange={(event) => setSourceId(event.target.value)}
-            >
-              {data.characters.map((character) => (
-                <option key={character.id} value={character.id}>
-                  {character.name}
-                </option>
-              ))}
-            </Select>
+              onValueChange={setSourceId}
+              options={data.characters.map((c) => ({ value: c.id, label: c.name }))}
+            />
           </Field>
           <Field label="Keep (target)" htmlFor="merge-target">
-            <Select
+            <SimpleSelect
               id="merge-target"
               value={targetId}
-              onChange={(event) => setTargetId(event.target.value)}
-            >
-              {data.characters.map((character) => (
-                <option key={character.id} value={character.id}>
-                  {character.name}
-                </option>
-              ))}
-            </Select>
+              onValueChange={setTargetId}
+              options={data.characters.map((c) => ({ value: c.id, label: c.name }))}
+            />
           </Field>
         </div>
-      </Dialog>
+      </Modal>
     </Card>
   );
 }

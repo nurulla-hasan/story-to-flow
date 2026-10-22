@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Download, FileArchive, FileJson, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
+import { Modal } from "@/components/modal";
 
 export function ExportDialog({
   open,
@@ -13,7 +13,7 @@ export function ExportDialog({
   onClose: () => void;
 }) {
   return (
-    <Dialog
+    <Modal
       open={open}
       onClose={onClose}
       title="Export production package"
@@ -31,8 +31,8 @@ export function ExportDialog({
           download
           className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3.5 transition-colors hover:border-primary hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <FileText className="h-5 w-5" aria-hidden />
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <FileText className="size-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">Prompts (.txt)</p>
@@ -40,7 +40,7 @@ export function ExportDialog({
               Plain text formatted with clear scene dividers, ready for easy copy-paste.
             </p>
           </div>
-          <Download className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <Download className="size-4 text-muted-foreground" aria-hidden />
         </a>
 
         <a
@@ -48,8 +48,8 @@ export function ExportDialog({
           download
           className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3.5 transition-colors hover:border-primary hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-            <FileJson className="h-5 w-5" aria-hidden />
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+            <FileJson className="size-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">Complete Plan (.json)</p>
@@ -57,7 +57,7 @@ export function ExportDialog({
               Story bible, locked characters, locations, settings, and all scene metadata.
             </p>
           </div>
-          <Download className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <Download className="size-4 text-muted-foreground" aria-hidden />
         </a>
 
         <a
@@ -65,8 +65,8 @@ export function ExportDialog({
           download
           className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3.5 transition-colors hover:border-primary hover:bg-brand-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-warning-subtle text-warning">
-            <FileArchive className="h-5 w-5" aria-hidden />
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-warning-subtle text-warning">
+            <FileArchive className="size-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">Full Archive (.zip)</p>
@@ -74,9 +74,9 @@ export function ExportDialog({
               Contains prompts.txt, plan.json, and all stored keyframes, last frames, and clips.
             </p>
           </div>
-          <Download className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <Download className="size-4 text-muted-foreground" aria-hidden />
         </a>
       </div>
-    </Dialog>
+    </Modal>
   );
 }

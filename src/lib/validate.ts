@@ -88,32 +88,46 @@ export function deterministicChecksForScene(
     error("dialogue_disabled", "Dialogue is turned off in settings.", "dialogue");
   }
   if (scene.dialogue) {
+    const isConversation =
+      scene.dialogue.line.includes(":") ||
+      scene.dialogue.speaker.includes(",") ||
+      scene.dialogue.speaker.includes("&");
+    const limit = isConversation
+      ? Math.max(settings.maxDialogueWords, 45)
+      : settings.maxDialogueWords;
     const words = countWords(scene.dialogue.line);
-    if (words > settings.maxDialogueWords) {
+    if (words > limit) {
       error(
         "dialogue_too_long",
-        `Dialogue has ${words} words; the limit is ${settings.maxDialogueWords}.`,
+        `Dialogue has ${words} words; the limit is ${limit}.`,
         "dialogue",
       );
     }
-    const speaker = scene.characters.includes(scene.dialogue.speaker);
-    if (!speaker) {
+    const speakers = scene.dialogue.speaker
+      .split(/[,&/]/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const visibleChars = scene.characters.map((c) => c.toLowerCase());
+    const missingSpeakers = speakers.filter((s) => !visibleChars.includes(s));
+    if (missingSpeakers.length > 0) {
       error(
         "speaker_not_visible",
-        `Dialogue speaker "${scene.dialogue.speaker}" is not visible in this scene.`,
+        `Dialogue speaker "${missingSpeakers.join(", ")}" is not visible in this scene.`,
         "dialogue",
       );
     }
-    const character = data.characters.find(
-      (item) => item.id === scene.dialogue?.speaker,
-    );
-    if (character && character.language !== settings.dialogueLanguage) {
-      // Per-character override is allowed; this is informational only.
-      warning(
-        "language_override",
-        `Speaker ${character.name} uses ${languageLabel(character.language)} rather than the project language.`,
-        "dialogue",
+    for (const speakerId of speakers) {
+      const character = data.characters.find(
+        (item) => item.id.toLowerCase() === speakerId,
       );
+      if (character && character.language !== settings.dialogueLanguage) {
+        // Per-character override is allowed; this is informational only.
+        warning(
+          "language_override",
+          `Speaker ${character.name} uses ${languageLabel(character.language)} rather than the project language.`,
+          "dialogue",
+        );
+      }
     }
   }
 

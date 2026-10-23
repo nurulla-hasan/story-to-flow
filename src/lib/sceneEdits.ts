@@ -77,8 +77,16 @@ export function applySceneFieldEdits(
   }
 
   if (next.is_establishing) next.dialogue = null;
-  if (next.dialogue && !next.characters.includes(next.dialogue.speaker)) {
-    next.dialogue = null;
+  if (next.dialogue) {
+    const speakers = next.dialogue.speaker
+      .split(/[,&/]/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const visibleChars = next.characters.map((c) => c.toLowerCase());
+    const hasVisibleSpeaker = speakers.some((s) => visibleChars.includes(s));
+    if (!hasVisibleSpeaker) {
+      next.dialogue = null;
+    }
   }
   const parsed = sceneSchema.safeParse({ ...next, n: scene.n });
   if (!parsed.success) return {};

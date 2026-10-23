@@ -69,12 +69,14 @@ export function assemblePrompt(
   const dialogueLanguage = speaker?.language ?? settings.dialogueLanguage;
   if (settings.dialogueEnabled && scene.dialogue) {
     if (scene.dialogue.line.includes(":") || scene.dialogue.speaker.includes(",") || scene.dialogue.speaker.includes("&")) {
+      const formattedLine = scene.dialogue.line.replace(/\r?\n+/g, " | ");
       lines.push(
-        `DIALOGUE: Short conversation in ${languageLabel(dialogueLanguage)}: "${scene.dialogue.line}". Voices and accents match the character locks.`,
+        `DIALOGUE: Short conversation in ${languageLabel(dialogueLanguage)}: "${formattedLine}". Voices and accents match the character locks.`,
       );
     } else {
+      const formattedLine = scene.dialogue.line.replace(/\r?\n+/g, " ");
       lines.push(
-        `DIALOGUE: ${speakerName} says in ${languageLabel(dialogueLanguage)}, "${scene.dialogue.line}". Same voice as in every other scene.`,
+        `DIALOGUE: ${speakerName} says in ${languageLabel(dialogueLanguage)}, "${formattedLine}". Same voice as in every other scene.`,
       );
     }
   } else {

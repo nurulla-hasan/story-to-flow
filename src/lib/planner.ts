@@ -64,7 +64,7 @@ Schema for the response:
       "camera": { "shot": "wide/medium/close-up", "angle": "eye level/low/high", "movement": "static/slow push/handheld" },
       "start_state": "where each character is, facing, holding, light",
       "end_state": "same, at the last frame",
-      "dialogue": { "speaker": "rina", "line": "..." } or null,
+      "dialogue": { "speaker": "rina", "line": "..." } or { "speaker": "rina, karim", "line": "রিনা: ...\\nকরিম: ..." } or null,
       "sound": "diegetic ambience"
     }
   ]
@@ -72,20 +72,21 @@ Schema for the response:
 
 Planning rules, in order of importance:
 1. One shot, one main action per scene. Never cut in the middle of an action; end scenes when an action finishes.
-2. Group scenes of the same location together. Before every location change insert an establishing shot (is_establishing true, no dialogue) and set chain_from_previous false for it.
-3. start_state of scene N must equal end_state of scene N-1 whenever chain_from_previous is true.
-4. Never use pronouns or nicknames for characters in scene fields. Use the bible character ids only; the app substitutes visual and voice locks. Do not write character names in action/start/end.
-5. Respect max people per scene and max dialogue words. Dialogue is written in the character's language, in native script (Bangla script for Bangla, never romanized).
-6. Dress and voice never change unless the character has outfit_changes true and the scene says so explicitly.
-7. Use only location ids and character ids from the bible. No new characters or locations.
-8. The number of scenes requested is exact; establishing shots count toward that number. Do not add scenes beyond the requested count.
-9. Dialogue is flexible based on the story. A scene can feature one character speaking, or a brief natural dialogue exchange between visible characters if the story calls for it. For longer conversations, alternate across consecutive scenes (shot-reverse-shot) to maintain cinematic rhythm and clean lip sync. Keep total dialogue words within limits.
-10. For a scene after a location change, the establishing shot re-establishes the place, then the next scene may chain from it. When scene N chains from an empty establishing shot (or a scene with no characters), the character must explicitly ENTER the frame during the action (e.g. "walks into frame", "steps onto the bridge and sits"), NEVER described as already sitting, standing, or posed in place at the start frame.
-11. Keep camera language simple and shootable in one clip.
-12. If a character is not visible in a scene, do not list them in characters.
-13. Shot-scale continuity: Do not jump directly between a wide shot and a close-up while chain_from_previous is true unless camera movement is rapid push/zoom. A static camera jump between wide and close-up is a cut (set chain_from_previous false).
-14. Prop continuity: If a character was empty-handed in the previous scene, do not start with them holding a new prop in a chained take; have them pick up or take out the prop during the action.
-15. Dialogue camera angle: When a scene contains dialogue, the speaking character's face must be visible to the camera (front view, 3/4 angle, or profile), never facing directly away from camera.`;
+2. Group scenes of the same location together. Before every location change insert an establishing shot (is_establishing true, no dialogue) and set chain_from_previous false for it. Exception: When the total scene count is short (3 or fewer scenes) or when the story starts directly with characters engaged in action or dialogue at the starting location, do NOT insert an empty establishing shot; start scene 1 directly with the characters in action/dialogue so valuable screen time and story momentum are not wasted.
+3. Complete Story & Dialogue Coverage: You MUST cover and pace the complete narrative arc of the story from beginning to end across the planned scenes, including all key dialogue exchanges, actions, climax, and resolution/punchline. Never truncate the story or stop after only the first line of dialogue.
+4. start_state of scene N must equal end_state of scene N-1 whenever chain_from_previous is true.
+5. Never use pronouns or nicknames for characters in scene fields. Use the bible character ids only; the app substitutes visual and voice locks. Do not write character names in action/start/end.
+6. Respect max people per scene and max dialogue words. Dialogue is written in the character's language, in native script (Bangla script for Bangla, never romanized).
+7. Dress and voice never change unless the character has outfit_changes true and the scene says so explicitly.
+8. Use only location ids and character ids from the bible. No new characters or locations.
+9. The number of scenes requested is exact; establishing shots (if any) count toward that number. Do not add scenes beyond the requested count.
+10. Dialogue: A scene can feature one character speaking, or a natural dialogue exchange between visible characters if the story contains banter or conversation. Include character dialogue from the story faithfully in native script. For dialogue exchanges between characters in the same scene, list their IDs comma-separated in "speaker" (e.g. "banor, kumir") and include each line in "line" (e.g. "বানর: কুমির ভাই, তোমার মুখ এত বড় কেন?\\nকুমির: যাতে তোমার মতো বকবক করা প্রাণীকে এক কামড়ে খেতে পারি!"). All speakers listed in dialogue must be in the scene's "characters" list.
+11. For a scene after a location change, the establishing shot re-establishes the place, then the next scene may chain from it. When scene N chains from an empty establishing shot (or a scene with no characters), the character must explicitly ENTER the frame during the action (e.g. "walks into frame", "steps onto the bridge and sits"), NEVER described as already sitting, standing, or posed in place at the start frame.
+12. Keep camera language simple and shootable in one clip.
+13. If a character is not visible in a scene, do not list them in characters.
+14. Shot-scale continuity: Do not jump directly between a wide shot and a close-up while chain_from_previous is true unless camera movement is rapid push/zoom. A static camera jump between wide and close-up is a cut (set chain_from_previous false).
+15. Prop continuity: If a character was empty-handed in the previous scene, do not start with them holding a new prop in a chained take; have them pick up or take out the prop during the action.
+16. Dialogue camera angle: When a scene contains dialogue, the speaking character's face must be visible to the camera (front view, 3/4 angle, or profile), never facing directly away from camera.`;
 
 export async function generateBible(
   data: ProjectData,
@@ -155,12 +156,13 @@ export async function planSceneBatch(opts: {
   data: ProjectData;
   startN: number;
   count?: number;
+  totalScenes?: number;
   isAuto?: boolean;
   previousScenes: Scene[];
   models?: { planner?: string; validator?: string; image?: string };
   signal?: AbortSignal;
 }): Promise<Scene[]> {
-  const { data, startN, count = 5, isAuto = false, previousScenes, models, signal } = opts;
+  const { data, startN, count = 5, totalScenes, isAuto = false, previousScenes, models, signal } = opts;
   const settings = data.project.settings;
   const bible = {
     title: data.project.name,
@@ -205,9 +207,17 @@ ${previousScenes.length ? JSON.stringify(previousScenes, null, 2) : "(none — t
 ${
   isAuto
     ? `TASK:
-Analyze the complete story text and divide it into a natural, complete sequence of continuous 8-10 second shots from beginning to end. Create as many scenes as needed to tell the complete narrative faithfully without rushing or unnecessary filler. Number scenes sequentially starting at ${startN}. Include establishing shots before location changes. Return {"scenes":[...]} only.`
+Analyze the complete story text and divide it into a natural, complete sequence of continuous 8-10 second shots from beginning to end. Cover the full story arc including all dialogues and the conclusion. Create as many scenes as needed to tell the complete narrative faithfully without rushing or unnecessary filler. Number scenes sequentially starting at ${startN}. Include establishing shots before location changes. Return {"scenes":[...]} only.`
     : `TASK:
-Write scenes ${startN} through ${startN + count - 1} (exactly ${count} scenes). Set n sequentially. Continue the location grouping and chaining from the previous scenes. Include establishing shots before location changes (they count toward the ${count}). Return {"scenes":[...]} only.`
+Write scenes ${startN} through ${startN + count - 1} (exactly ${count} scenes).
+${
+  totalScenes && totalScenes === count && startN === 1
+    ? `IMPORTANT: This is the ENTIRE video production (${totalScenes} scenes total). You MUST pace and tell the COMPLETE story from start to finish within these ${totalScenes} scenes, including all key dialogues, the main interaction/conflict, and the final climax/punchline! Do NOT leave out the later parts of the story. Do NOT waste scene 1 on an empty establishing shot—bring the characters into the action immediately so every scene advances the story.`
+    : totalScenes
+      ? `This is scenes ${startN} to ${startN + count - 1} of ${totalScenes} total planned scenes. Pace the story so the complete narrative arc fits across all ${totalScenes} scenes.`
+      : ""
+}
+Set n sequentially. Continue the location grouping and chaining from the previous scenes. Return {"scenes":[...]} only.`
 }`;
 
   const raw = await chatJSON({

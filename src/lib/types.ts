@@ -114,8 +114,8 @@ export const cameraSchema = z.object({
 export type Camera = z.infer<typeof cameraSchema>;
 
 export const dialogueSchema = z.object({
-  speaker: z.string().min(1).max(60),
-  line: z.string().min(1).max(500),
+  speaker: z.string().min(1).max(120),
+  line: z.string().min(1).max(1000),
 });
 export type Dialogue = z.infer<typeof dialogueSchema>;
 

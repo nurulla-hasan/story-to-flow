@@ -518,6 +518,7 @@ async function runPlanJob(
           data,
           startN,
           count,
+          totalScenes: total,
           previousScenes: previous,
           models: settings.models,
           signal,
@@ -776,8 +777,12 @@ export function sanitizeScenePlan(
       );
     }
     if (scene.is_establishing) {
-      scene.dialogue = null;
-      scene.chain_from_previous = false;
+      if (scene.n === 1 && (scene.dialogue || scene.characters.length > 0)) {
+        scene.is_establishing = false;
+      } else {
+        scene.dialogue = null;
+        scene.chain_from_previous = false;
+      }
     }
     if (!previous) scene.chain_from_previous = false;
     if (!settings.frameChaining) scene.chain_from_previous = false;

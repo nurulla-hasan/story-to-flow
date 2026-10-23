@@ -188,4 +188,24 @@ describe("deterministicChecksForScene", () => {
     );
     expect(issues.some((i) => i.code === "missing_establishing")).toBe(true);
   });
+
+  it("validates multi-speaker conversation without flagging speaker_not_visible when visible", () => {
+    const scene: SceneRecord = {
+      ...mockProjectData.scenes[0],
+      characters: ["rina", "karim"],
+      dialogue: {
+        speaker: "rina, karim",
+        line: "রিনা: করিম ভাই কেমন আছেন?\nকরিম: ভালো আছি রিনা।",
+      },
+    };
+    const prompt = assemblePrompt(mockProjectData, scene);
+    const imgPrompt = assembleImagePrompt(mockProjectData, scene);
+    const issues = deterministicChecksForScene(
+      mockProjectData,
+      scene,
+      prompt,
+      imgPrompt,
+    );
+    expect(issues.some((i) => i.code === "speaker_not_visible")).toBe(false);
+  });
 });

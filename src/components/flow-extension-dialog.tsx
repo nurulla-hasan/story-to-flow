@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, ExternalLink, Layers, Sparkles } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Layers, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/modal";
 import { isFlowExtensionInstalled } from "@/lib/flowBridge";
@@ -91,10 +91,22 @@ export function FlowExtensionDialog({
 
         {/* 1-Minute Setup Guide */}
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            1-Minute Setup Instructions
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Setup Instructions
+            </p>
+            <a
+              href="/api/extension/download"
+              download="story-to-flow-extension.zip"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20"
+            >
+              <Download className="size-3.5" /> Download Extension (.zip)
+            </a>
+          </div>
           <ol className="list-inside list-decimal space-y-1.5 text-xs leading-5 text-foreground">
+            <li>
+              Click the <strong>Download Extension (.zip)</strong> button above and unzip the file on your computer.
+            </li>
             <li>
               Open Google Chrome and go to{" "}
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
@@ -105,13 +117,7 @@ export function FlowExtensionDialog({
               Enable <strong>Developer mode</strong> using the toggle at the top-right.
             </li>
             <li>
-              Click <strong>Load unpacked</strong> at the top-left.
-            </li>
-            <li>
-              Select the <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">extension</code> folder in your project:
-              <div className="mt-1 rounded bg-muted/80 p-2 font-mono text-2xs select-all text-muted-foreground">
-                C:\Users\golap\Desktop\story-to-flow\extension
-              </div>
+              Click <strong>Load unpacked</strong> at the top-left and select the unzipped extension folder.
             </li>
           </ol>
         </div>

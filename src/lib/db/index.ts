@@ -8,6 +8,13 @@ import type { Repo } from "./repo";
 let cached: Repo | null = null;
 
 function createRepo(): Repo {
+  // On serverless environments (e.g. Vercel), native binaries like better-sqlite3 often fail or aren't compatible
+  // Fall back cleanly to JsonRepo which works seamlessly with /tmp storage
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    console.info("[story-to-flow] Vercel/serverless detected: using JsonRepo");
+    return new JsonRepo();
+  }
+
   try {
     const nativeRequire = createRequire(path.join(process.cwd(), "package.json"));
     const Database = nativeRequire("better-sqlite3") as typeof BetterSqlite3;

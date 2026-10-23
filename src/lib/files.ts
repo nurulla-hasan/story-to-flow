@@ -2,7 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { nowIso } from "./types";
 
-export const DATA_DIR = path.join(process.cwd(), "data");
+// In serverless / Vercel, read-only root requires storing writable files in /tmp/data
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+export const DATA_DIR = isServerless
+  ? path.join("/tmp", "story-to-flow-data")
+  : path.join(process.cwd(), "data");
+
 export const FILES_DIR = path.join(DATA_DIR, "files");
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -19,6 +25,7 @@ const MIME_BY_EXT: Record<string, string> = {
 };
 
 export function ensureDirs(): void {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(FILES_DIR, { recursive: true });
 }
 

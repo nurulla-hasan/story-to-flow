@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 import {
@@ -133,7 +132,6 @@ export class SqliteRepo implements Repo {
 
   constructor(Database: DatabaseCtor) {
     ensureDirs();
-    fs.mkdirSync(DATA_DIR, { recursive: true });
     this.db = new Database(path.join(DATA_DIR, "story-to-flow.db"));
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);

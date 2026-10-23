@@ -15,6 +15,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { ReviewModal } from "@/components/review-modal";
 import { ChatDialog } from "@/components/chat-panel";
 import { ExportDialog } from "@/components/export-dialog";
+import { FlowExtensionDialog } from "@/components/flow-extension-dialog";
 import { api, ApiError } from "@/lib/apiClient";
 import type { JobRecord, ProjectData } from "@/lib/types";
 
@@ -29,6 +30,7 @@ export default function WorkspacePage() {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [chatOpen, setChatOpen] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [extensionOpen, setExtensionOpen] = React.useState(false);
 
   const [toast, setToast] = React.useState<ToastState | null>(null);
   const [activeJob, setActiveJob] = React.useState<JobRecord | null>(null);
@@ -157,6 +159,7 @@ export default function WorkspacePage() {
         onOpenChat={() => setChatOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenExport={() => setExportOpen(true)}
+        onOpenExtension={() => setExtensionOpen(true)}
       />
 
       {/* Planning Job Progress Banner */}
@@ -232,6 +235,11 @@ export default function WorkspacePage() {
       <ExportDialog
         open={exportOpen}
         onClose={() => setExportOpen(false)}
+      />
+
+      <FlowExtensionDialog
+        open={extensionOpen}
+        onClose={() => setExtensionOpen(false)}
       />
 
       {/* Toast Notification */}

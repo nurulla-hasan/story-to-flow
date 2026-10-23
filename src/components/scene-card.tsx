@@ -16,11 +16,13 @@ import {
   PlayCircle,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import { api, ApiError, copyText, fileUrl, STATUS_META, upload } from "@/lib/apiClient";
+import { isFlowExtensionInstalled, sendToFlow } from "@/lib/flowBridge";
 import type { ProjectData, SceneRecord } from "@/lib/types";
 import { languageLabel } from "@/lib/types";
 
@@ -92,6 +94,43 @@ export function SceneCard({
       notify("Prompt copied. Paste it into Flow.", "success");
     } catch {
       notify("Could not access the clipboard.", "error");
+    }
+  }
+
+  async function handleSendToFlow() {
+    if (!prompt) return;
+    setBusy("flow");
+    try {
+      const isInstalled = isFlowExtensionInstalled();
+      if (!isInstalled) {
+        await copyText(prompt);
+        window.open("https://flow.google.com", "_blank");
+        notify(
+          "Prompt copied! Load the extension from the 'extension' folder to enable 1-click auto-typing & image uploads in Flow.",
+          "info",
+        );
+        return;
+      }
+
+      notify("Sending prompt & starting frame to Google Flow…", "info");
+      const res = await sendToFlow({
+        prompt,
+        imageUrl: displayImage,
+        imageName: isChained
+          ? `scene-${scene.n}-start-frame.png`
+          : `scene-${scene.n}-keyframe.png`,
+        autoRun: true,
+      });
+
+      if (res.success) {
+        notify(res.message || `Scene ${scene.n} sent to Google Flow!`, "success");
+      } else {
+        notify(res.error || "Failed to send to Google Flow.", "error");
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -342,6 +381,30 @@ export function SceneCard({
                 <Button
                   type="button"
                   size="sm"
+                  className="h-9 gap-1.5 text-xs font-semibold"
+                  onClick={handleSendToFlow}
+                  disabled={!prompt || busy === "flow"}
+                  title={
+                    displayImage
+                      ? "Auto-inject prompt and attach start frame image into Google Flow"
+                      : "Auto-inject prompt into Google Flow"
+                  }
+                >
+                  {busy === "flow" ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="size-3.5" aria-hidden />
+                  )}
+                  {busy === "flow"
+                    ? "Sending to Flow…"
+                    : displayImage
+                      ? "🚀 Send to Flow (+Image)"
+                      : "🚀 Send to Flow"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
                   className="h-9 text-xs"
                   onClick={copyPrompt}
                   disabled={!prompt}

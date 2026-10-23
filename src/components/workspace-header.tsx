@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bot, CheckCircle2, Download, Settings2 } from "lucide-react";
+import { Bot, CheckCircle2, Download, Settings2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface WorkspaceHeaderProps {
@@ -11,6 +11,7 @@ interface WorkspaceHeaderProps {
   onOpenChat: () => void;
   onOpenSettings: () => void;
   onOpenExport: () => void;
+  onOpenExtension: () => void;
 }
 
 export function WorkspaceHeader({
@@ -20,6 +21,7 @@ export function WorkspaceHeader({
   onOpenChat,
   onOpenSettings,
   onOpenExport,
+  onOpenExtension,
 }: WorkspaceHeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-xs">
@@ -43,6 +45,18 @@ export function WorkspaceHeader({
             <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
             {doneCount} of {totalScenes} clips done
           </span>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onOpenExtension}
+            className="h-9 gap-1.5 text-xs"
+            title="Google Flow Auto-Bridge Extension"
+          >
+            <Sparkles className="size-3.5 text-primary" aria-hidden />
+            <span className="hidden sm:inline">Flow Bridge</span>
+          </Button>
 
           <Button
             type="button"

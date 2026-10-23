@@ -45,8 +45,12 @@ export function assemblePrompt(
     lines.push("- No characters visible in this establishing shot.");
   } else {
     for (const character of characters) {
+      const displayName =
+        character.name.toLowerCase() === character.id.toLowerCase()
+          ? character.name
+          : `${character.name} (${character.id})`;
       lines.push(
-        `- ${character.name}: ${character.visual_lock} Voice: ${character.voice_lock}.`,
+        `- ${displayName}: ${character.visual_lock} Voice: ${character.voice_lock}.`,
       );
     }
   }
@@ -91,6 +95,11 @@ export function assemblePrompt(
     must.push(
       "Keep every face, hair, skin tone, dress, accessory and voice exactly as locked above for the whole clip.",
     );
+    if (characters.length >= 2) {
+      must.push(
+        "Do not swap or blend clothing, colors, faces, or accessories between different characters in the scene.",
+      );
+    }
   }
   if (scene.is_establishing) {
     must.push(
@@ -98,13 +107,31 @@ export function assemblePrompt(
     );
   }
   if (settings.frameChaining && scene.chain_from_previous && scene.n > 1) {
-    must.push(
-      `Continue directly from the last frame of Scene ${scene.n - 1}: same positions, facing, props and light at the first frame.`,
-    );
-    if (scene.startFramePath) {
+    const prevScene = data.scenes.find((s) => s.n === scene.n - 1);
+    const prevExited =
+      Boolean(prevScene && /\b(exits?|walks? off|leaves?|runs? off|disappears?|walks? away|out of frame)\b/i.test(prevScene.action || ""));
+    const prevHadNoChars =
+      prevScene && (prevScene.characters.length === 0 || prevScene.is_establishing || prevExited);
+    const currentHasChars = characters.length > 0;
+
+    if (prevHadNoChars && currentHasChars) {
       must.push(
-        `The supplied start frame (last frame of Scene ${scene.n - 1}) is the literal first frame of this clip.`,
+        `Start with the location empty matching the last frame of Scene ${scene.n - 1}. Characters enter the frame during the take.`,
       );
+      if (scene.startFramePath) {
+        must.push(
+          `The supplied start frame (last frame of Scene ${scene.n - 1}, showing the empty location) is the literal first frame of this clip.`,
+        );
+      }
+    } else {
+      must.push(
+        `Continue directly from the last frame of Scene ${scene.n - 1}: same positions, facing, props and light at the first frame.`,
+      );
+      if (scene.startFramePath) {
+        must.push(
+          `The supplied start frame (last frame of Scene ${scene.n - 1}) is the literal first frame of this clip.`,
+        );
+      }
     }
   }
   if (settings.frameChaining && !scene.chain_from_previous && scene.n > 1) {

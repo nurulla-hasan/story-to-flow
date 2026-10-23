@@ -46,6 +46,7 @@ Rules:
 - style_lock must reflect the requested visual style and be one fixed line.
 - Write all locks in English (the video model is prompted in English), except character names.
 - 3 characters in the story means 3 characters here. Do not add fixed extras.
+- Clothing disambiguation: Assign clearly distinct, contrasting clothing colors and silhouettes to each character (e.g. if one character wears dark blue, give other characters contrasting colors like green, yellow, or white) so video models never swap outfits.
 - Locations: every distinct place where action happens. Keep the count minimal and faithful.`;
 
 const SCENE_SYSTEM = `You are a film pre-production planner for a text-to-video model that generates ONE continuous shot per scene (8-10 seconds). You return JSON only, no markdown, no commentary.
@@ -79,9 +80,12 @@ Planning rules, in order of importance:
 7. Use only location ids and character ids from the bible. No new characters or locations.
 8. The number of scenes requested is exact; establishing shots count toward that number. Do not add scenes beyond the requested count.
 9. Dialogue is flexible based on the story. A scene can feature one character speaking, or a brief natural dialogue exchange between visible characters if the story calls for it. For longer conversations, alternate across consecutive scenes (shot-reverse-shot) to maintain cinematic rhythm and clean lip sync. Keep total dialogue words within limits.
-10. For a scene after a location change, the establishing shot re-establishes the place, then the next scene may chain from it.
+10. For a scene after a location change, the establishing shot re-establishes the place, then the next scene may chain from it. When scene N chains from an empty establishing shot (or a scene with no characters), the character must explicitly ENTER the frame during the action (e.g. "walks into frame", "steps onto the bridge and sits"), NEVER described as already sitting, standing, or posed in place at the start frame.
 11. Keep camera language simple and shootable in one clip.
-12. If a character is not visible in a scene, do not list them in characters.`;
+12. If a character is not visible in a scene, do not list them in characters.
+13. Shot-scale continuity: Do not jump directly between a wide shot and a close-up while chain_from_previous is true unless camera movement is rapid push/zoom. A static camera jump between wide and close-up is a cut (set chain_from_previous false).
+14. Prop continuity: If a character was empty-handed in the previous scene, do not start with them holding a new prop in a chained take; have them pick up or take out the prop during the action.
+15. Dialogue camera angle: When a scene contains dialogue, the speaking character's face must be visible to the camera (front view, 3/4 angle, or profile), never facing directly away from camera.`;
 
 export async function generateBible(
   data: ProjectData,

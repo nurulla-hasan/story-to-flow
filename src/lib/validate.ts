@@ -187,6 +187,32 @@ export function deterministicChecksForScene(
         "Frame chaining across a location change usually breaks continuity.",
       );
     }
+    const pShot = (previous.camera?.shot || "").toLowerCase();
+    const cShot = (scene.camera?.shot || "").toLowerCase();
+    const isExtremeJump =
+      (pShot.includes("wide") && cShot.includes("close")) ||
+      (pShot.includes("close") && cShot.includes("wide"));
+    if (
+      scene.chain_from_previous &&
+      isExtremeJump &&
+      !/push|zoom|dolly|track|move/i.test(scene.camera?.movement || "")
+    ) {
+      warning(
+        "shot_scale_jump",
+        "Jumping between a wide shot and a close-up in a static continuous take usually breaks visual continuity.",
+        "camera.shot",
+      );
+    }
+  }
+  if (
+    scene.dialogue &&
+    /\b(facing away|from behind|back to camera|facing back)\b/i.test(scene.camera.angle)
+  ) {
+    warning(
+      "speaker_facing_away",
+      "The dialogue speaker is facing away from the camera; lip movement may not be visible.",
+      "camera.angle",
+    );
   }
   if (concatenated(scene).length < 20) {
     warning("thin_scene", "The scene description is very short.");

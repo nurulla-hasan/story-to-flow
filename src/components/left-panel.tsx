@@ -24,7 +24,7 @@ export function LeftPanel({
   data,
   onChanged,
   notify,
-  onOpenSettings,
+  // onOpenSettings,
   onPlanStarted,
 }: {
   data: ProjectData;
@@ -170,7 +170,7 @@ export function LeftPanel({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardHeader className="flex flex-row items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
               <BookOpen className="size-4" aria-hidden />
@@ -188,7 +188,7 @@ export function LeftPanel({
             New story
           </button>
         </CardHeader>
-        <CardContent className="space-y-3 pt-2">
+        <CardContent className="space-y-3">
           <label htmlFor="story" className="sr-only">
             Story text
           </label>
@@ -276,23 +276,23 @@ export function LeftPanel({
       </Card>
 
       <Card>
-        <CardHeader className="pb-1">
+        <CardHeader>
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <Settings2 className="size-4" aria-hidden />
             </span>
             <CardTitle>Project settings</CardTitle>
           </div>
-          <button
+          {/* <button
             type="button"
             onClick={onOpenSettings}
             className="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-primary underline-offset-4 hover:bg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Settings2 className="size-3.5" aria-hidden />
             Edit
-          </button>
+          </button> */}
         </CardHeader>
-        <CardContent className="pt-2">
+        <CardContent>
           <dl className="divide-y divide-border text-xs">
             <Row label="Language" value={settings.dialogueLanguage === "bn" ? "Bangla" : "English"} />
             <Row

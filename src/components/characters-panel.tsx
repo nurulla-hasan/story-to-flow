@@ -152,7 +152,7 @@ export function CharactersPanel({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-center gap-2">
           <span className="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Users className="size-4" aria-hidden />
@@ -163,7 +163,7 @@ export function CharactersPanel({
           </span>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 pt-1">
+      <CardContent className="space-y-3">
         {data.characters.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border bg-surface-subtle p-3 text-xs leading-5 text-muted-foreground">
             Characters appear here after the story bible is created. You can also add

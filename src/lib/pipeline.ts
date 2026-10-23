@@ -34,6 +34,9 @@ Check only semantic problems:
 - more than one main action in the scene
 - contradiction between action and start_state/end_state
 - continuity with the previous scene (positions, facing, props, light)
+- a character described as already in place when chained from an empty establishing shot (must enter the frame instead)
+- camera jumping between wide and close-up in a static chained shot (change chain_from_previous to false or add camera push)
+- speaking character facing away from camera during dialogue
 - a location jump without an establishing shot
 - dialogue that does not fit the action or the visible speaker
 - camera directions that cannot be shot in one continuous clip
@@ -658,6 +661,45 @@ async function runPlanJob(
   });
 }
 
+export function isExtremeShotJump(prevShot: string, currentShot: string): boolean {
+  const p = (prevShot || "").toLowerCase();
+  const c = (currentShot || "").toLowerCase();
+  const isWide = p.includes("wide");
+  const isClose = c.includes("close");
+  const wasClose = p.includes("close");
+  const isNowWide = c.includes("wide");
+  return (isWide && isClose) || (wasClose && isNowWide);
+}
+
+export function isTimeOfDayMismatch(state1: string, state2: string): boolean {
+  const nightWords = /\b(night|midnight|twilight|dusk|evening|dark)\b/i;
+  const dayWords = /\b(morning|daylight|bright sun|midday|noon|afternoon|sunrise)\b/i;
+  const s1IsNight = nightWords.test(state1);
+  const s1IsDay = dayWords.test(state1);
+  const s2IsNight = nightWords.test(state2);
+  const s2IsDay = dayWords.test(state2);
+  return (s1IsNight && s2IsDay) || (s1IsDay && s2IsNight);
+}
+
+export function didCharacterExit(action: string, endState: string): boolean {
+  const exitWords = /\b(exits?|walks? off|leaves?|runs? off|disappears?|walks? away|out of frame)\b/i;
+  return exitWords.test(action || "") || exitWords.test(endState || "");
+}
+
+export function ensureCharacterEntersFrame(action: string, characterIds: string[]): string {
+  if (!characterIds.length) return action;
+  const entersRegex = /\b(enters?|walks?|steps?|comes?|runs?|approaches?|moves?)\s+(into|in|onto|from|the|frame|shot|scene)\b/i;
+  if (entersRegex.test(action)) return action;
+
+  const mainChar = characterIds[0];
+  const startsWithChar = new RegExp(`^${mainChar}\\b\\s*`, "i");
+  if (startsWithChar.test(action)) {
+    const stripped = action.replace(startsWithChar, "").trim();
+    return `${mainChar} enters the frame and ${stripped}`;
+  }
+  return `${mainChar} enters the frame; ${action}`;
+}
+
 export function sanitizeScenePlan(
   data: ProjectData,
   input: Scene[],
@@ -747,8 +789,47 @@ export function sanitizeScenePlan(
     ) {
       scene.chain_from_previous = true;
     }
+
+    // Safety check 1: Camera shot scale jump in static chained take (wide <-> close needs movement)
+    if (
+      scene.chain_from_previous &&
+      previous &&
+      isExtremeShotJump(previous.camera.shot, scene.camera.shot) &&
+      !/push|zoom|dolly|track|move/i.test(scene.camera.movement)
+    ) {
+      scene.camera.movement = "slow push in";
+      warnings.push(
+        `Scene ${scene.n}: shot scale jumped from ${previous.camera.shot} to ${scene.camera.shot} while chained; added slow push in camera movement for continuity.`,
+      );
+    }
+
+    // Safety check 2: Lighting/time-of-day shift between chained scenes
+    if (
+      scene.chain_from_previous &&
+      previous &&
+      isTimeOfDayMismatch(previous.end_state, scene.start_state || scene.action)
+    ) {
+      scene.chain_from_previous = false;
+      warnings.push(
+        `Scene ${scene.n}: lighting/time-of-day shifted from previous scene; unchained to prevent lighting glitches.`,
+      );
+    }
+
     if (scene.chain_from_previous && previous) {
       scene.start_state = previous.end_state;
+      const prevHadNoChars = previous.characters.length === 0 || previous.is_establishing;
+      const prevExited = didCharacterExit(previous.action, previous.end_state);
+      if ((prevHadNoChars || prevExited) && scene.characters.length > 0) {
+        scene.action = ensureCharacterEntersFrame(scene.action, scene.characters);
+      }
+    }
+
+    // Safety check 3: Dialogue speaker facing away from camera
+    if (scene.dialogue && /\b(facing away|from behind|back to camera|facing back)\b/i.test(scene.camera.angle)) {
+      scene.camera.angle = "eye level";
+      warnings.push(
+        `Scene ${scene.n}: speaking character was facing away; adjusted camera angle to eye level for lip-sync.`,
+      );
     }
     if (!scene.sound.trim() && settings.ambientSound) {
       scene.sound = "Natural ambience of the location";

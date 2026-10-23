@@ -147,4 +147,163 @@ describe("sanitizeScenePlan", () => {
     expect(sanitized.scenes[0].characters).toContain("c4");
     expect(sanitized.scenes[0].dialogue?.speaker).toBe("c4");
   });
+
+  it("ensures character enters the frame when chaining from an empty establishing shot", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: [],
+        is_establishing: true,
+        chain_from_previous: false,
+        action: "Establishing shot of quiet mossy bridge.",
+        camera: { shot: "wide", angle: "eye", movement: "slow push" },
+        start_state: "Empty bridge, quiet river.",
+        end_state: "Empty bridge, twilight.",
+        dialogue: null,
+        sound: "River flow",
+      },
+      {
+        n: 2,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: true,
+        action: "rina sits on the bridge looking at the water.",
+        camera: { shot: "medium", angle: "eye", movement: "static" },
+        start_state: "Empty bridge, twilight.",
+        end_state: "Rina sitting on bridge.",
+        dialogue: null,
+        sound: "River flow",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[1].action).toMatch(/enters the frame/i);
+    expect(sanitized.scenes[1].action).toBe("rina enters the frame and sits on the bridge looking at the water.");
+  });
+
+  it("adjusts camera movement to push in when camera jumps between wide and close-up while chained", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Rina stands by the water.",
+        camera: { shot: "wide", angle: "eye", movement: "static" },
+        start_state: "Rina standing.",
+        end_state: "Rina standing.",
+        dialogue: null,
+        sound: "Water",
+      },
+      {
+        n: 2,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: true,
+        action: "Rina closes her eyes.",
+        camera: { shot: "close-up", angle: "eye", movement: "static" },
+        start_state: "Rina standing.",
+        end_state: "Rina smiling.",
+        dialogue: null,
+        sound: "Water",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[1].camera.movement).toBe("slow push in");
+    expect(sanitized.scenes[1].chain_from_previous).toBe(true);
+  });
+
+  it("unchains when lighting or time of day shifts between chained scenes", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Rina waits under twilight.",
+        camera: { shot: "medium", angle: "eye", movement: "static" },
+        start_state: "Twilight dusk light.",
+        end_state: "Dark night falls.",
+        dialogue: null,
+        sound: "Wind",
+      },
+      {
+        n: 2,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: true,
+        action: "Bright morning sunlight shines as Rina smiles.",
+        camera: { shot: "medium", angle: "eye", movement: "static" },
+        start_state: "Bright morning daylight.",
+        end_state: "Morning sunlight.",
+        dialogue: null,
+        sound: "Birds",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[1].chain_from_previous).toBe(false);
+  });
+
+  it("ensures re-entrance if character exited in the previous scene", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Rina turns and walks off the bridge.",
+        camera: { shot: "wide", angle: "eye", movement: "static" },
+        start_state: "Rina on bridge.",
+        end_state: "Bridge empty, Rina out of frame.",
+        dialogue: null,
+        sound: "Wind",
+      },
+      {
+        n: 2,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: true,
+        action: "rina sits on the bridge.",
+        camera: { shot: "medium", angle: "eye", movement: "slow push" },
+        start_state: "Bridge empty.",
+        end_state: "Rina sitting on bridge.",
+        dialogue: null,
+        sound: "Wind",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[1].action).toBe("rina enters the frame and sits on the bridge.");
+  });
+
+  it("adjusts camera angle to eye level if dialogue speaker was facing away from camera", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["rina"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Rina speaks.",
+        camera: { shot: "medium", angle: "from behind", movement: "static" },
+        start_state: "Rina standing.",
+        end_state: "Rina standing.",
+        dialogue: { speaker: "rina", line: "Hello" },
+        sound: "Wind",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[0].camera.angle).toBe("eye level");
+  });
 });

@@ -68,7 +68,7 @@ export function LocationsPanel({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-center gap-2">
           <span className="flex size-8 items-center justify-center rounded-lg bg-warning-subtle text-warning">
             <MapPin className="size-4" aria-hidden />
@@ -79,7 +79,7 @@ export function LocationsPanel({
           </span>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2.5 pt-1">
+      <CardContent className="space-y-2.5">
         {data.locations.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border bg-surface-subtle p-3 text-xs leading-5 text-muted-foreground">
             Locations are detected with the story bible.

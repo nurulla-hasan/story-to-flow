@@ -111,6 +111,68 @@ describe("assemblePrompt", () => {
     expect(prompt).not.toMatch(/```/);
     expect(prompt).not.toMatch(/^#{1,6}\s/m);
   });
+
+  it("includes ascii id alongside native script name when they differ", () => {
+    const dataWithNativeName: ProjectData = {
+      ...mockProjectData,
+      characters: [
+        {
+          id: "nilu",
+          name: "নীলু",
+          visual_lock: "Red fox cub in blue shirt.",
+          voice_lock: "Child voice.",
+          language: "bn",
+          outfit_changes: false,
+          refImage: null,
+        },
+      ],
+    };
+    const sceneWithNativeChar: SceneRecord = {
+      ...mockScene,
+      characters: ["nilu"],
+    };
+    const prompt = assemblePrompt(dataWithNativeName, sceneWithNativeChar);
+    expect(prompt).toContain("- নীলু (nilu): Red fox cub in blue shirt.");
+  });
+
+  it("handles chaining from an establishing shot by stating location starts empty and characters enter", () => {
+    const dataWithScenes: ProjectData = {
+      ...mockProjectData,
+      scenes: [
+        {
+          ...mockScene,
+          n: 1,
+          characters: [],
+          is_establishing: true,
+          chain_from_previous: false,
+          startFramePath: null,
+        },
+        {
+          ...mockScene,
+          n: 2,
+          characters: ["rina"],
+          is_establishing: false,
+          chain_from_previous: true,
+          startFramePath: "keyframes/scene-1.png",
+        },
+      ],
+    };
+    const prompt = assemblePrompt(dataWithScenes, dataWithScenes.scenes[1]);
+    expect(prompt).toContain(
+      "Start with the location empty matching the last frame of Scene 1. Characters enter the frame during the take.",
+    );
+    expect(prompt).toContain(
+      "The supplied start frame (last frame of Scene 1, showing the empty location) is the literal first frame of this clip.",
+    );
+  });
+
+  it("adds anti-clothing-bleed rule when two or more characters are visible", () => {
+    const prompt = assemblePrompt(mockProjectData, mockScene);
+    // mockScene has 2 characters (rina and karim)
+    expect(prompt).toContain(
+      "- Do not swap or blend clothing, colors, faces, or accessories between different characters in the scene.",
+    );
+  });
 });
 
 describe("assembleImagePrompt", () => {

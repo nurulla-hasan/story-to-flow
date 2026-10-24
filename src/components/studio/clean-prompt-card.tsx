@@ -4,10 +4,13 @@ import * as React from "react";
 import Image from "next/image";
 import {
   Check,
+  ChevronDown,
   Copy,
+  Download,
   ImagePlus,
   Loader2,
   Sparkles,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/apiClient";
@@ -18,6 +21,8 @@ import type { StudioClip } from "./types";
 interface CleanPromptCardProps {
   clip: StudioClip;
   totalClips: number;
+  open: boolean;
+  onToggle: () => void;
   aspectRatio: "9:16" | "16:9";
   startTime: number;
   endTime: number;
@@ -27,6 +32,8 @@ interface CleanPromptCardProps {
 
 export function CleanPromptCard({
   clip,
+  open,
+  onToggle,
   aspectRatio,
   startTime,
   endTime,
@@ -100,127 +107,203 @@ export function CleanPromptCard({
   };
 
   return (
-    <article className="overflow-hidden rounded-xl border border-border bg-card p-4 transition-all hover:border-muted-foreground/30 hover:shadow-xs">
-      <div className="flex flex-col gap-3">
-        {/* Card Header Row: Badge, Timestamp, and Primary Action Buttons */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
-          <div className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-primary font-mono text-xs font-bold text-primary-foreground shadow-xs">
-              #{String(clip.index).padStart(2, "0")}
+    <article
+      className={cn(
+        "overflow-hidden rounded-xl border bg-card transition-shadow",
+        open
+          ? "border-brand-border shadow-md"
+          : "border-border shadow-xs hover:border-muted-foreground/30",
+      )}
+    >
+      {/* Clickable Header Bar matching SceneCard */}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-muted font-mono text-xs font-semibold tabular-nums text-foreground">
+          #{String(clip.index).padStart(2, "0")}
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-foreground font-bangla">
+              {clip.narration || clip.imagePrompt.slice(0, 60)}
             </span>
-            <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="font-mono">
               {formatTime(startTime)} - {formatTime(endTime)} ({clip.duration.toFixed(1)}s)
             </span>
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
-              {clip.motion || "zoom-in"}
-            </span>
-          </div>
+            <span aria-hidden>·</span>
+            <span className="capitalize">{clip.motion || "zoom-in"}</span>
+          </span>
+        </span>
 
-          {/* Quick Action Buttons: Send to Flow (Primary) & Copy Prompt */}
-          <div className="flex items-center gap-1.5">
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleSendToFlow}
-              disabled={sendingFlow}
-              className="h-8 gap-1.5 px-3 text-xs font-semibold"
-              title="Auto-place this prompt into Google Flow"
-            >
-              {sendingFlow ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="size-3.5" />
-              )}
-              {sendingFlow ? "Sending…" : "🚀 Send to Flow"}
-            </Button>
+        {/* Quick Send to Flow & Chevron */}
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleSendToFlow();
+            }}
+            disabled={sendingFlow}
+            className="h-8 gap-1.5 px-3 text-xs font-semibold"
+            title="Auto-place this prompt into Google Flow"
+          >
+            {sendingFlow ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            <span className="hidden sm:inline">{sendingFlow ? "Sending…" : "🚀 Send to Flow"}</span>
+          </Button>
 
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleCopyPrompt}
-              className="h-8 gap-1.5 px-2.5 text-xs font-medium"
-              title="Copy prompt for Flow / Midjourney / Flux"
-            >
-              {copiedPrompt ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-              {copiedPrompt ? "Copied" : "Copy Prompt"}
-            </Button>
-          </div>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+              open && "rotate-180",
+            )}
+            aria-hidden
+          />
         </div>
+      </button>
 
-        {/* Middle: Voiceover Line for this exact moment */}
-        <div className="rounded-lg border border-primary/20 bg-brand-subtle px-3 py-2">
-          <p className="text-2xs font-bold uppercase tracking-wider text-secondary-foreground/70">
-            Voiceover at this moment:
-          </p>
-          <p className="mt-0.5 text-sm font-medium leading-relaxed text-secondary-foreground font-bangla">
-            {clip.narration}
-          </p>
-        </div>
-
-        {/* Bottom: Flow Image Prompt Box & Optional Image Preview */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          {/* Flow Image Prompt Text Box */}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between pb-1">
-              <label className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Google Flow Image Prompt ({aspectRatio})
-              </label>
-              <span className="font-mono text-3xs text-muted-foreground">
-                {clip.imagePrompt.length} chars
-              </span>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-subtle p-3 font-mono text-xs leading-relaxed text-foreground select-all">
-              {clip.imagePrompt}
-            </div>
-          </div>
-
-          {/* Optional: User-attached image or dropzone (from Flow download) */}
-          <div className="w-full sm:w-36 shrink-0 flex flex-col items-center">
-            {clip.imageUrl ? (
+      {/* Expanded Details Body */}
+      {open ? (
+        <div className="border-t border-border px-4 pb-4 pt-4">
+          <div className="flex flex-col gap-4 md:flex-row">
+            {/* Left: Image Container (9:16 or 16:9) */}
+            <div className="w-full md:w-48 md:shrink-0">
               <div
                 className={cn(
-                  "relative overflow-hidden rounded-lg border border-border bg-black shadow-xs",
-                  aspectRatio === "9:16" ? "h-36 aspect-9/16" : "w-36 aspect-video",
+                  "relative overflow-hidden rounded-lg border border-border bg-muted flex items-center justify-center",
+                  aspectRatio === "9:16"
+                    ? "mx-auto aspect-9/16 w-full max-w-44"
+                    : "aspect-video w-full",
                 )}
               >
-                <Image src={clip.imageUrl} alt="" fill unoptimized className="object-cover" />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-3xs text-white hover:bg-black"
-                  title="Replace with downloaded image from Flow"
-                >
-                  Replace
-                </button>
+                {clip.imageUrl ? (
+                  <Image src={clip.imageUrl} alt="" fill unoptimized className="object-cover" />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-1.5 p-3 text-center">
+                    <ImagePlus className="size-6 text-muted-foreground/60" />
+                    <p className="text-2xs font-medium text-muted-foreground leading-4">
+                      No image yet
+                    </p>
+                    <p className="text-3xs text-muted-foreground/80">
+                      Generate in Flow or attach here
+                    </p>
+                  </div>
+                )}
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={cn(
-                  "flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-muted-foreground transition-colors hover:border-primary hover:text-primary",
-                  aspectRatio === "9:16" ? "h-36 w-24" : "w-36 h-24",
-                )}
-                title="Attach image downloaded from Flow (optional preview)"
-              >
-                <ImagePlus className="size-5 mb-1" />
-                <span className="text-3xs font-medium text-center px-1">
-                  Attach Image from Flow
-                </span>
-              </button>
-            )}
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleImageFile}
-            />
+              {/* Upload & Download below image */}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 flex-1 gap-1 text-2xs"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach image downloaded from Flow"
+                >
+                  <Upload className="size-3" />
+                  {clip.imageUrl ? "Replace" : "Attach Image"}
+                </Button>
+
+                {clip.imageUrl ? (
+                  <a
+                    href={clip.imageUrl}
+                    download={`image-${clip.index}.png`}
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-card px-2 text-2xs font-medium text-foreground hover:bg-muted"
+                    title="Download attached image"
+                  >
+                    <Download className="size-3" />
+                    Save
+                  </a>
+                ) : null}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={handleImageFile}
+              />
+            </div>
+
+            {/* Right: Voiceover line & Flow Image Prompt */}
+            <div className="min-w-0 flex-1 space-y-3">
+              {/* Voiceover Line */}
+              <div className="rounded-lg border border-brand-border bg-brand-subtle p-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-secondary-foreground">
+                  Voiceover at this moment:
+                </p>
+                <p className="mt-1 text-sm leading-6 text-secondary-foreground font-bangla whitespace-pre-line">
+                  {clip.narration}
+                </p>
+              </div>
+
+              {/* Flow Image Prompt Box */}
+              <div>
+                <div className="flex items-center justify-between pb-1">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Google Flow Image Prompt ({aspectRatio})
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleCopyPrompt}
+                    className="h-6 gap-1 px-1.5 text-2xs text-primary hover:text-foreground"
+                  >
+                    {copiedPrompt ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+                    <span>{copiedPrompt ? "Copied!" : "Copy"}</span>
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border border-border bg-surface-subtle p-3 font-mono text-xs leading-relaxed text-foreground select-all">
+                  {clip.imagePrompt}
+                </div>
+              </div>
+
+              {/* Action Buttons Row */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSendToFlow}
+                  disabled={sendingFlow}
+                  className="h-9 gap-1.5 text-xs font-semibold"
+                >
+                  {sendingFlow ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
+                  {sendingFlow ? "Sending to Flow…" : "🚀 Send to Flow"}
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopyPrompt}
+                  className="h-9 gap-1.5 text-xs"
+                >
+                  {copiedPrompt ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                  {copiedPrompt ? "Prompt Copied!" : "Copy Prompt"}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </article>
   );
 }

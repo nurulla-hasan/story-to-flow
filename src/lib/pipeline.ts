@@ -2,7 +2,7 @@ import { assembleImagePrompt, assembleScene } from "./assemble";
 import { getRepo, DEFAULT_PROJECT_ID } from "./db";
 import { getImageProvider } from "./image";
 import { chatJSON } from "./llm";
-import { generateBible, planSceneBatch } from "./planner";
+import { checkStoryCompletion, generateBible, planSceneBatch } from "./planner";
 import { saveAsset, stamp } from "./files";
 import {
   canonicalScene,
@@ -482,6 +482,64 @@ async function runPlanJob(
 
     planned = sanitizeScenePlan(first, batch).scenes;
     repo.replaceScenes(projectId, planned);
+
+    // Auto Story Completion Loop: ensure scenes cover the complete story arc through its final climax & dialogue
+    let maxExtraRounds = 3;
+    while (maxExtraRounds > 0 && planned.length < 24) {
+      if (signal?.aborted) {
+        repo.updateJob(jobId, { status: "cancelled", message: "Scene planning cancelled" });
+        return;
+      }
+
+      repo.updateJob(jobId, {
+        progress: Math.min(65, currentProgress + 2),
+        message: "Verifying complete story arc and narrative climax…",
+      });
+
+      const completion = await checkStoryCompletion({
+        story: first.project.story,
+        scenes: planned,
+        models: settings.models,
+        signal,
+      });
+
+      if (completion.is_complete) {
+        break;
+      }
+
+      const nextStartN = planned.length + 1;
+      const countNeeded = Math.min(6, Math.max(2, completion.remaining_scenes_needed || 4));
+
+      repo.updateJob(jobId, {
+        progress: Math.min(72, currentProgress + 4),
+        message: `Extending narrative to complete story climax (scenes ${nextStartN}–${nextStartN + countNeeded - 1})…`,
+      });
+
+      const currentData = repo.getProjectData(projectId);
+      const prevTwo = planned.slice(-2).map((scene) => canonicalScene(scene));
+
+      try {
+        const continuationBatch = await planSceneBatch({
+          data: currentData,
+          startN: nextStartN,
+          count: countNeeded,
+          isAuto: false,
+          missingEvents: completion.missing_events,
+          previousScenes: prevTwo,
+          models: settings.models,
+          signal,
+        });
+
+        if (continuationBatch.length === 0) break;
+        planned = sanitizeScenePlan(currentData, planned.concat(continuationBatch)).scenes;
+        repo.replaceScenes(projectId, planned);
+      } catch (err) {
+        warnings.push(`Story extension loop ended: ${err instanceof Error ? err.message : String(err)}`);
+        break;
+      }
+
+      maxExtraRounds -= 1;
+    }
   } else {
     for (let offset = 0; offset < total; offset += batchSize) {
       if (signal?.aborted) {

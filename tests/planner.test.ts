@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sceneCount, DEFAULT_SETTINGS, type ProjectData, type Scene } from "../src/lib/types";
 import { sanitizeScenePlan } from "../src/lib/pipeline";
+import { checkStoryCompletion, storyCompletionSchema } from "../src/lib/planner";
 
 describe("sceneCount", () => {
   it("computes ceil(total seconds / clip seconds)", () => {
@@ -409,5 +410,26 @@ describe("sanitizeScenePlan", () => {
     expect(sanitized.scenes[0].characters).toContain("frog-nilu");
     expect(sanitized.scenes[0].characters).not.toContain("nilu");
     expect(sanitized.scenes[0].dialogue?.speaker).toBe("frog-nilu");
+  });
+});
+
+describe("checkStoryCompletion", () => {
+  it("validates storyCompletionSchema parsing", () => {
+    const valid = storyCompletionSchema.parse({
+      is_complete: false,
+      missing_events: "Hero returns home and celebrates",
+      remaining_scenes_needed: 3,
+    });
+    expect(valid.is_complete).toBe(false);
+    expect(valid.remaining_scenes_needed).toBe(3);
+  });
+
+  it("returns incomplete when no scenes exist", async () => {
+    const result = await checkStoryCompletion({
+      story: "Test story",
+      scenes: [],
+    });
+    expect(result.is_complete).toBe(false);
+    expect(result.remaining_scenes_needed).toBeGreaterThan(0);
   });
 });

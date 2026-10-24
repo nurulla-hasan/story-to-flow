@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { chatJSON } from "./llm";
 import {
   bibleSchema,
@@ -48,6 +49,7 @@ Rules:
 - 3 characters in the story means 3 characters here. Do not add fixed extras.
 - Dynamic Props Rule: Handheld props that change hands, are picked up, dropped, handed over, stolen, or revealed during the story (e.g., umbrella, stolen gold watch, lantern, bag, chicken inside umbrella) MUST NOT be included as permanent accessories in a character's visual_lock. They belong dynamically in the scene's action and props. Only permanent worn clothing/accessories (e.g., beanie, sandals, glasses, nose pin, uniform) belong in visual_lock.
 - Animals and Talking Entities: Every character or animal that speaks, acts, or interacts in the story (e.g., chicken/মুরগি, pet dog, ghost/disguise) MUST be included in the story bible characters with a full visual_lock and voice_lock.
+- Dynamic Story Props & Automata (Mechanical creatures, active story artifacts): If a mechanical prop, automaton, or magical artifact actively moves, runs, transforms, or drives the action like an entity (e.g., eight-legged mechanical brass spider, flying broom, enchanted doll, clockwork cuckoo bird), include it in the story bible with an exact visual lock and unique ID (e.g. 'brass-spider', 'kokil-pakhi'). This ensures AI video and image models render its metallic parts, legs, and materials with 100% consistent design across all scenes!
 - Transformations & Metamorphosis Rule: When a character or animal undergoes a supernatural transformation into a distinctly different creature or form (e.g., cat -> giant black tiger, magician -> tiny green frog, person -> beast):
   1. Create a SEPARATE character entry in the story bible for the transformed creature/form (e.g. id: 'black-tiger', name: 'কালো বাঘ', with its own visual_lock and voice_lock; id: 'frog', name: 'সবুজ ব্যাঙ').
   2. The original character (e.g. 'mew') must have its OWN authentic initial voice lock (e.g. 'gentle domestic cat meows and purrs', NOT the tiger's booming voice!) and visual lock.
@@ -171,11 +173,12 @@ export async function planSceneBatch(opts: {
   count?: number;
   totalScenes?: number;
   isAuto?: boolean;
+  missingEvents?: string;
   previousScenes: Scene[];
   models?: { planner?: string; validator?: string; image?: string };
   signal?: AbortSignal;
 }): Promise<Scene[]> {
-  const { data, startN, count = 5, totalScenes, isAuto = false, previousScenes, models, signal } = opts;
+  const { data, startN, count = 5, totalScenes, isAuto = false, missingEvents, previousScenes, models, signal } = opts;
   const settings = data.project.settings;
   const bible = {
     title: data.project.name,
@@ -216,7 +219,11 @@ PROJECT SETTINGS:
 
 PREVIOUS SCENES (the last two already planned, for continuity):
 ${previousScenes.length ? JSON.stringify(previousScenes, null, 2) : "(none — this is the first batch)"}
-
+${
+  missingEvents
+    ? `\nREMAINING STORY EVENTS TO COVER:\n${missingEvents}\nIMPORTANT: Continue directly from scene ${startN - 1}. Adapt the remaining events and drive the story to its full climax, resolution, and final dialogue/punchline. Do NOT stop before the story's actual ending.\n`
+    : ""
+}
 ${
   isAuto
     ? `TASK:
@@ -247,3 +254,65 @@ Set n sequentially. Continue the location grouping and chaining from the previou
   const scenes = Array.isArray(raw) ? raw : raw.scenes;
   return scenes.map((scene) => sceneSchema.parse(scene));
 }
+
+export const storyCompletionSchema = z.object({
+  is_complete: z.boolean(),
+  missing_events: z.string().default(""),
+  remaining_scenes_needed: z.coerce.number().int().min(0).max(8).default(0),
+});
+export type StoryCompletion = z.infer<typeof storyCompletionSchema>;
+
+export async function checkStoryCompletion(opts: {
+  story: string;
+  scenes: Scene[];
+  models?: { planner?: string; validator?: string; image?: string };
+  signal?: AbortSignal;
+}): Promise<StoryCompletion> {
+  const { story, scenes, models, signal } = opts;
+  if (!scenes.length) {
+    return { is_complete: false, missing_events: "Entire story", remaining_scenes_needed: 5 };
+  }
+
+  const lastScenes = scenes.slice(-3).map((s) => ({
+    n: s.n,
+    action: s.action,
+    end_state: s.end_state,
+    dialogue: s.dialogue,
+  }));
+
+  const user = `ORIGINAL STORY TEXT:
+${story}
+
+PLANNED SCENES SO FAR (Total: ${scenes.length} scenes. Last 3 scenes summary):
+${JSON.stringify(lastScenes, null, 2)}
+
+Has the narrative reached the final conclusion, climax resolution, and ending dialogue/punchline of the original story text?
+Return JSON only:
+{
+  "is_complete": true or false,
+  "missing_events": "brief summary of remaining unadapted story events, or empty string if complete",
+  "remaining_scenes_needed": integer between 0 and 6
+}`;
+
+  try {
+    const res = await chatJSON({
+      role: "planner",
+      schema: storyCompletionSchema,
+      temperature: 0.1,
+      models,
+      signal,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert film narrative completion evaluator. You verify if a sequence of continuous video scenes has reached the final ending, climax, resolution, and concluding dialogue of the original story text. Return JSON only.",
+        },
+        { role: "user", content: user },
+      ],
+    });
+    return res;
+  } catch {
+    return { is_complete: true, missing_events: "", remaining_scenes_needed: 0 };
+  }
+}
+

@@ -45,6 +45,7 @@ export function SceneCard({
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const [copiedImagePrompt, setCopiedImagePrompt] = React.useState(false);
   const clipInput = React.useRef<HTMLInputElement>(null);
   const keyframeInput = React.useRef<HTMLInputElement>(null);
 
@@ -95,6 +96,29 @@ export function SceneCard({
     } catch {
       notify("Could not access the clipboard.", "error");
     }
+  }
+
+  async function copyImagePrompt() {
+    if (!imagePrompt) return;
+    try {
+      await copyText(imagePrompt);
+      setCopiedImagePrompt(true);
+      window.setTimeout(() => setCopiedImagePrompt(false), 1800);
+      notify("Keyframe image prompt copied! Ready to paste into Midjourney, Flux, or Imagen.", "success");
+    } catch {
+      notify("Could not access the clipboard.", "error");
+    }
+  }
+
+  async function handleGenerateKeyframe() {
+    await act("keyframe-gen", async () => {
+      notify(`Generating keyframe image for scene ${scene.n} with AI…`, "info");
+      const res = await api<{ path?: string; note?: string }>(
+        `/api/scenes/${scene.n}/keyframe`,
+        { method: "POST" },
+      );
+      notify(res.note ? `Keyframe created (${res.note})!` : "Keyframe generated successfully!", "success");
+    });
   }
 
   async function handleSendToFlow() {
@@ -298,29 +322,103 @@ export function SceneCard({
                   </span>
                 ) : null}
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div
+                className={`mt-2 flex flex-col gap-1.5 ${
+                  data.project.settings.aspectRatio === "9:16"
+                    ? "mx-auto w-full max-w-48"
+                    : "w-full"
+                }`}
+              >
+                {/* Primary Action: Full-width AI Keyframe Button */}
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-9 text-xs"
-                  onClick={() => keyframeInput.current?.click()}
-                  disabled={Boolean(busy)}
+                  className="h-8.5 w-full justify-center gap-1.5 border-primary/30 text-xs font-semibold text-primary hover:bg-primary/10"
+                  onClick={handleGenerateKeyframe}
+                  disabled={Boolean(busy) || !imagePrompt}
+                  title="Generate keyframe image using your configured AI image model"
                 >
-                  <Upload className="size-3.5" aria-hidden />
-                  {displayImage ? "Replace" : "Upload Keyframe"}
+                  {busy === "keyframe-gen" ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="size-3.5 text-primary" aria-hidden />
+                  )}
+                  {busy === "keyframe-gen"
+                    ? "Generating…"
+                    : displayImage
+                      ? "Regenerate Keyframe"
+                      : "AI Keyframe"}
                 </Button>
-                {displayImage ? (
-                  <a
-                    href={displayImage}
-                    download={isChained ? `scene-${scene.n}-start-frame-for-flow.png` : `scene-${scene.n}-keyframe.png`}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    title={isChained ? "Download this frame to use as Start Frame in Flow" : "Download image"}
+
+                {/* Secondary Actions: Clean 3-Button Icon Toolbar */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full justify-center p-0"
+                    onClick={copyImagePrompt}
+                    disabled={!imagePrompt}
+                    title={
+                      copiedImagePrompt
+                        ? "Copied image prompt!"
+                        : "Copy image prompt for Midjourney, Flux, or Imagen"
+                    }
+                    aria-label="Copy image prompt"
                   >
-                    <Download className="size-3.5" aria-hidden />
-                    Download
-                  </a>
-                ) : null}
+                    {copiedImagePrompt ? (
+                      <Check className="size-3.5 shrink-0 text-success" aria-hidden />
+                    ) : (
+                      <Copy className="size-3.5 shrink-0" aria-hidden />
+                    )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full justify-center p-0"
+                    onClick={() => keyframeInput.current?.click()}
+                    disabled={Boolean(busy)}
+                    title="Upload keyframe image from computer"
+                    aria-label="Upload keyframe image"
+                  >
+                    <Upload className="size-3.5 shrink-0" aria-hidden />
+                  </Button>
+
+                  {displayImage ? (
+                    <a
+                      href={displayImage}
+                      download={
+                        isChained
+                          ? `scene-${scene.n}-start-frame-for-flow.png`
+                          : `scene-${scene.n}-keyframe.png`
+                      }
+                      className="inline-flex h-8 w-full items-center justify-center rounded-md border border-border bg-card p-0 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      title={
+                        isChained
+                          ? "Download this frame to use as Start Frame in Flow"
+                          : "Download image"
+                      }
+                      aria-label="Download image"
+                    >
+                      <Download className="size-3.5 shrink-0" aria-hidden />
+                    </a>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled
+                      className="h-8 w-full cursor-not-allowed justify-center p-0 opacity-30"
+                      title="No image to download"
+                      aria-label="Download image (disabled)"
+                    >
+                      <Download className="size-3.5 shrink-0" aria-hidden />
+                    </Button>
+                  )}
+                </div>
               </div>
               <input
                 ref={keyframeInput}

@@ -128,8 +128,9 @@ export class ManualImageProvider implements ImageProvider {
 }
 
 export function getImageProvider(settings: Settings): ImageProvider {
-  if (settings.imageProvider === "omniroute") {
-    return new OmnirouteImageProvider(settings.models.image);
+  const imageModel = (settings.models.image && settings.models.image.trim()) || getEnv().models.image;
+  if (settings.imageProvider === "omniroute" || imageModel) {
+    return new OmnirouteImageProvider(imageModel);
   }
   return new ManualImageProvider();
 }

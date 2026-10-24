@@ -374,6 +374,26 @@ export function SettingsDialog({
                 </Button>
               </div>
 
+              {/* Image Provider Selection */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+                <div className="space-y-0.5">
+                  <p className="text-xs font-semibold text-foreground">AI Keyframe Generation</p>
+                  <p className="text-2xs text-muted-foreground">
+                    Generate scene starting frames directly via AI Gateway or upload manually.
+                  </p>
+                </div>
+                <SimpleSelect
+                  id="imageProvider"
+                  value={form.imageProvider}
+                  onValueChange={(val) => set("imageProvider", val as "omniroute" | "manual")}
+                  options={[
+                    { value: "omniroute", label: "Enabled (AI Gateway)" },
+                    { value: "manual", label: "Manual (Copy & Upload)" },
+                  ]}
+                  className="w-48 text-xs"
+                />
+              </div>
+
               {/* Datalist for autocomplete on all model inputs */}
               <datalist id="available-gateway-models">
                 {availableModels.map((id) => (

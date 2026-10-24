@@ -136,18 +136,29 @@ export function SceneCard({
         return;
       }
 
-      notify("Sending prompt & starting frame to Google Flow…", "info");
+      notify(
+        displayImage
+          ? "Placing prompt & image into Google Flow…"
+          : "Sending prompt to Google Flow…",
+        "info",
+      );
       const res = await sendToFlow({
         prompt,
         imageUrl: displayImage,
         imageName: isChained
           ? `scene-${scene.n}-start-frame.png`
           : `scene-${scene.n}-keyframe.png`,
-        autoRun: true,
+        autoRun: !displayImage,
       });
 
       if (res.success) {
-        notify(res.message || `Scene ${scene.n} sent to Google Flow!`, "success");
+        notify(
+          res.message ||
+            (displayImage
+              ? `Scene ${scene.n} prompt & image placed in Flow!`
+              : `Scene ${scene.n} sent to Google Flow!`),
+          "success",
+        );
       } else {
         notify(res.error || "Failed to send to Google Flow.", "error");
       }

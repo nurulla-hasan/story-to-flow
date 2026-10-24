@@ -34,42 +34,60 @@
     console.log("[Story-to-Flow Bridge] Starting injection task...", {
       promptLength: prompt?.length,
       hasImage: Boolean(imageDataUrl),
+      autoRun,
     });
 
     // Step 1: Locate the exact ProseMirror prompt editor ("What do you want to create?")
-    const editor = await waitForElement(SELECTORS.editor, 12000);
+    let editor = await waitForElement(SELECTORS.editor, 12000);
     if (!editor) {
       throw new Error(
         "Could not find the prompt editor on Google Flow. Please ensure the prompt box is open."
       );
     }
 
-    // Step 2: Inject prompt text into ProseMirror
-    console.log("[Story-to-Flow Bridge] 1/3: Injecting prompt text...");
+    // Step 2: Inject prompt text first
+    console.log("[Story-to-Flow Bridge] 1/2: Injecting prompt text...");
     injectTextIntoEditor(editor, prompt);
     await sleep(400);
 
-    // Step 3: If image is provided, attach via paste onto the editor
+    // Step 3: If image is provided, attach via paste into the editor
     let imageAttached = false;
     if (imageDataUrl) {
+      console.log("[Story-to-Flow Bridge] 2/2: Attaching starting image...");
       try {
-        console.log("[Story-to-Flow Bridge] 2/3: Attaching image to prompt box...");
         imageAttached = await attachImageToFlow(editor, imageDataUrl, imageName || "start-frame.png");
-        // Allow Flow to register thumbnail preview
-        await sleep(1200);
+        await sleep(500);
+
+        // Re-verify prompt text is still present in editor alongside uploaded image
+        editor = document.querySelector(SELECTORS.editor) || editor;
+        const currentText = (editor.textContent || "").trim();
+        if (!currentText.includes(prompt.slice(0, 20))) {
+          console.log("[Story-to-Flow Bridge] Re-injecting prompt text alongside image...");
+          injectTextIntoEditor(editor, prompt);
+          await sleep(400);
+        }
       } catch (imgErr) {
         console.warn("[Story-to-Flow Bridge] Image attach failed:", imgErr);
       }
     }
 
-    // Brief pause for state stabilization
-    await sleep(400);
+    // Step 4: Final prompt text verification
+    editor = document.querySelector(SELECTORS.editor) || editor;
+    const finalText = (editor.textContent || "").trim();
+    if (!finalText.includes(prompt.slice(0, 20))) {
+      injectTextIntoEditor(editor, prompt);
+      await sleep(300);
+    }
 
-    // Step 4: Click the "Start generation" button
+    // Ensure editor has focus so the user can easily press Enter or inspect
+    editor.focus();
+
+    // Step 5: If autoRun is requested (e.g. text-only scenes), click "Start generation"
     let clicked = false;
-    if (autoRun !== false) {
-      console.log("[Story-to-Flow Bridge] 3/3: Auto-triggering generation...");
-      clicked = await triggerFlowSend(editor);
+    if (autoRun) {
+      console.log("[Story-to-Flow Bridge] Auto-triggering generation...");
+      await sleep(400);
+      clicked = await triggerFlowSend();
     }
 
     return {
@@ -77,8 +95,10 @@
       imageAttached,
       generated: clicked,
       message: clicked
-        ? "Prompt and image sent! Generation started in Google Flow."
-        : "Prompt and image ready in Google Flow.",
+        ? "Prompt sent! Generation started in Google Flow."
+        : imageDataUrl
+          ? "Prompt and starting image placed in Google Flow! Hit Enter or click -> once image finishes uploading."
+          : "Prompt placed in Google Flow.",
     };
   }
 
@@ -99,29 +119,38 @@
       editor.dispatchEvent(new Event("change", { bubbles: true }));
     } else {
       // ContentEditable / ProseMirror
+      let targetElement = editor.querySelector("p");
+      if (!targetElement) {
+        targetElement = document.createElement("p");
+        editor.appendChild(targetElement);
+      }
+
       try {
         const selection = window.getSelection();
         const range = document.createRange();
-        range.selectNodeContents(editor);
+        range.selectNodeContents(targetElement);
         selection?.removeAllRanges();
         selection?.addRange(range);
         document.execCommand("delete", false, null);
         document.execCommand("insertText", false, text);
       } catch (e) {
-        console.warn("execCommand insert failed, fallback to direct paragraph text:", e);
+        console.warn("execCommand insert failed, fallback to direct textContent:", e);
       }
 
-      // If text is still not set, assign paragraph content directly
-      if (!editor.textContent || !editor.textContent.trim()) {
-        let p = editor.querySelector("p");
-        if (!p) {
-          p = document.createElement("p");
-          editor.appendChild(p);
-        }
-        p.textContent = text;
+      // If text is still not set or was not inserted, assign targetElement content directly
+      if (!targetElement.textContent || !targetElement.textContent.includes(text.slice(0, 20))) {
+        targetElement.textContent = text;
       }
 
-      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+      targetElement.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertText", data: text })
+      );
+      targetElement.dispatchEvent(new Event("input", { bubbles: true }));
+      targetElement.dispatchEvent(new Event("change", { bubbles: true }));
+
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertText", data: text })
+      );
       editor.dispatchEvent(new Event("input", { bubbles: true }));
       editor.dispatchEvent(new Event("change", { bubbles: true }));
     }
@@ -152,43 +181,16 @@
     }
   }
 
-  async function triggerFlowSend(editor) {
+  async function triggerFlowSend() {
     // Wait for the exact "Start generation" button to become enabled
-    const btnClicked = await pollAndClickSendButton(10000);
+    const btnClicked = await pollAndClickSendButton(15000);
     if (btnClicked) return true;
 
-    // Fallback: Dispatch Enter key on the editor
-    console.log("[Story-to-Flow Bridge] Send button not clicked in time, trying Enter key fallback...");
-    try {
-      editor.focus();
-      const enterDown = new KeyboardEvent("keydown", {
-        key: "Enter",
-        code: "Enter",
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true,
-      });
-      editor.dispatchEvent(enterDown);
-
-      const enterUp = new KeyboardEvent("keyup", {
-        key: "Enter",
-        code: "Enter",
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true,
-      });
-      editor.dispatchEvent(enterUp);
-      return true;
-    } catch (e) {
-      console.warn("[Story-to-Flow Bridge] Enter key fallback failed:", e);
-    }
-
+    console.warn("[Story-to-Flow Bridge] Start generation button was not ready in time. Ready for manual send.");
     return false;
   }
 
-  async function pollAndClickSendButton(maxWaitMs = 10000) {
+  async function pollAndClickSendButton(maxWaitMs = 15000) {
     const start = Date.now();
     while (Date.now() - start < maxWaitMs) {
       const btn = document.querySelector(SELECTORS.generateButton);
@@ -196,11 +198,12 @@
       const isDisabled = btn?.disabled || isAriaDisabled;
 
       if (btn && !isDisabled) {
+        await sleep(500);
         btn.click();
         console.log("[Story-to-Flow Bridge] Successfully clicked 'Start generation' button!");
         return true;
       }
-      await sleep(350);
+      await sleep(400);
     }
     return false;
   }

@@ -41,6 +41,7 @@ Check only semantic problems:
 - camera jumping between wide and close-up in a static chained shot (change chain_from_previous to false or add camera push)
 - speaking character facing away from camera during dialogue
 - dialogue that anticipates or reacts to an action that hasn't happened yet or happened in a different scene
+- omitting a character's dynamic visual feature shift (such as eye LED light colors turning red or mud splatters) described in the story
 - a location jump without an establishing shot
 - dialogue that does not fit the action or the visible speaker
 - camera directions that cannot be shot in one continuous clip
@@ -743,6 +744,54 @@ export function ensureCharacterEntersFrame(action: string, characterIds: string[
   return modified;
 }
 
+export function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function pruneTransformedOriginCharacters(
+  scene: Scene,
+): { characters: string[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const chars = [...scene.characters];
+  const act = scene.action || "";
+  const endState = scene.end_state || "";
+
+  for (const c of [...chars]) {
+    for (const alt of chars) {
+      if (alt === c) continue;
+      const isSub = alt.includes(c) || c.includes(alt);
+      const replaced =
+        new RegExp(`where\\s+${escapeRegex(c)}\\s+was`, "i").test(act) ||
+        new RegExp(`revealing\\s+${escapeRegex(alt)}`, "i").test(act) ||
+        new RegExp(`${escapeRegex(c)}\\s+transforms?\\s+into\\s+${escapeRegex(alt)}`, "i").test(act);
+
+      // Check if original character is NOT in end_state (standalone slug match)
+      const notInEnd = !new RegExp(`(?<![-_\\w])${escapeRegex(c)}(?![-_\\w])`, "i").test(endState);
+
+      if ((isSub || replaced) && notInEnd) {
+        const idx = chars.indexOf(c);
+        if (idx !== -1) {
+          chars.splice(idx, 1);
+          warnings.push(
+            `Scene ${scene.n}: pruned origin character "${c}" because transformed form "${alt}" is active and "${c}" has been transformed.`,
+          );
+        }
+
+        // Remap dialogue speaker if it was set to the origin character
+        if (scene.dialogue && scene.dialogue.speaker) {
+          const speakerTokens = scene.dialogue.speaker.split(/[,&/]/).map((s) => s.trim());
+          if (speakerTokens.includes(c)) {
+            scene.dialogue.speaker = speakerTokens.map((s) => (s === c ? alt : s)).join(", ");
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  return { characters: chars, warnings };
+}
+
 export function sanitizeScenePlan(
   data: ProjectData,
   input: Scene[],
@@ -769,6 +818,11 @@ export function sanitizeScenePlan(
         );
       }
     }
+
+    // Prune transformed origin character when transformed form has taken over (prevents clone paradox)
+    const pruned = pruneTransformedOriginCharacters(scene);
+    scene.characters = pruned.characters;
+    warnings.push(...pruned.warnings);
 
     const deduped = [...new Set(scene.characters)].filter((id) =>
       knownCharacters.has(id),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sceneCount, DEFAULT_SETTINGS, type Scene } from "../src/lib/types";
+import { sceneCount, DEFAULT_SETTINGS, type ProjectData, type Scene } from "../src/lib/types";
 import { sanitizeScenePlan } from "../src/lib/pipeline";
 
 describe("sceneCount", () => {
@@ -361,5 +361,53 @@ describe("sanitizeScenePlan", () => {
 
     const sanitized = sanitizeScenePlan(mockData, rawScenes);
     expect(sanitized.scenes[1].chain_from_previous).toBe(false);
+  });
+
+  it("prunes origin character when transformed form is revealed/active (no clone paradox)", () => {
+    const dataWithMorph: ProjectData = {
+      ...mockData,
+      characters: [
+        {
+          id: "nilu",
+          name: "নিলু",
+          visual_lock: "Young magician in robe.",
+          voice_lock: "Voice",
+          language: "bn",
+          outfit_changes: true,
+          refImage: null,
+        },
+        {
+          id: "frog-nilu",
+          name: "সবুজ ব্যাঙ",
+          visual_lock: "Tiny green frog.",
+          voice_lock: "Frog Voice",
+          language: "bn",
+          outfit_changes: false,
+          refImage: null,
+        },
+      ],
+    };
+
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["frog-nilu", "nilu"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Light fades revealing frog-nilu on floor; frog-nilu croaks pleadingly.",
+        camera: { shot: "medium", angle: "eye", movement: "static" },
+        start_state: "Flash of light.",
+        end_state: "frog-nilu on floor looking up.",
+        dialogue: { speaker: "nilu", line: "ঘ্যাঙর ঘ্যাঙ!" },
+        sound: "Croak",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(dataWithMorph, rawScenes);
+    // nilu should be pruned because frog-nilu is active and nilu is not in end_state
+    expect(sanitized.scenes[0].characters).toContain("frog-nilu");
+    expect(sanitized.scenes[0].characters).not.toContain("nilu");
+    expect(sanitized.scenes[0].dialogue?.speaker).toBe("frog-nilu");
   });
 });

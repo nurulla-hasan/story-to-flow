@@ -223,4 +223,48 @@ describe("assembleImagePrompt", () => {
     const prompt = assemblePrompt(mockProjectData, scene);
     expect(prompt).toContain("Character transformation/metamorphosis occurs smoothly");
   });
+
+  it("updates character visual lock when outer outfit is stripped/removed (no visual bias)", () => {
+    const dataWithStrippedChar: ProjectData = {
+      ...mockProjectData,
+      characters: [
+        {
+          id: "nilu",
+          name: "নিলু",
+          visual_lock:
+            "A 20-year-old young man with short messy hair. Wears wire-rimmed spectacles. Dressed in a long flowing royal blue robe and tall pointed hat, layered over a plain white undershirt and tailored brown trousers with dark shoes.",
+          voice_lock: "Voice",
+          language: "bn",
+          outfit_changes: true,
+          refImage: null,
+        },
+      ],
+    };
+    const scene: SceneRecord = {
+      ...mockScene,
+      characters: ["nilu"],
+      start_state: "nilu in white undershirt and brown trousers, no hat or robe.",
+      action: "nilu points wand.",
+    };
+    const prompt = assemblePrompt(dataWithStrippedChar, scene);
+    expect(prompt).toContain(
+      "Current outfit for this scene: wearing a plain white undershirt and tailored brown trousers with dark shoes",
+    );
+    expect(prompt).not.toContain(
+      "Dressed in a long flowing royal blue robe and tall pointed hat",
+    );
+  });
+
+  it("does not treat occupied start state with 'clearing' weather as empty (no ghost keyframe bug)", () => {
+    const occupiedSceneWithClearingWeather: SceneRecord = {
+      ...mockScene,
+      characters: ["rina", "karim"],
+      start_state: "rina stands facing karim; dark sky clearing with gentle breeze",
+      action: "rina turns around.",
+    };
+    const imgPrompt = assembleImagePrompt(mockProjectData, occupiedSceneWithClearingWeather);
+    expect(imgPrompt).not.toContain("No characters visible in this starting frame");
+    expect(imgPrompt).toContain(mockProjectData.characters[0].visual_lock);
+    expect(imgPrompt).toContain(mockProjectData.characters[1].visual_lock);
+  });
 });

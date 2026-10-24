@@ -1,5 +1,5 @@
 import { findLocation } from "./db/repo";
-import type { ProjectData, SceneRecord } from "./types";
+import type { CharacterRecord, ProjectData, SceneRecord } from "./types";
 import { languageLabel } from "./types";
 
 export interface AssembleOptions {
@@ -12,6 +12,50 @@ export function projectStyleLock(data: ProjectData): string {
   if (project.styleLock.trim()) return project.styleLock.trim();
   const note = project.settings.styleNote.trim();
   return `${project.settings.stylePreset}${note ? `. ${note}` : ""}`;
+}
+
+export function getActiveVisualLock(
+  character: CharacterRecord,
+  scene: SceneRecord,
+  allScenes: SceneRecord[] = [],
+): string {
+  if (!character.outfit_changes) {
+    return character.visual_lock;
+  }
+
+  // Check if an outfit removal or change occurred up to this scene
+  const relevantScenes = allScenes.filter((s) => s.n <= scene.n);
+  const context = [
+    ...relevantScenes.map((s) => `${s.action} ${s.start_state} ${s.end_state}`),
+    scene.start_state,
+    scene.action,
+  ].join(" ");
+
+  const strippedRegex =
+    /\b(removes?|takes? off|drops?|sheds?|strips?|unbuttons?)\s+([a-zA-Z\s,]+)?\b(robe|hat|cloak|coat|jacket|outerwear)\b/i;
+  const noRobeRegex =
+    /\b(no\s+(hat|robe|coat|jacket|cloak)|without\s+(hat|robe|coat|jacket|cloak)|in\s+(white\s+)?(undershirt|shirt|t-shirt|pants|trousers))\b/i;
+
+  const hasStripped = strippedRegex.test(context) || noRobeRegex.test(scene.start_state + " " + scene.action);
+  if (!hasStripped) {
+    return character.visual_lock;
+  }
+
+  const lock = character.visual_lock;
+  const outerMatch = lock.match(
+    /\b(dressed in|wears a|wearing a)\s+([a-zA-Z\s,.-]+?\b(robe|hat|cloak|coat|jacket))/i,
+  );
+  const baseMatch = lock.match(
+    /\b(layered over|over|underneath|under which|beneath|revealing)\s+([a-zA-Z\s,.-]+?\b(undershirt|shirt|t-shirt|trousers|pants|shoes|dhoti|kurta)[a-zA-Z\s,.-]*)/i,
+  );
+
+  if (baseMatch) {
+    const physical = outerMatch ? lock.slice(0, outerMatch.index).trim() : lock.split(".")[0] + ".";
+    const baseLayer = baseMatch[2].replace(/\.$/, "").trim();
+    return `${physical} Current outfit for this scene: wearing ${baseLayer} (outer hat, robe, and cloak removed).`;
+  }
+
+  return character.visual_lock;
 }
 
 function visibleCharacters(data: ProjectData, scene: SceneRecord) {
@@ -45,12 +89,13 @@ export function assemblePrompt(
     lines.push("- No characters visible in this establishing shot.");
   } else {
     for (const character of characters) {
+      const activeLock = getActiveVisualLock(character, scene, data.scenes);
       const displayName =
         character.name.toLowerCase() === character.id.toLowerCase()
           ? character.name
           : `${character.name} (${character.id})`;
       lines.push(
-        `- ${displayName}: ${character.visual_lock} Voice: ${character.voice_lock}.`,
+        `- ${displayName}: ${activeLock} Voice: ${character.voice_lock}.`,
       );
     }
   }
@@ -103,6 +148,16 @@ export function assemblePrompt(
         "Character transformation/metamorphosis occurs smoothly during the take: the character morphs into the new form within this continuous shot.",
       );
     } else if (hasOutfitChanges) {
+      for (const character of characters) {
+        if (character.outfit_changes) {
+          const activeLock = getActiveVisualLock(character, scene, data.scenes);
+          if (activeLock !== character.visual_lock) {
+            must.push(
+              `${character.name} is dressed in their current scene outfit (outer hat, robe, or coat removed). Do not draw them in the original outer robe or hat.`,
+            );
+          }
+        }
+      }
       must.push(
         "Keep face, skin tone, and character identity consistent. Clothing and accessories follow the scene action and state as outfit changes are permitted.",
       );
@@ -115,6 +170,16 @@ export function assemblePrompt(
     if (characters.length >= 2) {
       must.push(
         "Do not swap or blend clothing, colors, faces, or accessories between different characters in the scene.",
+      );
+    }
+
+    const hasDynamicVisualState =
+      /\b(eyes?\s+(turn|glow|light\s+up|flashing)\s+[a-z]+|covered\s+in\s+mud|mud-splattered|splattered\s+with\s+mud|muddy)\b/i.test(
+        `${scene.action} ${scene.start_state} ${scene.end_state}`,
+      );
+    if (hasDynamicVisualState) {
+      must.push(
+        "Depict any dynamic visual state changes described in the action (such as eye LED colors or mud splatters) clearly and accurately in this take.",
       );
     }
   }
@@ -176,20 +241,41 @@ export function assemblePrompt(
   return lines.join("\n");
 }
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function isStartingFrameEmpty(scene: SceneRecord, data?: ProjectData): boolean {
   if (scene.is_establishing || scene.characters.length === 0) return true;
 
-  const startStateLower = (scene.start_state || "").toLowerCase();
-  const startsEmptyWords = /\b(empty|nobody|no characters?|unoccupied|clearing)\b/i;
+  const startState = (scene.start_state || "").trim();
+  const startStateLower = startState.toLowerCase();
 
-  if (startsEmptyWords.test(startStateLower)) {
+  // If any visible character is explicitly mentioned as present in start_state, the frame is NOT empty!
+  const hasCharInStart = scene.characters.some((id) =>
+    new RegExp(`(?<![-_\\w])${escapeRegex(id)}(?![-_\\w])`, "i").test(startState),
+  );
+  if (hasCharInStart) {
+    return false;
+  }
+
+  // Explicit empty setting phrases (NOT standalone "clearing" which matches "sky clearing" or "smoke clearing")
+  const explicitEmptyPhrase =
+    /\b(empty\s+(location|setting|courtyard|room|bridge|area|clearing|scene|banyan|street|forest|ground)|location\s+(is\s+|starts\s+)?empty|nobody\s+(is\s+|in\s+)?visible|no\s+characters?\s+(visible|in\s+frame)|completely\s+empty)\b/i;
+
+  if (explicitEmptyPhrase.test(startStateLower)) {
     return true;
   }
 
+  // Chaining from an empty previous scene where characters enter during the take
   if (data && scene.chain_from_previous && scene.n > 1) {
     const prevScene = data.scenes.find((s) => s.n === scene.n - 1);
-    const prevHadNoChars = prevScene && (prevScene.characters.length === 0 || prevScene.is_establishing);
-    if (prevHadNoChars) {
+    const prevHadNoChars =
+      prevScene && (prevScene.characters.length === 0 || prevScene.is_establishing);
+    const currentEnters = /\b(enters?|walks?|steps?|runs?|comes?)\s+(into|in|onto|the\s+frame)\b/i.test(
+      scene.action || "",
+    );
+    if (prevHadNoChars && currentEnters) {
       return true;
     }
   }
@@ -223,7 +309,8 @@ export function assembleImagePrompt(data: ProjectData, scene: SceneRecord): stri
   } else if (characters.length) {
     lines.push("CHARACTERS:");
     for (const character of characters) {
-      lines.push(`- ${character.name}: ${character.visual_lock}`);
+      const activeLock = getActiveVisualLock(character, scene, data.scenes);
+      lines.push(`- ${character.name}: ${activeLock}`);
     }
     lines.push("");
   }

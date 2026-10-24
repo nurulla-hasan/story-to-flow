@@ -13,7 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { copyText } from "@/lib/apiClient";
+import { api, copyText } from "@/lib/apiClient";
 import { isFlowExtensionInstalled, sendToFlow } from "@/lib/flowBridge";
 import { cn } from "cn";
 import type { StudioClip } from "./types";
@@ -42,6 +42,7 @@ export function CleanPromptCard({
 }: CleanPromptCardProps) {
   const [copiedPrompt, setCopiedPrompt] = React.useState(false);
   const [sendingFlow, setSendingFlow] = React.useState(false);
+  const [uploadingImage, setUploadingImage] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const formatTime = (sec: number) => {
@@ -98,12 +99,32 @@ export function CleanPromptCard({
     }
   };
 
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    onUpdateClip({ imageUrl: url });
-    notify(`Saved image attached to #${clip.index}!`, "success");
+    setUploadingImage(true);
+    const localUrl = URL.createObjectURL(file);
+    onUpdateClip({ imageUrl: localUrl });
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await api<{ success: boolean; files: { url: string }[] }>("/api/studio/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (res.files?.[0]?.url) {
+        onUpdateClip({ imageUrl: res.files[0].url });
+      }
+      notify(`Saved image attached to #${clip.index}!`, "success");
+    } catch {
+      notify(`Image attached locally for #${clip.index}.`, "info");
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   return (
@@ -115,41 +136,49 @@ export function CleanPromptCard({
           : "border-border shadow-xs hover:border-muted-foreground/30",
       )}
     >
-      {/* Clickable Header Bar matching SceneCard */}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-muted font-mono text-xs font-semibold tabular-nums text-foreground">
-          #{String(clip.index).padStart(2, "0")}
-        </span>
+      {/* Header Bar */}
+      <div className="flex w-full items-center gap-3 px-4 py-3.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <span className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-muted font-mono text-xs font-semibold tabular-nums text-foreground">
+            {clip.imageUrl ? (
+              <Image src={clip.imageUrl} alt="" fill unoptimized className="object-cover" />
+            ) : (
+              `#${String(clip.index).padStart(2, "0")}`
+            )}
+          </span>
 
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground font-bangla">
-              {clip.narration || clip.imagePrompt.slice(0, 60)}
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2">
+              <span className="truncate text-sm font-medium text-foreground font-bangla">
+                {clip.narration || clip.imagePrompt.slice(0, 60)}
+              </span>
+              {clip.imageUrl ? (
+                <span className="hidden shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-3xs font-semibold text-primary sm:inline">
+                  Image attached
+                </span>
+              ) : null}
+            </span>
+            <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-mono">
+                {formatTime(startTime)} - {formatTime(endTime)} ({clip.duration.toFixed(1)}s)
+              </span>
+              <span aria-hidden>·</span>
+              <span className="capitalize">{clip.motion || "zoom-in"}</span>
             </span>
           </span>
-          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="font-mono">
-              {formatTime(startTime)} - {formatTime(endTime)} ({clip.duration.toFixed(1)}s)
-            </span>
-            <span aria-hidden>·</span>
-            <span className="capitalize">{clip.motion || "zoom-in"}</span>
-          </span>
-        </span>
+        </button>
 
-        {/* Quick Send to Flow & Chevron */}
-        <div className="flex items-center gap-2">
+        {/* Quick Send to Flow & Chevron Toggle */}
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             type="button"
             size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleSendToFlow();
-            }}
+            onClick={handleSendToFlow}
             disabled={sendingFlow}
             className="h-8 gap-1.5 px-3 text-xs font-semibold"
             title="Auto-place this prompt into Google Flow"
@@ -162,15 +191,22 @@ export function CleanPromptCard({
             <span className="hidden sm:inline">{sendingFlow ? "Sending…" : "🚀 Send to Flow"}</span>
           </Button>
 
-          <ChevronDown
-            className={cn(
-              "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
-              open && "rotate-180",
-            )}
-            aria-hidden
-          />
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={open ? "Collapse clip details" : "Expand clip details"}
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ChevronDown
+              className={cn(
+                "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                open && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </button>
         </div>
-      </button>
+      </div>
 
       {/* Expanded Details Body */}
       {open ? (
@@ -207,12 +243,21 @@ export function CleanPromptCard({
                   type="button"
                   size="sm"
                   variant="outline"
+                  disabled={uploadingImage}
                   className="h-8 flex-1 gap-1 text-2xs"
                   onClick={() => fileInputRef.current?.click()}
                   title="Attach image downloaded from Flow"
                 >
-                  <Upload className="size-3" />
-                  {clip.imageUrl ? "Replace" : "Attach Image"}
+                  {uploadingImage ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Upload className="size-3" />
+                  )}
+                  {uploadingImage
+                    ? "Saving…"
+                    : clip.imageUrl
+                      ? "Replace"
+                      : "Attach Image"}
                 </Button>
 
                 {clip.imageUrl ? (

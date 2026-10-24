@@ -15,16 +15,33 @@ export interface StudioClip {
   motion: ClipMotion;
 }
 
+export type BgmMood =
+  | "suspense-mystery"
+  | "emotional-piano"
+  | "lofi-chill"
+  | "dark-thriller"
+  | "inspirational-epic"
+  | "custom";
+
 export interface StudioProject {
   id: string;
   title: string;
   story: string;
+  characterVisualLock?: string;
+  environmentVisualLock?: string;
   stylePreset: string;
   aspectRatio: "9:16" | "16:9";
   defaultClipDuration: number; // default 3 seconds
   continuousVoiceover: string;
   audioUrl: string | null;
   audioDuration: number;
+  audioSpeed?: number; // e.g. 0.8, 1.0, 1.1, 1.2, 1.5
+  voiceVolume?: number; // 0 to 1, default 1.0
+  bgmUrl?: string | null;
+  bgmMood?: BgmMood | null;
+  bgmVolume?: number; // 0 to 1, default 0.20
+  recommendedBgmMood?: BgmMood;
+  saturation?: number; // 0 to 200, default 100
   clips: StudioClip[];
 }
 

@@ -20,6 +20,11 @@ const MIME_BY_EXT: Record<string, string> = {
   mp4: "video/mp4",
   webm: "video/webm",
   mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
   txt: "text/plain; charset=utf-8",
   json: "application/json; charset=utf-8",
 };
@@ -37,6 +42,11 @@ export function extForMime(mime: string): string {
   if (clean === "video/webm") return "webm";
   if (clean === "video/quicktime") return "mov";
   if (clean === "video/mp4") return "mp4";
+  if (clean === "audio/mpeg" || clean === "audio/mp3") return "mp3";
+  if (clean === "audio/wav") return "wav";
+  if (clean === "audio/ogg") return "ogg";
+  if (clean === "audio/mp4" || clean === "audio/x-m4a" || clean === "audio/m4a") return "m4a";
+  if (clean === "audio/aac") return "aac";
   return "bin";
 }
 

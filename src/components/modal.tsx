@@ -32,20 +32,24 @@ export function Modal({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent
         className={cn(
-          "max-h-full overflow-y-auto sm:max-h-5/6",
+          "overflow-hidden p-0",
           size === "md" && "sm:max-w-xl",
           size === "lg" && "sm:max-w-3xl",
           size === "xl" && "sm:max-w-5xl",
         )}
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0 border-b border-border p-4 pb-3 pr-10">
           <DialogTitle>{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
           ) : null}
         </DialogHeader>
-        <div className="py-2">{children}</div>
-        {footer ? <DialogFooter>{footer}</DialogFooter> : null}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">{children}</div>
+        {footer ? (
+          <DialogFooter >
+            {footer}
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

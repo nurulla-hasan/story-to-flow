@@ -13,10 +13,10 @@ export interface EnvConfig {
 }
 
 const DEFAULTS = {
-  planner: "agy/gemini-3.8-flash-high",
-  validator: "agy/gemini-3.8-flash-low",
-  image: "agy/gemini-3.8-flash-high",
-  fallback: "ollamacloud/gemma4:31b",
+  planner: "antigravity/gemini-3.8-flash-high",
+  validator: "antigravity/gemini-3.8-flash-low",
+  image: "antigravity/gemini-3.1-flash-image",
+  fallback: "auto/best-fast",
 };
 
 let fileEnvLoaded = false;
@@ -57,7 +57,10 @@ function loadFileEnv(): void {
 function normalizeBaseUrl(rawUrl: string): string {
   let cleaned = rawUrl.trim().replace(/\/+$/, "");
   // Localhost gateways run on unencrypted HTTP, not HTTPS
-  if (cleaned.startsWith("https://localhost") || cleaned.startsWith("https://127.0.0.1")) {
+  if (
+    cleaned.startsWith("https://localhost") ||
+    cleaned.startsWith("https://127.0.0.1")
+  ) {
     cleaned = cleaned.replace(/^https:/, "http:");
   }
   if (!cleaned.endsWith("/v1") && !cleaned.includes("/v1/")) {
@@ -68,22 +71,9 @@ function normalizeBaseUrl(rawUrl: string): string {
 
 export function getEnv(): EnvConfig {
   loadFileEnv();
-  const rawUrl =
-    process.env.AI_BASE_URL ||
-    process.env.LLM_BASE_URL ||
-    process.env.OPENAI_BASE_URL ||
-    process.env.BASE_URL ||
-    process.env.OMNIROUTE_BASE_URL ||
-    process.env.OMNIROUTE_ENDPOINT ||
-    "http://localhost:20128/v1";
+  const rawUrl = process.env.AI_BASE_URL || "http://72.61.115.32:20128/v1";
 
-  const apiKey =
-    process.env.AI_API_KEY ||
-    process.env.LLM_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.API_KEY ||
-    process.env.OMNIROUTE_API_KEY ||
-    "";
+  const apiKey = process.env.AI_API_KEY || "";
 
   return {
     baseUrl: normalizeBaseUrl(rawUrl),

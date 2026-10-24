@@ -196,3 +196,7 @@
 @utility font-bangla {
   font-family: var(--font-hind-siliguri), var(--font-inter), sans-serif;
 }
+
+@utility max-h-modal {
+  max-height: 85vh;
+}

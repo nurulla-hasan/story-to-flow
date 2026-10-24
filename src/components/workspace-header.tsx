@@ -25,23 +25,23 @@ export function WorkspaceHeader({
 }: WorkspaceHeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-xs">
-      <div className="flex h-14 w-full items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-3">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary font-bold text-xs tracking-wider text-primary-foreground shadow-xs">
+      <div className="flex h-14 w-full items-center justify-between gap-2 px-3 sm:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary font-bold text-xs tracking-wider text-primary-foreground shadow-xs">
             STF
           </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-bold tracking-tight">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-xs font-bold tracking-tight sm:text-sm">
               {projectName || "Story to Flow"}
             </h1>
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden truncate text-xs text-muted-foreground md:block">
               AI video production plan · Google Flow consistency
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground sm:inline-flex">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground lg:inline-flex">
             <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
             {doneCount} of {totalScenes} clips done
           </span>
@@ -51,11 +51,11 @@ export function WorkspaceHeader({
             variant="outline"
             size="sm"
             onClick={onOpenExtension}
-            className="h-9 gap-1.5 text-xs"
+            className="h-8 w-8 gap-1.5 p-0 text-xs sm:h-9 sm:w-auto sm:px-2.5"
             title="Google Flow Auto-Bridge Extension"
           >
-            <Sparkles className="size-3.5 text-primary" aria-hidden />
-            <span className="hidden sm:inline">Flow Bridge</span>
+            <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
+            <span className="hidden md:inline">Flow Bridge</span>
           </Button>
 
           <Button
@@ -63,10 +63,11 @@ export function WorkspaceHeader({
             variant="outline"
             size="sm"
             onClick={onOpenChat}
-            className="h-9 gap-1.5 text-xs"
+            className="h-8 w-8 gap-1.5 p-0 text-xs sm:h-9 sm:w-auto sm:px-2.5"
+            title="Chat edit"
           >
-            <Bot className="size-3.5" aria-hidden />
-            <span className="hidden sm:inline">Chat edit</span>
+            <Bot className="size-3.5 shrink-0" aria-hidden />
+            <span className="hidden sm:inline">Chat</span>
           </Button>
 
           <Button
@@ -74,9 +75,10 @@ export function WorkspaceHeader({
             variant="outline"
             size="sm"
             onClick={onOpenSettings}
-            className="h-9 gap-1.5 text-xs"
+            className="h-8 w-8 gap-1.5 p-0 text-xs sm:h-9 sm:w-auto sm:px-2.5"
+            title="Settings"
           >
-            <Settings2 className="size-3.5" aria-hidden />
+            <Settings2 className="size-3.5 shrink-0" aria-hidden />
             <span className="hidden sm:inline">Settings</span>
           </Button>
 
@@ -84,10 +86,11 @@ export function WorkspaceHeader({
             type="button"
             size="sm"
             onClick={onOpenExport}
-            className="h-9 gap-1.5 text-xs"
+            className="h-8 w-8 gap-1.5 p-0 text-xs sm:h-9 sm:w-auto sm:px-2.5"
+            title="Export"
           >
-            <Download className="size-3.5" aria-hidden />
-            Export
+            <Download className="size-3.5 shrink-0" aria-hidden />
+            <span className="hidden sm:inline">Export</span>
           </Button>
         </div>
       </div>

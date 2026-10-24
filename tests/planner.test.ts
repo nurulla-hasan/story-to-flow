@@ -306,4 +306,60 @@ describe("sanitizeScenePlan", () => {
     const sanitized = sanitizeScenePlan(mockData, rawScenes);
     expect(sanitized.scenes[0].camera.angle).toBe("eye level");
   });
+
+  it("automatically detects and injects characters mentioned in action or dialogue", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["rina"], // karim omitted by mistake
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Rina turns and talks to karim.",
+        camera: { shot: "medium", angle: "eye", movement: "static" },
+        start_state: "Rina facing water.",
+        end_state: "Rina and Karim talking.",
+        dialogue: null,
+        sound: "Wind",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[0].characters).toContain("rina");
+    expect(sanitized.scenes[0].characters).toContain("karim");
+  });
+
+  it("unchains when characters from previous scene are dropped without exiting (subset paradox)", () => {
+    const rawScenes: Scene[] = [
+      {
+        n: 1,
+        location_id: "ghat",
+        characters: ["rina", "karim"],
+        is_establishing: false,
+        chain_from_previous: false,
+        action: "Rina and Karim standing together laughing.",
+        camera: { shot: "wide", angle: "eye", movement: "static" },
+        start_state: "Both standing.",
+        end_state: "Both laughing.",
+        dialogue: null,
+        sound: "Wind",
+      },
+      {
+        n: 2,
+        location_id: "ghat",
+        characters: ["rina"], // karim dropped without exiting!
+        is_establishing: false,
+        chain_from_previous: true,
+        action: "Rina smiles.",
+        camera: { shot: "close-up", angle: "eye", movement: "static" },
+        start_state: "Both laughing.",
+        end_state: "Rina smiling.",
+        dialogue: null,
+        sound: "Wind",
+      },
+    ];
+
+    const sanitized = sanitizeScenePlan(mockData, rawScenes);
+    expect(sanitized.scenes[1].chain_from_previous).toBe(false);
+  });
 });

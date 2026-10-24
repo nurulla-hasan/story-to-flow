@@ -1,4 +1,4 @@
-import { projectStyleLock } from "./assemble";
+import { isStartingFrameEmpty, projectStyleLock } from "./assemble";
 import type { ProjectData, SceneRecord } from "./types";
 import { languageLabel } from "./types";
 
@@ -142,6 +142,7 @@ export function deterministicChecksForScene(
       "The location visual lock is not verbatim in the prompt.",
     );
   }
+  const startingEmpty = isStartingFrameEmpty(scene, data);
   for (const character of visible) {
     if (!prompt.includes(character.visual_lock)) {
       error(
@@ -157,7 +158,7 @@ export function deterministicChecksForScene(
         "characters",
       );
     }
-    if (!imagePrompt.includes(character.visual_lock)) {
+    if (!startingEmpty && !imagePrompt.includes(character.visual_lock)) {
       error(
         "image_visual_lock_missing",
         `${character.name}'s visual lock is missing from the keyframe prompt.`,

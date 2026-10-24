@@ -183,4 +183,44 @@ describe("assembleImagePrompt", () => {
     expect(imgPrompt).toContain("ASPECT RATIO: 16:9");
     expect(imgPrompt).not.toMatch(/```/);
   });
+
+  it("omits characters from keyframe image prompt when location starts empty", () => {
+    const emptyStartScene: SceneRecord = {
+      ...mockScene,
+      start_state: "empty clearing beneath ancient banyan tree",
+    };
+    const imgPrompt = assembleImagePrompt(mockProjectData, emptyStartScene);
+    expect(imgPrompt).toContain("No characters visible in this starting frame");
+    expect(imgPrompt).not.toContain(mockProjectData.characters[0].visual_lock);
+  });
+
+  it("adapts MUST lock when outfit_changes is true", () => {
+    const dataWithOutfitChange: ProjectData = {
+      ...mockProjectData,
+      characters: [
+        {
+          ...mockProjectData.characters[0],
+          outfit_changes: true,
+        },
+      ],
+    };
+    const scene: SceneRecord = {
+      ...mockScene,
+      characters: ["rina"],
+      action: "Rina takes off her coat.",
+    };
+    const prompt = assemblePrompt(dataWithOutfitChange, scene);
+    expect(prompt).toContain("outfit changes are permitted");
+    expect(prompt).not.toContain("Keep every face, hair, skin tone, dress, accessory and voice exactly as locked above");
+  });
+
+  it("adapts MUST lock when character undergoes metamorphosis/transformation", () => {
+    const scene: SceneRecord = {
+      ...mockScene,
+      characters: ["rina"],
+      action: "Rina is enveloped in blue smoke and transforms into a bird.",
+    };
+    const prompt = assemblePrompt(mockProjectData, scene);
+    expect(prompt).toContain("Character transformation/metamorphosis occurs smoothly");
+  });
 });

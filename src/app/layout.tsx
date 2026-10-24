@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Hind_Siliguri, Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/providers/theme-provider";
@@ -22,6 +22,12 @@ export const metadata: Metadata = {
     "Turn a story into a consistent, scene-by-scene production plan for Google Flow.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -33,7 +39,7 @@ export default function RootLayout({
       className={`${inter.variable} ${hind.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col font-sans max-w-480 mx-auto">
+      <body className="min-h-full flex flex-col font-sans w-full max-w-480 mx-auto overflow-x-hidden">
         <ThemeProvider
             attribute="class"
             defaultTheme="system"

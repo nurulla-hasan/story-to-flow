@@ -8,6 +8,7 @@ import {
   canonicalScene,
   validatorResultSchema,
   type Bible,
+  type CharacterRecord,
   type ProjectData,
   type Scene,
   type SceneRecord,
@@ -34,9 +35,12 @@ Check only semantic problems:
 - more than one main action in the scene
 - contradiction between action and start_state/end_state
 - continuity with the previous scene (positions, facing, props, light)
-- a character described as already in place when chained from an empty establishing shot (must enter the frame instead)
+- a character or creature appearing, acting, emerging, or speaking in the scene but missing from the "characters" list (must add to characters)
+- chaining from the previous scene when previous characters were dropped or omitted in this scene without exiting (must set chain_from_previous to false)
+- a character described as already in place when chained from an empty establishing shot (must enter or emerge into frame instead)
 - camera jumping between wide and close-up in a static chained shot (change chain_from_previous to false or add camera push)
 - speaking character facing away from camera during dialogue
+- dialogue that anticipates or reacts to an action that hasn't happened yet or happened in a different scene
 - a location jump without an establishing shot
 - dialogue that does not fit the action or the visible speaker
 - camera directions that cannot be shot in one continuous clip
@@ -687,18 +691,56 @@ export function didCharacterExit(action: string, endState: string): boolean {
   return exitWords.test(action || "") || exitWords.test(endState || "");
 }
 
+export function detectReferencedCharacters(
+  scene: { action: string; start_state: string; end_state: string; dialogue?: { speaker: string; line: string } | null },
+  characters: CharacterRecord[],
+): string[] {
+  const combined = [
+    scene.action,
+    scene.start_state,
+    scene.end_state,
+    scene.dialogue?.speaker ?? "",
+    scene.dialogue?.line ?? "",
+  ].join(" ").toLowerCase();
+
+  const detected: string[] = [];
+  for (const c of characters) {
+    const idRegex = new RegExp(`\\b${c.id}\\b`, "i");
+    const nameLower = c.name.toLowerCase();
+    if (idRegex.test(combined) || combined.includes(nameLower)) {
+      detected.push(c.id);
+    }
+  }
+  return detected;
+}
+
 export function ensureCharacterEntersFrame(action: string, characterIds: string[]): string {
   if (!characterIds.length) return action;
-  const entersRegex = /\b(enters?|walks?|steps?|comes?|runs?|approaches?|moves?)\s+(into|in|onto|from|the|frame|shot|scene)\b/i;
-  if (entersRegex.test(action)) return action;
 
-  const mainChar = characterIds[0];
-  const startsWithChar = new RegExp(`^${mainChar}\\b\\s*`, "i");
-  if (startsWithChar.test(action)) {
-    const stripped = action.replace(startsWithChar, "").trim();
-    return `${mainChar} enters the frame and ${stripped}`;
+  let modified = action;
+  const entersRegex = /\b(enters?|walks?|steps?|comes?|runs?|approaches?|moves?)\s+(into|in|onto|from|the|frame|shot|scene)\b/i;
+
+  if (!entersRegex.test(modified)) {
+    const mainChar = characterIds[0];
+    const startsWithChar = new RegExp(`^${mainChar}\\b\\s*`, "i");
+    if (startsWithChar.test(modified)) {
+      const stripped = modified.replace(startsWithChar, "").trim();
+      modified = `${mainChar} enters the frame and ${stripped}`;
+    } else {
+      modified = `${mainChar} enters the frame; ${modified}`;
+    }
   }
-  return `${mainChar} enters the frame; ${action}`;
+
+  // If there are other characters in characterIds described as static in an empty-origin shot, adjust their reveal
+  for (let i = 1; i < characterIds.length; i++) {
+    const charId = characterIds[i];
+    const standingRegex = new RegExp(`\\b${charId}\\s+(standing|sitting|waiting|facing)\\b`, "i");
+    if (standingRegex.test(modified)) {
+      modified = modified.replace(standingRegex, `${charId} emerges and is $1`);
+    }
+  }
+
+  return modified;
 }
 
 export function sanitizeScenePlan(
@@ -716,6 +758,17 @@ export function sanitizeScenePlan(
     const scene = canonicalScene(raw);
     const previous = out[out.length - 1];
     scene.n = out.length + 1;
+
+    // Auto-detect any character mentioned in action/state/dialogue who was omitted from scene.characters
+    const autoDetected = detectReferencedCharacters(scene, data.characters);
+    for (const charId of autoDetected) {
+      if (!scene.characters.includes(charId)) {
+        scene.characters.push(charId);
+        warnings.push(
+          `Scene ${scene.n}: character "${charId}" was mentioned in action/dialogue but missing from character list; automatically added.`,
+        );
+      }
+    }
 
     const deduped = [...new Set(scene.characters)].filter((id) =>
       knownCharacters.has(id),
@@ -818,6 +871,23 @@ export function sanitizeScenePlan(
       warnings.push(
         `Scene ${scene.n}: lighting/time-of-day shifted from previous scene; unchained to prevent lighting glitches.`,
       );
+    }
+
+    // Safety check 4: Dropped characters in chained take (subset paradox)
+    if (
+      scene.chain_from_previous &&
+      previous &&
+      previous.characters.length > 0 &&
+      !previous.is_establishing
+    ) {
+      const droppedChars = previous.characters.filter((id) => !scene.characters.includes(id));
+      const prevExited = didCharacterExit(previous.action, previous.end_state);
+      if (droppedChars.length > 0 && !prevExited) {
+        scene.chain_from_previous = false;
+        warnings.push(
+          `Scene ${scene.n}: character(s) [${droppedChars.join(", ")}] from Scene ${previous.n} are omitted without exiting; unchained to prevent character vanishing paradox.`,
+        );
+      }
     }
 
     if (scene.chain_from_previous && previous) {

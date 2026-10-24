@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, Save } from "lucide-react";
+import { ChevronDown, ChevronRight, Cpu, RefreshCw, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/modal";
 import { Field } from "@/components/field";
@@ -10,6 +10,7 @@ import { SimpleSelect } from "@/components/simple-select";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "cn";
 import { api, ApiError } from "@/lib/apiClient";
 import {
   STYLE_PRESETS,
@@ -42,6 +43,30 @@ export function SettingsDialog({
   const [prevSettings, setPrevSettings] = React.useState<Settings>(data.project.settings);
   const [saving, setSaving] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [availableModels, setAvailableModels] = React.useState<string[]>([]);
+  const [modelDefaults, setModelDefaults] = React.useState<Record<string, string>>({});
+  const [loadingModels, setLoadingModels] = React.useState(false);
+
+  const loadModels = React.useCallback(async () => {
+    setLoadingModels(true);
+    try {
+      const res = await api<{
+        models: Array<{ id: string }>;
+        defaults: Record<string, string>;
+        count: number;
+      }>("/api/models");
+      if (res && Array.isArray(res.models)) {
+        setAvailableModels(res.models.map((m) => m.id));
+      }
+      if (res && res.defaults) {
+        setModelDefaults(res.defaults);
+      }
+    } catch {
+      // ignore network errors
+    } finally {
+      setLoadingModels(false);
+    }
+  }, []);
 
   if (open && data.project.settings !== prevSettings) {
     setPrevSettings(data.project.settings);
@@ -246,7 +271,13 @@ export function SettingsDialog({
         <div className="border-t border-border pt-1">
           <button
             type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
+            onClick={() => {
+              const next = !showAdvanced;
+              setShowAdvanced(next);
+              if (next && availableModels.length === 0) {
+                void loadModels();
+              }
+            }}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline focus-visible:outline-none"
           >
             {showAdvanced ? (
@@ -316,38 +347,212 @@ export function SettingsDialog({
               />
             </Field>
 
-            <section className="grid gap-3 border-t border-border pt-3 sm:grid-cols-3">
-              <Field label="Planner model override" htmlFor="modelPlanner">
-                <Input
-                  id="modelPlanner"
-                  value={form.models.planner}
-                  onChange={(event) =>
-                    set("models", { ...form.models, planner: event.target.value })
+            {/* AI Models Configuration */}
+            <div className="space-y-3 border-t border-border pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Cpu className="size-4 text-primary" />
+                  <span className="text-xs font-bold text-foreground">
+                    AI Models Configuration
+                  </span>
+                  {availableModels.length > 0 ? (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-2xs font-semibold text-primary">
+                      {availableModels.length} models available
+                    </span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadModels}
+                  disabled={loadingModels}
+                  className="h-7 gap-1 px-2 text-2xs text-muted-foreground hover:text-foreground"
+                >
+                  <RefreshCw className={cn("size-3", loadingModels && "animate-spin")} />
+                  {loadingModels ? "Loading..." : "Refresh models"}
+                </Button>
+              </div>
+
+              {/* Datalist for autocomplete on all model inputs */}
+              <datalist id="available-gateway-models">
+                {availableModels.map((id) => (
+                  <option key={id} value={id} />
+                ))}
+              </datalist>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                {/* Planner Model */}
+                <Field
+                  label="Planner model"
+                  htmlFor="modelPlanner"
+                  hint={
+                    form.models.planner ? (
+                      <span className="flex items-center gap-1 text-primary">
+                        Custom override
+                        <button
+                          type="button"
+                          onClick={() => set("models", { ...form.models, planner: "" })}
+                          className="ml-1 underline hover:text-foreground"
+                        >
+                          (Reset)
+                        </button>
+                      </span>
+                    ) : (
+                      `Default: ${modelDefaults.planner || "from .env"}`
+                    )
                   }
-                  placeholder="From .env.local"
-                />
-              </Field>
-              <Field label="Validator model override" htmlFor="modelValidator">
-                <Input
-                  id="modelValidator"
-                  value={form.models.validator}
-                  onChange={(event) =>
-                    set("models", { ...form.models, validator: event.target.value })
+                >
+                  <div className="space-y-1.5">
+                    <Input
+                      id="modelPlanner"
+                      list="available-gateway-models"
+                      value={form.models.planner}
+                      onChange={(event) =>
+                        set("models", { ...form.models, planner: event.target.value })
+                      }
+                      placeholder={modelDefaults.planner || "Select or type model..."}
+                      className="font-mono text-xs"
+                    />
+                    {/* Quick Pick Recommended Models */}
+                    <div className="flex flex-wrap items-center gap-1 text-2xs">
+                      <span className="mr-0.5 text-muted-foreground">Quick:</span>
+                      {[
+                        "antigravity/claude-sonnet-4-6",
+                        "antigravity/gemini-3.8-flash-high",
+                        "auto/best-reasoning",
+                      ].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => set("models", { ...form.models, planner: m })}
+                          className={cn(
+                            "rounded bg-secondary px-1.5 py-0.5 font-mono text-secondary-foreground transition-colors hover:bg-primary hover:text-primary-foreground",
+                            form.models.planner === m && "ring-1 ring-primary font-bold",
+                          )}
+                          title={m}
+                        >
+                          {m.split("/").pop()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </Field>
+
+                {/* Validator Model */}
+                <Field
+                  label="Validator model"
+                  htmlFor="modelValidator"
+                  hint={
+                    form.models.validator ? (
+                      <span className="flex items-center gap-1 text-primary">
+                        Custom override
+                        <button
+                          type="button"
+                          onClick={() => set("models", { ...form.models, validator: "" })}
+                          className="ml-1 underline hover:text-foreground"
+                        >
+                          (Reset)
+                        </button>
+                      </span>
+                    ) : (
+                      `Default: ${modelDefaults.validator || "from .env"}`
+                    )
                   }
-                  placeholder="From .env.local"
-                />
-              </Field>
-              <Field label="Image model override" htmlFor="modelImage">
-                <Input
-                  id="modelImage"
-                  value={form.models.image}
-                  onChange={(event) =>
-                    set("models", { ...form.models, image: event.target.value })
+                >
+                  <div className="space-y-1.5">
+                    <Input
+                      id="modelValidator"
+                      list="available-gateway-models"
+                      value={form.models.validator}
+                      onChange={(event) =>
+                        set("models", { ...form.models, validator: event.target.value })
+                      }
+                      placeholder={modelDefaults.validator || "Select or type model..."}
+                      className="font-mono text-xs"
+                    />
+                    {/* Quick Pick Recommended Models */}
+                    <div className="flex flex-wrap items-center gap-1 text-2xs">
+                      <span className="mr-0.5 text-muted-foreground">Quick:</span>
+                      {[
+                        "antigravity/gemini-3.8-flash-low",
+                        "kr/claude-haiku-4.5",
+                        "groq/openai/gpt-oss-120b",
+                      ].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => set("models", { ...form.models, validator: m })}
+                          className={cn(
+                            "rounded bg-secondary px-1.5 py-0.5 font-mono text-secondary-foreground transition-colors hover:bg-primary hover:text-primary-foreground",
+                            form.models.validator === m && "ring-1 ring-primary font-bold",
+                          )}
+                          title={m}
+                        >
+                          {m.split("/").pop()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </Field>
+
+                {/* Image Model */}
+                <Field
+                  label="Image model"
+                  htmlFor="modelImage"
+                  hint={
+                    form.models.image ? (
+                      <span className="flex items-center gap-1 text-primary">
+                        Custom override
+                        <button
+                          type="button"
+                          onClick={() => set("models", { ...form.models, image: "" })}
+                          className="ml-1 underline hover:text-foreground"
+                        >
+                          (Reset)
+                        </button>
+                      </span>
+                    ) : (
+                      `Default: ${modelDefaults.image || "from .env"}`
+                    )
                   }
-                  placeholder="From .env.local"
-                />
-              </Field>
-            </section>
+                >
+                  <div className="space-y-1.5">
+                    <Input
+                      id="modelImage"
+                      list="available-gateway-models"
+                      value={form.models.image}
+                      onChange={(event) =>
+                        set("models", { ...form.models, image: event.target.value })
+                      }
+                      placeholder={modelDefaults.image || "Select or type model..."}
+                      className="font-mono text-xs"
+                    />
+                    {/* Quick Pick Recommended Models */}
+                    <div className="flex flex-wrap items-center gap-1 text-2xs">
+                      <span className="mr-0.5 text-muted-foreground">Quick:</span>
+                      {[
+                        "antigravity/gemini-3.1-flash-image",
+                        "auto/best-vision",
+                      ].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => set("models", { ...form.models, image: m })}
+                          className={cn(
+                            "rounded bg-secondary px-1.5 py-0.5 font-mono text-secondary-foreground transition-colors hover:bg-primary hover:text-primary-foreground",
+                            form.models.image === m && "ring-1 ring-primary font-bold",
+                          )}
+                          title={m}
+                        >
+                          {m.split("/").pop()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </Field>
+              </div>
+            </div>
           </div>
         ) : null}
       </form>

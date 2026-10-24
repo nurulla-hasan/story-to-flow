@@ -11,7 +11,7 @@ export function Field({
 }: {
   label: string;
   htmlFor?: string;
-  hint?: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -21,7 +21,13 @@ export function Field({
         {label}
       </Label>
       {children}
-      {hint ? <p className="text-xs leading-5 text-muted-foreground">{hint}</p> : null}
+      {hint ? (
+        typeof hint === "string" ? (
+          <p className="text-xs leading-5 text-muted-foreground">{hint}</p>
+        ) : (
+          <div className="text-xs leading-5 text-muted-foreground">{hint}</div>
+        )
+      ) : null}
     </div>
   );
 }

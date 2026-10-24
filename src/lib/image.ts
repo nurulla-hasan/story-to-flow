@@ -60,7 +60,14 @@ export class OmnirouteImageProvider implements ImageProvider {
       "Content-Type": "application/json",
     };
     if (env.apiKey) headers.Authorization = `Bearer ${env.apiKey}`;
-    const size = aspect === "16:9" ? "1536x864" : "864x1536";
+    const size = aspect === "16:9" ? "1792x1024" : "1024x1792";
+    const aspectDirective =
+      aspect === "9:16"
+        ? ", vertical 9:16 aspect ratio, tall portrait orientation, full frame"
+        : ", widescreen 16:9 aspect ratio, panoramic landscape orientation";
+    const fullPrompt = prompt.toLowerCase().includes("aspect ratio")
+      ? prompt
+      : `${prompt}${aspectDirective}`;
 
     let imageError: string;
     try {
@@ -69,7 +76,7 @@ export class OmnirouteImageProvider implements ImageProvider {
         headers,
         body: JSON.stringify({
           model: this.model,
-          prompt,
+          prompt: fullPrompt,
           n: 1,
           size,
           response_format: "b64_json",

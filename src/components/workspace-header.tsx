@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Bot, CheckCircle2, Download, Settings2, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { Bot, CheckCircle2, Download, Film, Settings2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface WorkspaceHeaderProps {
@@ -41,6 +42,15 @@ export function WorkspaceHeader({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <Link
+            href="/studio"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:h-9"
+            title="CapCut-Style Video Studio (3s Clips + Audio Sync + Direct MP4 Export)"
+          >
+            <Film className="size-3.5" />
+            <span className="hidden sm:inline">Video Studio</span>
+          </Link>
+
           <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground lg:inline-flex">
             <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
             {doneCount} of {totalScenes} clips done

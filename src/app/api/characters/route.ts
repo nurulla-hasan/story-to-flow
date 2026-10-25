@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { getRepo, DEFAULT_PROJECT_ID } from "@/lib/db";
 import { errorResponse, parseBody } from "@/lib/http";
+import { reassembleAll } from "@/lib/pipeline";
+import { syncStudioProjectPrompts } from "@/lib/studio-sync";
 import {
   languageSchema,
   newId,
@@ -45,7 +47,14 @@ export async function POST(request: Request) {
       refImage: null,
     };
     repo.addCharacter(DEFAULT_PROJECT_ID, character);
-    return Response.json({ character, data: repo.getProjectData(DEFAULT_PROJECT_ID) });
+    const changedPrompts = reassembleAll(DEFAULT_PROJECT_ID);
+    const studioPrompts = syncStudioProjectPrompts();
+    return Response.json({
+      character,
+      changedPrompts,
+      studioPrompts,
+      data: repo.getProjectData(DEFAULT_PROJECT_ID),
+    });
   } catch (error) {
     return errorResponse(error);
   }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
+import { getRepo, DEFAULT_PROJECT_ID } from "@/lib/db";
+import { buildBible } from "@/lib/pipeline";
 import { newId, styleLockForPreset } from "@/lib/types";
 import {
   detectSfxFromAction,
@@ -10,7 +12,7 @@ import {
 import {
   SHORTS_MOTION_CYCLE,
   cleanNarration,
-  composeShortsImagePrompt,
+  composeShortsShot,
   estimateNarrationDuration,
   estimateShortsClipCount,
 } from "@/lib/studio-plan";
@@ -41,6 +43,11 @@ const studioPlanRequestSchema = z.object({
   cast: z.array(castMemberSchema).max(24).default([]),
   locations: z.array(locationLockSchema).max(24).default([]),
   rules: z.array(z.string().max(2000)).max(50).default([]),
+  /**
+   * One-click pipeline: rebuild the Story Bible from the submitted story, then
+   * plan with the freshly extracted characters, locations and style lock.
+   */
+  refreshBible: z.boolean().default(false),
 });
 
 const studioClipResponseSchema = z.object({
@@ -214,6 +221,16 @@ Return JSON only, conforming to the schema. No markdown, no conversation.`;
 async function planShortsAnimatic(
   parsed: z.infer<typeof studioPlanRequestSchema>,
 ): Promise<Response> {
+  if (parsed.cast.length === 0 || parsed.locations.length === 0) {
+    return Response.json(
+      {
+        error:
+          "The Story Bible did not return any characters or locations. Try again so every prompt can include the locked cast and setting.",
+      },
+      { status: 400 },
+    );
+  }
+
   const fixedDuration =
     parsed.pacing === "auto" ? null : Number(parsed.pacing);
   const estimatedClips = estimateShortsClipCount(
@@ -282,31 +299,23 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
     ],
   });
 
-  const castIds = new Set(parsed.cast.map((member) => member.id));
-  const locationIds = new Set(parsed.locations.map((location) => location.id));
   const styleLock =
     parsed.styleLock?.trim() || styleLockForPreset(parsed.stylePreset);
 
   const clips = raw.clips.map((clip, idx) => {
     const narration = cleanNarration(clip.narration) || clip.narration.trim();
-    const characterIds = [...new Set(clip.character_ids)].filter((id) =>
-      castIds.has(id),
-    );
-    const locationId =
-      clip.location_id && locationIds.has(clip.location_id)
-        ? clip.location_id
-        : parsed.locations[0]?.id;
+    const action = clip.action.trim();
 
     const duration =
       fixedDuration ?? estimateNarrationDuration(narration);
-    const imagePrompt = composeShortsImagePrompt({
+    const resolved = composeShortsShot({
       styleLock,
       stylePreset: parsed.stylePreset,
       cast: parsed.cast,
       locations: parsed.locations,
-      action: clip.action,
-      characterIds,
-      locationId,
+      action,
+      characterIds: clip.character_ids,
+      locationId: clip.location_id,
       narration,
       aspectRatio: parsed.aspectRatio,
     });
@@ -316,12 +325,13 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
       index: idx + 1,
       duration,
       narration,
-      imagePrompt,
+      action,
+      imagePrompt: resolved.imagePrompt,
       imageUrl: null,
       motion: SHORTS_MOTION_CYCLE[idx % SHORTS_MOTION_CYCLE.length],
       sfx: "none" as const,
-      characterIds,
-      locationId,
+      characterIds: resolved.characterIds,
+      locationId: resolved.locationId,
     };
   });
 
@@ -377,7 +387,48 @@ export async function POST(request: Request) {
     const parsed = studioPlanRequestSchema.parse(json);
 
     if (parsed.workflowMode === "shorts-animatic") {
-      return await planShortsAnimatic(parsed);
+      let effective = parsed;
+
+      if (parsed.refreshBible) {
+        const repo = getRepo();
+        const current = repo.getProjectData(DEFAULT_PROJECT_ID);
+
+        // buildBible reads the saved story, so persist the submitted text first.
+        if (current.project.story !== parsed.story) {
+          repo.updateProject(DEFAULT_PROJECT_ID, { story: parsed.story });
+        }
+
+        await buildBible(DEFAULT_PROJECT_ID, { preserveScenes: true });
+
+        const fresh = repo.getProjectData(DEFAULT_PROJECT_ID);
+        effective = {
+          ...parsed,
+          story: fresh.project.story,
+          pacing: fresh.project.settings.shortsPacing,
+          stylePreset: fresh.project.settings.stylePreset,
+          aspectRatio: fresh.project.settings.aspectRatio,
+          styleLock: fresh.project.styleLock || parsed.styleLock,
+          cast: fresh.characters
+            .filter((character) => character.visual_lock.trim().length >= 10)
+            .map((character) => ({
+              id: character.id,
+              name: character.name,
+              visualLock: character.visual_lock,
+              voiceLock: character.voice_lock,
+              refImageUrl: character.refImage,
+            })),
+          locations: fresh.locations
+            .filter((location) => location.visual_lock.trim().length >= 10)
+            .map((location) => ({
+              id: location.id,
+              name: location.name,
+              visualLock: location.visual_lock,
+            })),
+          rules: fresh.rules.map((rule) => rule.text),
+        };
+      }
+
+      return await planShortsAnimatic(effective);
     }
 
     const clipDur = parsed.clipDuration || 3;

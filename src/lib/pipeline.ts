@@ -19,6 +19,7 @@ import {
   hasErrors,
 } from "./validate";
 import { applySceneFieldEdits } from "./sceneEdits";
+import { syncStudioProjectPrompts } from "./studio-sync";
 
 const VALIDATOR_SYSTEM = `You validate one scene of an AI video production plan. Return JSON only, no markdown.
 
@@ -106,6 +107,7 @@ export async function buildBible(
       reassembleAll(projectId);
     }
   }
+  syncStudioProjectPrompts();
   return bible;
 }
 
@@ -232,6 +234,8 @@ async function runBibleJob(
     }
   }
 
+  syncStudioProjectPrompts();
+
   repo.updateJob(jobId, {
     status: "done",
     progress: 100,
@@ -347,6 +351,7 @@ async function runFullPlanJob(
   });
   repo.replaceBible(projectId, bible);
   repo.replaceScenes(projectId, []);
+  syncStudioProjectPrompts();
 
   // Step 2: Scene planning continues seamlessly from 35% to 100%
   await runPlanJob(jobId, projectId, signal, 35);

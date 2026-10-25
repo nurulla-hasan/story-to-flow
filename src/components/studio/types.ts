@@ -65,6 +65,8 @@ export interface StudioClip {
   imageUrl: string | null;
   imagePrompt: string;
   narration: string;
+  /** Raw static shot action, kept so lock edits can rebuild the prompt. */
+  action?: string;
   motion: ClipMotion;
   transition?: ClipTransition;
   sfx?: SfxType;

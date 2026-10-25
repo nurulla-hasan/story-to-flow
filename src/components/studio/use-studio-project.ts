@@ -2,6 +2,12 @@
 
 import * as React from "react";
 import { api } from "@/lib/apiClient";
+import {
+  reassembleShortsProject,
+  shortsProjectNeedsLockSync,
+  type ReassembleShortsProjectInput,
+} from "@/lib/studio-plan";
+import type { ProjectData } from "@/lib/types";
 import type { StudioClip, StudioProject } from "./types";
 
 export const STUDIO_PROJECT_STORAGE_KEY = "story_to_flow_studio_project";
@@ -42,6 +48,43 @@ function normalizeStudioProject(value: StudioProject): StudioProject {
 
 function hasProjectContent(project: StudioProject | null): project is StudioProject {
   return Boolean(project && (project.story?.trim() || project.clips?.length));
+}
+
+function isShortsProject(project: StudioProject): boolean {
+  return (
+    project.workflowMode === "shorts-animatic" ||
+    (!project.workflowMode && (project.cast?.length ?? 0) > 0)
+  );
+}
+
+function toShortsProjectInput(
+  project: StudioProject,
+  data: ProjectData,
+  characterIdMap?: Record<string, string>,
+): ReassembleShortsProjectInput {
+  return {
+    project,
+    cast: data.characters
+      .filter((character) => character.visual_lock.trim().length >= 10)
+      .map((character) => ({
+        id: character.id,
+        name: character.name,
+        visualLock: character.visual_lock,
+        voiceLock: character.voice_lock,
+        refImageUrl: character.refImage,
+      })),
+    locations: data.locations
+      .filter((location) => location.visual_lock.trim().length >= 10)
+      .map((location) => ({
+        id: location.id,
+        name: location.name,
+        visualLock: location.visual_lock,
+      })),
+    styleLock: data.project.styleLock,
+    stylePreset: data.project.settings.stylePreset,
+    aspectRatio: data.project.settings.aspectRatio,
+    characterIdMap,
+  };
 }
 
 /**
@@ -193,6 +236,46 @@ export function useStudioProject() {
     [],
   );
 
+  /**
+   * Rebuild every existing Shorts prompt from the latest workspace Bible.
+   * Called after a character/location lock edit, add, delete or merge so the
+   * in-memory project is immediately consistent without another plan request.
+   */
+  const reassembleProject = React.useCallback(
+    (
+      data: ProjectData,
+      characterIdMap?: Record<string, string>,
+    ) => {
+      const current = projectRef.current;
+      if (!isShortsProject(current)) return;
+
+      const next = reassembleShortsProject(
+        toShortsProjectInput(current, data, characterIdMap),
+      ).project;
+
+      setProject(next);
+    },
+    [setProject],
+  );
+
+  /**
+   * First-load repair for plans generated before mandatory lock injection.
+   * Only touches prompts that are actually missing a Bible lock, so manual
+   * prompt edits that already contain the locks are preserved.
+   */
+  const reassembleProjectIfNeeded = React.useCallback(
+    (data: ProjectData) => {
+      const current = projectRef.current;
+      if (!isShortsProject(current)) return;
+
+      const input = toShortsProjectInput(current, data);
+      if (!shortsProjectNeedsLockSync(input)) return;
+
+      setProject(reassembleShortsProject(input).project);
+    },
+    [setProject],
+  );
+
   const clearProject = React.useCallback(() => {
     hasLocalChange.current = true;
     isInitialMount.current = false;
@@ -213,6 +296,8 @@ export function useStudioProject() {
     setProject,
     updateProject,
     updateClip,
+    reassembleProject,
+    reassembleProjectIfNeeded,
     clearProject,
   };
 }

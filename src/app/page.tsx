@@ -20,7 +20,7 @@ import { ChatDialog } from "@/components/chat-panel";
 import { ExportDialog } from "@/components/export-dialog";
 import { FlowExtensionDialog } from "@/components/flow-extension-dialog";
 import { api, ApiError } from "@/lib/apiClient";
-import { styleLockForPreset, type JobRecord, type ProjectData } from "@/lib/types";
+import type { JobRecord, ProjectData } from "@/lib/types";
 
 export default function WorkspacePage() {
   const [data, setData] = React.useState<ProjectData | null>(null);
@@ -53,17 +53,35 @@ export default function WorkspacePage() {
     [],
   );
 
-  const refreshData = React.useCallback(async () => {
+  const loadData = React.useCallback(async () => {
     try {
       const res = await api<ProjectData>("/api/project");
       setData(res);
       setError(null);
+      return res;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
+      return null;
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const refreshData = React.useCallback(async () => {
+    await loadData();
+  }, [loadData]);
+
+  const reassembleProject = studio.reassembleProject;
+
+  const handleLocksChanged = React.useCallback(
+    async (meta?: { characterIdMap?: Record<string, string> }) => {
+      const fresh = await loadData();
+      if (fresh) {
+        reassembleProject(fresh, meta?.characterIdMap);
+      }
+    },
+    [loadData, reassembleProject],
+  );
 
   const handleCancelJob = React.useCallback(async () => {
     if (!activeJob) return;
@@ -164,19 +182,13 @@ export default function WorkspacePage() {
     }
 
     setIsShortsPlanning(true);
+    let planned = false;
     try {
       if (story !== projectData.project.story) {
         await api("/api/project", {
           method: "PATCH",
           body: JSON.stringify({ story }),
         });
-      }
-
-      if (projectData.characters.length === 0) {
-        notify(
-          "No locked characters yet. Create the Story Bible for consistent character prompts.",
-          "info",
-        );
       }
 
       const res = await api<{ success: boolean; project: StudioProject }>(
@@ -188,29 +200,11 @@ export default function WorkspacePage() {
             workflowMode: "shorts-animatic",
             pacing: projectData.project.settings.shortsPacing,
             stylePreset: projectData.project.settings.stylePreset,
-            styleLock:
-              styleLockForPreset(
-                projectData.project.settings.stylePreset,
-                projectData.project.settings.styleNote,
-              ) || projectData.project.styleLock,
             aspectRatio: projectData.project.settings.aspectRatio,
-            cast: projectData.characters
-              .filter((character) => character.visual_lock?.trim().length >= 10)
-              .map((character) => ({
-                id: character.id,
-                name: character.name,
-                visualLock: character.visual_lock,
-                voiceLock: character.voice_lock,
-                refImageUrl: character.refImage,
-              })),
-            locations: projectData.locations
-              .filter((location) => location.visual_lock?.trim().length >= 10)
-              .map((location) => ({
-                id: location.id,
-                name: location.name,
-                visualLock: location.visual_lock,
-              })),
             rules: projectData.rules.map((rule) => rule.text),
+            // The server extracts/updates the Story Bible first, then plans
+            // with those exact locks in the same one-click request.
+            refreshBible: true,
           }),
         },
       );
@@ -220,14 +214,21 @@ export default function WorkspacePage() {
       }
 
       studio.setProject(res.project);
+      planned = true;
       notify(
         `Shorts plan ready: ${res.project.clips.length} shots + continuous voiceover.`,
         "success",
       );
-      await refreshData();
     } catch (err) {
       notify(err instanceof ApiError ? err.message : String(err), "error");
     } finally {
+      // Bible extraction may have succeeded even if planning failed, so always
+      // refresh the right-hand panels. On failure, also push the new locks into
+      // the existing Shorts prompts instead of leaving them stale.
+      const fresh = await loadData();
+      if (!planned && fresh) {
+        reassembleProject(fresh);
+      }
       setIsShortsPlanning(false);
     }
   }
@@ -298,8 +299,8 @@ export default function WorkspacePage() {
 
         {/* Right Column: Characters, Locations, Rules (320px) */}
         <aside className="w-full shrink-0 space-y-4 lg:w-80">
-          <CharactersPanel data={data} onChanged={refreshData} notify={notify} />
-          <LocationsPanel data={data} onChanged={refreshData} notify={notify} />
+          <CharactersPanel data={data} onChanged={handleLocksChanged} notify={notify} />
+          <LocationsPanel data={data} onChanged={handleLocksChanged} notify={notify} />
           <RulesPanel data={data} onChanged={refreshData} notify={notify} />
         </aside>
       </main>
@@ -310,7 +311,8 @@ export default function WorkspacePage() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSaved={async () => {
-          await refreshData();
+          const fresh = await loadData();
+          if (fresh) studio.reassembleProject(fresh);
           notify("Settings saved. Prompts re-assembled.", "success");
         }}
         onError={(msg) => notify(msg, "error")}
@@ -328,7 +330,7 @@ export default function WorkspacePage() {
       <ChatDialog
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        onChanged={refreshData}
+        onChanged={handleLocksChanged}
         notify={notify}
       />
 

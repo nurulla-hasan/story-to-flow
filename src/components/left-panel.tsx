@@ -9,10 +9,7 @@ import {
   Loader2,
   Mic,
   Play,
-  Save,
   Settings2,
-  Sparkles,
-  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +46,7 @@ export function LeftPanel({
 }) {
   const [story, setStory] = React.useState(data.project.story);
   const [prevStory, setPrevStory] = React.useState(data.project.story);
-  const [busy, setBusy] = React.useState<"save" | "bible" | "plan" | "full" | "reset" | null>(null);
+  const [busy, setBusy] = React.useState<"full" | "reset" | null>(null);
   const [settingsBusy, setSettingsBusy] = React.useState(false);
   const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
 
@@ -88,22 +85,6 @@ export function LeftPanel({
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {
       setSettingsBusy(false);
-    }
-  }
-
-  async function saveStory() {
-    setBusy("save");
-    try {
-      await api("/api/project", {
-        method: "PATCH",
-        body: JSON.stringify({ story }),
-      });
-      await onChanged();
-      notify("Story saved.", "success");
-    } catch (error) {
-      notify(error instanceof ApiError ? error.message : String(error), "error");
-    } finally {
-      setBusy(null);
     }
   }
 
@@ -164,61 +145,6 @@ export function LeftPanel({
     }
   }
 
-  async function createBible() {
-    if (!story.trim()) {
-      notify("Please paste a story first.", "error");
-      return;
-    }
-    setBusy("bible");
-    try {
-      if (dirty) {
-        await api("/api/project", {
-          method: "PATCH",
-          body: JSON.stringify({ story }),
-        });
-      }
-      const res = await api<{ job: JobRecord }>("/api/bible", {
-        method: "POST",
-        body: JSON.stringify({ preserveScenes: true, async: true }),
-      });
-      onPlanStarted(res.job);
-      notify("Locking characters & locations. Tracking progress above.", "info");
-    } catch (error) {
-      notify(error instanceof ApiError ? error.message : String(error), "error");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function planScenes() {
-    if (!story.trim()) {
-      notify("Please paste a story first.", "error");
-      return;
-    }
-    if (!hasBible) {
-      notify("Create the story bible first so characters and locations are locked.", "error");
-      return;
-    }
-    setBusy("plan");
-    try {
-      if (dirty) {
-        await api("/api/project", {
-          method: "PATCH",
-          body: JSON.stringify({ story }),
-        });
-      }
-      const result = await api<{ job: JobRecord }>("/api/plan", {
-        method: "POST",
-      });
-      onPlanStarted(result.job);
-      notify("Scene planning started. You can watch the progress here.", "info");
-    } catch (error) {
-      notify(error instanceof ApiError ? error.message : String(error), "error");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   return (
     <div className="space-y-4">
       <Card>
@@ -252,122 +178,52 @@ export function LeftPanel({
             rows={8}
             className="min-h-36 max-h-72 overflow-y-auto text-xs leading-6"
           />
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {story.trim() ? `${story.trim().length.toLocaleString()} characters` : "Empty"}
-            </span>
-            <button
-              type="button"
-              onClick={saveStory}
-              disabled={!dirty || Boolean(busy)}
-              className="inline-flex h-8 items-center gap-1 rounded px-1.5 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
-            >
-              {busy === "save" ? (
-                <Loader2 className="size-3 animate-spin" aria-hidden />
-              ) : (
-                <Save className="size-3" aria-hidden />
-              )}
-              {dirty ? "Save story" : "Saved"}
-            </button>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {story.trim() ? `${story.trim().length.toLocaleString()} characters` : "Empty"}
+          </p>
 
-          <div className="grid gap-2">
+          <div>
             {isShortsMode ? (
-              <>
-                <Button
-                  type="button"
-                  onClick={planShorts}
-                  disabled={
-                    !story.trim() ||
-                    isShortsPlanning ||
-                    Boolean(busy) ||
-                    settingsBusy
-                  }
-                  className="gap-2"
-                >
-                  {isShortsPlanning ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                  ) : (
-                    <Mic className="size-4" aria-hidden />
-                  )}
-                  {isShortsPlanning
-                    ? "Writing Shorts Plan…"
-                    : "Generate Shorts Plan & Voiceover"}
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={createBible}
-                  disabled={!story.trim() || Boolean(busy)}
-                  className="text-xs"
-                >
-                  {busy === "bible" ? (
-                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                  ) : (
-                    <Sparkles className="size-3.5" aria-hidden />
-                  )}
-                  {hasBible ? "Update Bible" : "Create Bible"}
-                </Button>
-              </>
+              <Button
+                type="button"
+                onClick={planShorts}
+                disabled={
+                  !story.trim() ||
+                  isShortsPlanning ||
+                  Boolean(busy) ||
+                  settingsBusy
+                }
+                className="w-full gap-2"
+              >
+                {isShortsPlanning ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Mic className="size-4" aria-hidden />
+                )}
+                {isShortsPlanning
+                  ? "Extracting locks & planning…"
+                  : "Generate Shorts Plan & Voiceover"}
+              </Button>
             ) : (
-              <>
-                {/* Primary 1-Click Action */}
-                <Button
-                  type="button"
-                  onClick={generateFullPlan}
-                  disabled={!story.trim() || Boolean(busy)}
-                  className="gap-2"
-                >
-                  {busy === "full" ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                  ) : (
-                    <Play className="size-4 fill-current" aria-hidden />
-                  )}
-                  {hasScenes ? "Generate Full Plan (New Story)" : "Generate Full Plan (1-Click)"}
-                </Button>
-
-                {/* Individual Steps (if user wants granular control) */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={createBible}
-                    disabled={!story.trim() || Boolean(busy)}
-                    className="text-xs"
-                  >
-                    {busy === "bible" ? (
-                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                    ) : (
-                      <Sparkles className="size-3.5" aria-hidden />
-                    )}
-                    {hasBible ? "Update Bible" : "Create Bible"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={planScenes}
-                    disabled={!hasBible || Boolean(busy)}
-                    className="text-xs"
-                  >
-                    {busy === "plan" ? (
-                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                    ) : (
-                      <Wand2 className="size-3.5" aria-hidden />
-                    )}
-                    {hasScenes ? "Re-plan Scenes" : "Plan Scenes"}
-                  </Button>
-                </div>
-              </>
+              <Button
+                type="button"
+                onClick={generateFullPlan}
+                disabled={!story.trim() || Boolean(busy)}
+                className="w-full gap-2"
+              >
+                {busy === "full" ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Play className="size-4 fill-current" aria-hidden />
+                )}
+                Generate Video Plan
+              </Button>
             )}
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
             {isShortsMode
-              ? "Writes a continuous clean-Bangla voiceover and sequential 2.5–5s image prompts using the locked Characters, Locations and Custom Rules."
-              : '"Generate Full Plan" detects characters, locks visual/voice attributes, and plans all scenes automatically.'}
+              ? "One click extracts the Story Bible, then writes a continuous Bangla voiceover and image prompts using those exact character and location locks."
+              : "One click extracts the Story Bible, locks characters and locations, and plans every scene automatically."}
           </p>
         </CardContent>
       </Card>

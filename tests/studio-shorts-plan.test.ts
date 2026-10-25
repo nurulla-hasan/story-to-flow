@@ -5,11 +5,16 @@ import {
   composeShortsImagePrompt,
   estimateNarrationDuration,
   estimateShortsClipCount,
+  extractShortsActionFromPrompt,
+  reassembleShortsProject,
+  resolveShortsCharacterIds,
+  resolveShortsLocationId,
   stripCameraMotion,
 } from "../src/lib/studio-plan";
 import type {
   StudioCastMember,
   StudioLocationLock,
+  StudioProject,
 } from "../src/components/studio/types";
 
 const cast: StudioCastMember[] = [
@@ -94,6 +99,17 @@ describe("Shorts / animatic planning helpers", () => {
     expect(prompt).toContain("In this shot:");
     expect(prompt).toContain("Vertical 9:16 aspect ratio.");
     expect(prompt.match(/Vertical 9:16 aspect ratio\./g)).toHaveLength(1);
+
+    const styleIndex = prompt.indexOf("Warm 3D Pixar animation");
+    const castIndex = prompt.indexOf("Habul, a 62-year-old Bengali watchmaker");
+    const locationIndex = prompt.indexOf("cramped antique watch shop");
+    const actionIndex = prompt.indexOf("In this shot:");
+    const aspectIndex = prompt.indexOf("Vertical 9:16 aspect ratio.");
+
+    expect(styleIndex).toBeLessThan(castIndex);
+    expect(castIndex).toBeLessThan(locationIndex);
+    expect(locationIndex).toBeLessThan(actionIndex);
+    expect(actionIndex).toBeLessThan(aspectIndex);
   });
 
   it("strips camera movement from static image prompts", () => {
@@ -104,5 +120,212 @@ describe("Shorts / animatic planning helpers", () => {
     expect(stripped.toLowerCase()).not.toContain("zooming");
     expect(stripped).toContain("Habul");
     expect(stripped).toContain("Soft lamp light");
+  });
+
+  it("recovers missing character locks by matching names in the shot action", () => {
+    const characterIds = resolveShortsCharacterIds({
+      cast,
+      characterIds: [],
+      action: "Habul reaches toward the shelf while the crow watches him.",
+      narration: "শামসু তাকিয়ে রইল।",
+    });
+
+    expect(characterIds).toEqual(["habul", "crow"]);
+
+    const prompt = composeShortsImagePrompt({
+      styleLock: "Warm 3D Pixar animation.",
+      stylePreset: "3D Pixar Animation",
+      cast,
+      locations,
+      characterIds: [],
+      locationId: "shop",
+      action: "Habul reaches toward the shelf while the crow watches him.",
+      narration: "শামসু তাকিয়ে রইল।",
+      aspectRatio: "9:16",
+    });
+
+    expect(prompt).toContain("Habul, a 62-year-old Bengali watchmaker");
+    expect(prompt).toContain("glossy black crow");
+    expect(prompt).toContain("cramped antique watch shop");
+    expect(prompt).toContain("In this shot: Habul reaches");
+    expect(prompt).toContain("Vertical 9:16 aspect ratio.");
+  });
+
+  it("matches cast ids by keyword and filters stale ids", () => {
+    const extendedCast: StudioCastMember[] = [
+      ...cast,
+      {
+        id: "brass-spider",
+        name: "ব্রাস মাকড়সা",
+        visualLock:
+          "An eight-legged mechanical brass spider with engraved gears and glowing amber eyes.",
+      },
+    ];
+
+    expect(
+      resolveShortsCharacterIds({
+        cast: extendedCast,
+        characterIds: ["does-not-exist"],
+        action: "The brass spider scuttles across the workbench.",
+        narration: "",
+      }),
+    ).toEqual(["brass-spider"]);
+  });
+
+  it("matches a location by name and always returns a locked setting", () => {
+    const twoLocations: StudioLocationLock[] = [
+      ...locations,
+      {
+        id: "river-ghat",
+        name: "River ghat",
+        visualLock:
+          "A worn stone river ghat with mossy steps, drifting wooden boats and pale dawn mist.",
+      },
+    ];
+
+    expect(
+      resolveShortsLocationId({
+        locations: twoLocations,
+        action: "Habul stands alone on the river ghat at dawn.",
+        narration: "",
+      }),
+    ).toBe("river-ghat");
+
+    expect(
+      resolveShortsLocationId({
+        locations: twoLocations,
+        locationId: "missing-location",
+        action: "Habul stands alone at dawn.",
+        narration: "",
+      }),
+    ).toBe("shop");
+  });
+
+  it("extracts the raw shot action from an older composed prompt", () => {
+    expect(
+      extractShortsActionFromPrompt(
+        "Old style. Old cast. Old place. In this shot: Habul polishes a brass watch, close-up. Vertical 9:16 aspect ratio.",
+      ),
+    ).toBe("Habul polishes a brass watch, close-up");
+  });
+
+  it("rebuilds every existing prompt when Bible locks change", () => {
+    const project: StudioProject = {
+      id: "studio-default",
+      title: "Watch shop",
+      story: "Habul repairs a watch.",
+      workflowMode: "shorts-animatic",
+      cast,
+      locations,
+      styleLock: "Old style.",
+      stylePreset: "3D Pixar Animation",
+      aspectRatio: "9:16",
+      defaultClipDuration: 3,
+      continuousVoiceover: "শামসু ঘড়ি মেরামত করলেন।",
+      audioUrl: null,
+      audioDuration: 0,
+      clips: [
+        {
+          id: "clip-1",
+          index: 1,
+          duration: 3,
+          imageUrl: null,
+          imagePrompt:
+            "Old style. In this shot: Habul polishes a brass watch, close-up. Vertical 9:16 aspect ratio.",
+          narration: "শামসু ঘড়ি মেরামত করলেন।",
+          motion: "zoom-in",
+          characterIds: ["habul", "stale-id"],
+          locationId: "shop",
+        },
+      ],
+    };
+
+    const updatedCast: StudioCastMember[] = [
+      {
+        ...cast[0],
+        visualLock:
+          "Habul, a 62-year-old Bengali watchmaker now wearing a deep green kurta and thick brass spectacles.",
+      },
+      ...cast.slice(1),
+    ];
+    const updatedLocations: StudioLocationLock[] = [
+      {
+        ...locations[0],
+        visualLock:
+          "A cramped antique watch shop with new teal cabinets and warm amber lamplight.",
+      },
+    ];
+
+    const result = reassembleShortsProject({
+      project,
+      cast: updatedCast,
+      locations: updatedLocations,
+      styleLock: "Warm 3D Pixar animation with soft cinematic lighting.",
+      stylePreset: "3D Pixar Animation",
+      aspectRatio: "16:9",
+    });
+
+    expect(result.changedClips).toBe(1);
+    expect(result.project.clips[0].action).toBe(
+      "Habul polishes a brass watch, close-up",
+    );
+    expect(result.project.clips[0].characterIds).toEqual(["habul"]);
+    expect(result.project.clips[0].locationId).toBe("shop");
+    expect(result.project.clips[0].imagePrompt).toContain(
+      "Warm 3D Pixar animation with soft cinematic lighting",
+    );
+    expect(result.project.clips[0].imagePrompt).toContain(
+      "now wearing a deep green kurta",
+    );
+    expect(result.project.clips[0].imagePrompt).toContain(
+      "new teal cabinets",
+    );
+    expect(result.project.clips[0].imagePrompt).toContain(
+      "Widescreen 16:9 aspect ratio.",
+    );
+  });
+
+  it("maps merged character ids before rebuilding prompts", () => {
+    const project: StudioProject = {
+      id: "studio-default",
+      title: "Watch shop",
+      story: "Habul repairs a watch.",
+      workflowMode: "shorts-animatic",
+      cast,
+      locations,
+      stylePreset: "3D Pixar Animation",
+      aspectRatio: "9:16",
+      defaultClipDuration: 3,
+      continuousVoiceover: "",
+      audioUrl: null,
+      audioDuration: 0,
+      clips: [
+        {
+          id: "clip-1",
+          index: 1,
+          duration: 3,
+          imageUrl: null,
+          imagePrompt: "Old prompt.",
+          narration: "শামসু ঘড়ি মেরামত করলেন।",
+          action: "The crow watches from the shelf.",
+          motion: "zoom-in",
+          characterIds: ["crow"],
+          locationId: "shop",
+        },
+      ],
+    };
+
+    const result = reassembleShortsProject({
+      project,
+      cast: [cast[0]],
+      locations,
+      characterIdMap: { crow: "habul" },
+    });
+
+    expect(result.project.clips[0].characterIds).toEqual(["habul"]);
+    expect(result.project.clips[0].imagePrompt).toContain(
+      "Habul, a 62-year-old Bengali watchmaker",
+    );
+    expect(result.project.clips[0].imagePrompt).not.toContain("glossy black crow");
   });
 });

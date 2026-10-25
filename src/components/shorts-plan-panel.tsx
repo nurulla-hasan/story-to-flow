@@ -94,7 +94,9 @@ export function ShortsPlanPanel({
             ) : (
               <Wand2 className="size-4" aria-hidden />
             )}
-            {isPlanning ? "Writing prompts & voiceover…" : "Generate Shorts Plan"}
+            {isPlanning
+              ? "Extracting locks & planning…"
+              : "Generate Shorts Plan & Voiceover"}
           </Button>
           <Link
             href="/studio"
@@ -106,8 +108,8 @@ export function ShortsPlanPanel({
         </div>
 
         <p className="mt-3 text-2xs text-muted-foreground">
-          Tip: create or update the Story Bible first so character &amp; location locks
-          are available.
+          The Story Bible is extracted automatically in the same click, so every
+          prompt includes the locked characters and location.
         </p>
       </section>
     );

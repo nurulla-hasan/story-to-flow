@@ -40,7 +40,7 @@ export function CharactersPanel({
   notify,
 }: {
   data: ProjectData;
-  onChanged: () => Promise<void>;
+  onChanged: (meta?: { characterIdMap?: Record<string, string> }) => Promise<void>;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
 }) {
   const [dialog, setDialog] = React.useState<"add" | "edit" | "merge" | null>(null);
@@ -83,7 +83,7 @@ export function CharactersPanel({
             outfit_changes: draft.outfit_changes,
           }),
         });
-        notify("Character added.", "success");
+        notify("Character added. Prompts re-assembled.", "success");
       } else if (dialog === "edit") {
         await api(`/api/characters/${draft.id}`, {
           method: "PATCH",
@@ -112,7 +112,7 @@ export function CharactersPanel({
       await api(`/api/characters/${draft.id}`, { method: "DELETE" });
       await onChanged();
       setDialog(null);
-      notify("Character deleted.", "success");
+      notify("Character deleted. Prompts re-assembled.", "success");
     } catch (error) {
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {
@@ -127,9 +127,9 @@ export function CharactersPanel({
         method: "POST",
         body: JSON.stringify({ sourceId, targetId }),
       });
-      await onChanged();
+      await onChanged({ characterIdMap: { [sourceId]: targetId } });
       setDialog(null);
-      notify("Characters merged.", "success");
+      notify("Characters merged. Prompts re-assembled.", "success");
     } catch (error) {
       notify(error instanceof ApiError ? error.message : String(error), "error");
     } finally {

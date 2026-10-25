@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getRepo, DEFAULT_PROJECT_ID } from "@/lib/db";
 import { errorResponse, parseBody } from "@/lib/http";
 import { reassembleAll } from "@/lib/pipeline";
+import { syncStudioProjectPrompts } from "@/lib/studio-sync";
 import { settingsPatchSchema, styleLockForPreset } from "@/lib/types";
 
 const projectPatchSchema = z.object({
@@ -42,10 +43,15 @@ export async function PATCH(request: Request) {
 
     repo.updateProject(DEFAULT_PROJECT_ID, body);
     let changedPrompts = 0;
-    if (body.settings) changedPrompts = reassembleAll(DEFAULT_PROJECT_ID);
+    let studioPrompts = 0;
+    if (body.settings) {
+      changedPrompts = reassembleAll(DEFAULT_PROJECT_ID);
+      studioPrompts = syncStudioProjectPrompts();
+    }
     return Response.json({
       ...repo.getProjectData(DEFAULT_PROJECT_ID),
       changedPrompts,
+      studioPrompts,
     });
   } catch (error) {
     return errorResponse(error);

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getRepo, DEFAULT_PROJECT_ID } from "@/lib/db";
 import { errorResponse, parseBody } from "@/lib/http";
 import { reassembleAll } from "@/lib/pipeline";
+import { syncStudioProjectPrompts } from "@/lib/studio-sync";
 
 const mergeSchema = z.object({
   sourceId: z.string().min(1),
@@ -45,9 +46,13 @@ export async function POST(request: Request) {
     }
     repo.deleteCharacter(DEFAULT_PROJECT_ID, source.id);
     const changedPrompts = reassembleAll(DEFAULT_PROJECT_ID);
+    const studioPrompts = syncStudioProjectPrompts({
+      characterIdMap: { [source.id]: target.id },
+    });
     return Response.json({
       ok: true,
       changedPrompts,
+      studioPrompts,
       data: repo.getProjectData(DEFAULT_PROJECT_ID),
     });
   } catch (error) {

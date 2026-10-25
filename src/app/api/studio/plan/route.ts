@@ -104,13 +104,23 @@ Image diffusion models (Google Flow, Midjourney, Flux) drift and change characte
    - Keep the 'image_prompt' field focused purely on static visual details (composition, characters, environment, action, lighting) without video camera motion words, since prompts are used for static image generation.
 6. STORY BGM MOOD DETECTION:
    - Identify the primary emotional mood of the story and output "recommended_bgm_mood" ('suspense-mystery', 'emotional-piano', 'lofi-chill', 'dark-thriller', 'inspirational-epic').
-7. CARTESIA AI SONIC MODEL PROSODIC & PHONETIC ACTING RULES (MANDATORY):
-   The voiceover will be synthesized with Cartesia AI (Sonic Model). To ensure high-energy vocal acting, gasps, and dramatic punch rather than flat robotic reading:
-   - Whenever action beats, bursts, impacts, or shock words occur, use phonetic stretching and em-dashes:
+7. CARTESIA AI SONIC MODEL PROSODIC & DEEP HUMAN EMOTIONAL ACTING RULES (MANDATORY):
+   The voiceover will be synthesized with Cartesia AI (Sonic Model). The narrator must NOT sound like a flat, robotic reader, but like a passionate human actor, emotional storyteller, or animated grandfather performing an oral tale with visceral vocal acting!
+   - Mandatory Emotional Vocalizations: Weave in authentic Bengali vocal sounds and character exclamations to match the scene emotions:
+     * ভয় ও চিৎকার (Panic/Fear/Escape): Weave in "আআআ!", "ওরে বাবারে বাবা!!", "হায় হায় রে!"
+     * ব্যথা ও চমক (Pain/Shock/Astonishment): Weave in "উফ্‌ফ্‌!", "আউচ!", "অ্যাঁ?! একী কাণ্ড!"
+     * লোভ ও হাসি (Laughter/Greed/Amusement): Weave in "হি হি হি!", "হাহাহা!", "আহা কী আনন্দ!"
+     * কষ্ট ও অনুশোচনা (Sadness/Regret/Despair): Weave in "ইশ্‌শ্‌ রে...", "আহারে পোড়া কপাল!"
+     * বিস্ময় ও কৌতূহল (Wonder/Suspense/Realization): Weave in "ওমা!", "হুঁউউ..."
+   - Prosodic Formatting for Sonic TTS:
+     * Use double exclamation marks "!!" on screams, shouts, laughter bursts, and climactic reactions to trigger Cartesia's volume bursts and emotional pitch peaks (e.g., "ওরে বাবারে বাবা!! সে কী ভীষণ কাণ্ড!").
+     * Use ellipsis "..." for suspenseful pauses, hushed breath holds, and anticipation before sudden revelations (e.g., "ধীরে ধীরে দরজাটা খুলল... আর ওমা! ভেতরে...").
+     * Use an em-dash ("—") immediately before sudden exclamations to trigger Cartesia's natural breath-gasp.
+     * Ensure the voiceover flows like an expressive, captivating oral story with vivid emotional contrast between fear, laughter, and wonder.
+   - Action Beats & Impact Stretching:
      * Burst / Pop: Write "— ফটা-আ-স্!!" (never plain "ফটাস")
      * Impact / Crash / Fall: Write "— ধপা-আ-স্!!" (never plain "ধপাস")
      * Speed / Flight: Write "— হু-উ-শ!!" (never plain "হুশ")
-     * Shock / Sudden realization: Use an em-dash ("—") immediately before the exclamation to trigger Cartesia's natural breath-gasp, followed by double exclamation marks ("!!") for pitch modulation (e.g. "হঠাৎ — আর সাথে সাথে সময় পুরোপুরি থমকে গেল!!").
 8. AUTOMATIC SFX (FOLEY) TAGGING: For each clip, tag "sfx" based on the acoustic event:
    - Flying / swooping / speed -> 'whoosh'
    - Body falling / crash landing / heavy impact -> 'heavy-thud'
@@ -196,10 +206,8 @@ const SHORTS_PLANNER_SYSTEM = `You are a world-class short-form animatic directo
 You are planning a SEQUENTIAL IMAGE ANIMATIC with ONE continuous Bangla voiceover paragraph.
 
 ABSOLUTE NARRATION RULES (clean TTS):
-1. Write natural, clean, broadcast-quality Bangla that a text-to-speech engine can read smoothly.
-2. NEVER use phonetic stretching, em-dash gasps, repeated exclamation marks, onomatopoeia, or bracketed sound tags.
-   Bad: "— ফটা-আ-স্!!", "হু-উ-শ!!", "[whoosh]", "ধপা-আ-স্!!"
-   Good: "হঠাৎ বেলুনটা ফেটে গেল।", "সে দ্রুত উড়ে গেল।", "মাটিতে পড়ে জোরে শব্দ হলো।"
+1. Write natural, expressive storytelling-grade Bangla that sounds like an engaging oral narrator.
+2. Weave in authentic emotional vocalizations where fitting (e.g., 'ওরে বাবারে বাবা!', 'হায় হায় রে!', 'উফ্‌ফ্‌!', 'অ্যাঁ?! একী কাণ্ড!', 'হি হি হি!', 'ইশ্‌শ্‌ রে...', 'ওমা!', 'হুঁউউ...'). Never use bracketed sound tags like [whoosh] or onomatopoeic SFX words in narration.
 3. Each clip's "narration" is the next consecutive slice of the same narrator script. When joined in order, the slices MUST read as one smooth story with no repeated sentences and no gaps.
 4. Do not put camera directions or visual descriptions inside the narration.
 5. Keep each narration slice short enough to speak inside that clip's duration (about 2.2 Bangla words per second).
@@ -450,7 +458,7 @@ PACING & TIMING CALCULATION:
 - Aspect Ratio: ${parsed.aspectRatio}
 
 CRITICAL RULES:
-1. Write the full "continuous_voiceover" covering the complete story in natural Bengali with Cartesia Sonic phonetic stretching (e.g. "— ফটা-আ-স্!!", "— ধপা-আ-স্!!", "— হু-উ-শ!!").
+1. Write the full "continuous_voiceover" covering the complete story in deeply expressive, passionate oral storytelling Bengali with rich human emotional acting vocalizations (আআআ!, ওরে বাবারে বাবা!!, উফ্‌ফ্‌!, অ্যাঁ?!, হি হি হি!, ইশ্‌শ্‌ রে..., ওমা!, হুঁউউ...) and prosodic pacing ("!!", "...", "—").
 2. Distribute the voiceover across ~${estimatedClips} sequential image clips (each clip pacing at exactly ${clipDur}s with ~${wordsPerClip} words of narration) so images never run out while audio is playing.
 3. Establish a strict "character_visual_lock" and "environment_visual_lock" to ensure 100% visual consistency.
 4. If a locked accessory or prop is removed, damaged, or transferred in the scene action (e.g. spectacles snatched by a bird, hat flying, cup dropped), do NOT describe the character wearing it in the character lock block for that specific frame! Temporarily override it (e.g. with spectacles missing / bare eyes) and describe the detached prop only in the action.

@@ -177,6 +177,73 @@ export function VideoEditor({
   const editingClip = editingTiming?.clip ?? null;
   const isEditingSelected = Boolean(selectedTiming);
 
+  // Split at Playhead (S key / Split tool)
+  const handleSplitAtPlayhead = React.useCallback(() => {
+    // 1. If a clip is selected and playhead is inside its range, split that clip.
+    // 2. Otherwise, if playhead is inside the active clip at playhead, split that clip.
+    const targetTiming =
+      selectedTiming &&
+      currentTime >= selectedTiming.start &&
+      currentTime <= selectedTiming.end
+        ? selectedTiming
+        : activeTiming &&
+            currentTime >= activeTiming.start &&
+            currentTime <= activeTiming.end
+          ? activeTiming
+          : selectedTiming ?? activeTiming;
+
+    if (!targetTiming) {
+      notify("Select a clip or position the playhead over a clip to split.", "info");
+      return;
+    }
+
+    const { clip, start, end } = targetTiming;
+
+    if (currentTime < start || currentTime > end) {
+      notify(
+        `Move playhead inside Clip #${clip.index} (${formatSec(start)}–${formatSec(end)}) to split.`,
+        "info",
+      );
+      return;
+    }
+
+    const offsetInClip = currentTime - start;
+    const remainingInClip = end - currentTime;
+
+    if (offsetInClip < 0.3 || remainingInClip < 0.3) {
+      notify("Position the playhead at least 0.3s inside the clip to split.", "info");
+      return;
+    }
+
+    const part1Dur = Number(Math.max(0.3, offsetInClip).toFixed(1));
+    const part2Dur = Number(Math.max(0.3, clip.duration - part1Dur).toFixed(1));
+    const speed = clip.speed ?? 1.0;
+
+    const clip1: StudioClip = {
+      ...clip,
+      duration: part1Dur,
+      baseDuration: Number((part1Dur * speed).toFixed(1)),
+    };
+
+    const clip2: StudioClip = {
+      ...clip,
+      id: generateClipId(),
+      duration: part2Dur,
+      baseDuration: Number((part2Dur * speed).toFixed(1)),
+    };
+
+    const targetIdx = project.clips.findIndex((c) => c.id === clip.id);
+    if (targetIdx === -1) return;
+
+    const newClips = [...project.clips];
+    newClips.splice(targetIdx, 1, clip1, clip2);
+    const reindexed = newClips.map((c, i) => ({ ...c, index: i + 1 }));
+
+    setSelectedClipId(clip2.id);
+    onUpdateProject({ clips: reindexed });
+    notify(`Split Clip #${clip.index} into two at ${formatSec(currentTime)}!`, "success");
+  }, [selectedTiming, activeTiming, currentTime, project.clips, onUpdateProject, notify]);
+
   // Preload attached images and repaint the canvas as soon as each one is ready
   React.useEffect(() => {
     project.clips.forEach((clip) => {
@@ -354,6 +421,14 @@ export function VideoEditor({
       if (event.code === "Space" || event.key === " ") {
         event.preventDefault();
         setIsPlaying((playing) => !playing);
+      } else if (
+        (event.key === "s" || event.key === "S") &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        handleSplitAtPlayhead();
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         seekTo(currentTime - (event.shiftKey ? 5 : 1));
@@ -367,7 +442,7 @@ export function VideoEditor({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [currentTime, seekTo]);
+  }, [currentTime, seekTo, handleSplitAtPlayhead]);
 
   // Keep the playhead visible inside the timeline while playing
   React.useEffect(() => {
@@ -515,9 +590,13 @@ export function VideoEditor({
     }
   }, [audioPeaks, voiceoverWidth, project.audioDuration]);
 
-  // CapCut-style drag handles to stretch / shrink images
+  // CapCut-style drag handles to stretch / shrink images with smooth 0.1s snapping & 0.5s minimum
   const startResizing = React.useCallback(
-    (e: React.MouseEvent, clipId: string, edge: "left" | "right") => {
+    (
+      e: React.MouseEvent | React.PointerEvent,
+      clipId: string,
+      edge: "left" | "right",
+    ) => {
       e.stopPropagation();
       e.preventDefault();
       const clip = project.clips.find((c) => c.id === clipId);
@@ -531,26 +610,36 @@ export function VideoEditor({
       };
       setResizingClip({ id: clipId, duration: clip.duration || 3.0 });
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
+      const handlePointerMove = (moveEvent: PointerEvent | MouseEvent) => {
         if (!resizingRef.current) return;
-        const { clipId: id, startX, initialDur } = resizingRef.current;
+        const { clipId: id, startX, initialDur, edge: currentEdge } = resizingRef.current;
         const deltaX = moveEvent.clientX - startX;
         const deltaSec = deltaX / pxPerSec;
-        const newDur = Math.max(0.5, Math.min(30, Number((initialDur + deltaSec).toFixed(1))));
+        const delta = currentEdge === "right" ? deltaSec : -deltaSec;
+        const newDur = Math.max(0.5, Math.min(30, Number((initialDur + delta).toFixed(1))));
+        const currentClip = project.clips.find((c) => c.id === id);
+        const speed = currentClip?.speed ?? 1.0;
 
         setResizingClip({ id, duration: newDur });
-        onUpdateClip(id, { duration: newDur });
+        onUpdateClip(id, {
+          duration: newDur,
+          baseDuration: Number((newDur * speed).toFixed(1)),
+        });
       };
 
-      const handleMouseUp = () => {
+      const handlePointerUp = () => {
         resizingRef.current = null;
         setResizingClip(null);
-        window.removeEventListener("mousemove", handleMouseMove);
-        window.removeEventListener("mouseup", handleMouseUp);
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("mousemove", handlePointerMove);
+        window.removeEventListener("mouseup", handlePointerUp);
       };
 
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("mousemove", handlePointerMove);
+      window.addEventListener("mouseup", handlePointerUp);
     },
     [project.clips, pxPerSec, onUpdateClip],
   );
@@ -1123,42 +1212,6 @@ export function VideoEditor({
     notify(`Voiceover audio speed set to ${spd}x!`, "info");
   };
 
-  // Split Active Clip at Playhead
-  const handleSplitAtPlayhead = () => {
-    if (!activeTiming) return;
-    const { clip, start, end } = activeTiming;
-    const offsetInClip = currentTime - start;
-
-    if (offsetInClip < 0.4 || end - currentTime < 0.4) {
-      notify("Move playhead inside the clip (at least 0.4s from ends) to split.", "info");
-      return;
-    }
-
-    const part1Dur = Number(offsetInClip.toFixed(1));
-    const part2Dur = Number((clip.duration - offsetInClip).toFixed(1));
-
-    const clip1: StudioClip = {
-      ...clip,
-      duration: Math.max(0.4, part1Dur),
-    };
-
-    const clip2: StudioClip = {
-      ...clip,
-      id: generateClipId(),
-      duration: Math.max(0.4, part2Dur),
-    };
-
-    const targetIdx = project.clips.findIndex((c) => c.id === clip.id);
-    if (targetIdx === -1) return;
-
-    const newClips = [...project.clips];
-    newClips.splice(targetIdx, 1, clip1, clip2);
-    const reindexed = newClips.map((c, i) => ({ ...c, index: i + 1 }));
-
-    onUpdateProject({ clips: reindexed });
-    notify(`Split Clip #${clip.index} into two at ${formatSec(currentTime)}!`, "success");
-  };
-
   // Delete the selected clip (falls back to the playhead clip)
   const handleDeleteActiveClip = () => {
     if (!editingTiming) return;
@@ -1320,8 +1373,12 @@ export function VideoEditor({
 
   // Adjust duration for a clip
   const handleAdjustDuration = (clip: StudioClip, delta: number) => {
-    const next = Math.max(1, Math.min(15, Number(((clip.duration || 3) + delta).toFixed(1))));
-    onUpdateClip(clip.id, { duration: next });
+    const next = Math.max(0.5, Math.min(30, Number(((clip.duration || 3) + delta).toFixed(1))));
+    const speed = clip.speed ?? 1.0;
+    onUpdateClip(clip.id, {
+      duration: next,
+      baseDuration: Number((next * speed).toFixed(1)),
+    });
   };
 
   // CapCut Flip / Mirror horizontal tool

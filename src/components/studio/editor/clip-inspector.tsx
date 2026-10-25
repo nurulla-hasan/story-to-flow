@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Copy,
   FlipHorizontal,
+  Gauge,
   ImagePlus,
   Layers,
   Minus,
@@ -39,6 +40,15 @@ interface ClipInspectorProps {
   onOpenSfx: (clip: StudioClip) => void;
 }
 
+const SPEED_PRESETS = [
+  { label: "0.5x", value: 0.5, desc: "Slow" },
+  { label: "0.75x", value: 0.75, desc: "Slow" },
+  { label: "1.0x", value: 1.0, desc: "Normal" },
+  { label: "1.25x", value: 1.25, desc: "Fast" },
+  { label: "1.5x", value: 1.5, desc: "Fast" },
+  { label: "2.0x", value: 2.0, desc: "Fast" },
+] as const;
+
 export function ClipInspector({
   editingClip,
   editingTiming,
@@ -54,6 +64,21 @@ export function ClipInspector({
   onDelete,
   onOpenSfx,
 }: ClipInspectorProps) {
+  const clipSpeed = editingClip?.speed ?? 1.0;
+
+  const handleSpeedChange = (newSpeed: number) => {
+    if (!editingClip) return;
+    const clampedSpeed = Math.max(0.25, Math.min(3.0, Number(newSpeed.toFixed(2))));
+    const currentSpeed = editingClip.speed ?? 1.0;
+    const base = editingClip.baseDuration ?? (editingClip.duration * currentSpeed);
+    const newDur = Number(Math.max(0.5, Math.min(30, base / clampedSpeed)).toFixed(1));
+    onUpdateClip(editingClip.id, {
+      speed: clampedSpeed,
+      baseDuration: Number(base.toFixed(1)),
+      duration: newDur,
+    });
+  };
+
   return (
     <div className="rounded-xl border border-border bg-card shadow-xs">
       <div className="flex items-center justify-between gap-2 border-b border-border/70 px-3 py-2.5">
@@ -129,6 +154,76 @@ export function ClipInspector({
             </div>
           </div>
 
+          {/* Speed Controller (Slow-Mo / Fast-Forward) */}
+          <div className="space-y-1.5 rounded-lg border border-border/70 bg-muted/30 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <Gauge className="size-3 text-primary" />
+                <span>Clip speed</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-3xs font-bold text-primary">
+                  {clipSpeed.toFixed(2)}x
+                </span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-3xs font-semibold text-muted-foreground">
+                  {clipSpeed < 1 ? "Slow-mo" : clipSpeed > 1 ? "Fast" : "Normal"}
+                </span>
+              </div>
+            </div>
+
+            {/* Presets */}
+            <div className="grid grid-cols-3 gap-1">
+              {SPEED_PRESETS.map((preset) => {
+                const isActive = Math.abs(clipSpeed - preset.value) < 0.04;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => handleSpeedChange(preset.value)}
+                    className={cn(
+                      "flex flex-col items-center justify-center rounded-md border py-1 text-3xs transition-colors",
+                      isActive
+                        ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
+                        : "border-border bg-card text-foreground hover:bg-muted",
+                    )}
+                    title={`Set clip speed to ${preset.label} (${preset.desc})`}
+                  >
+                    <span className="font-mono font-semibold">{preset.label}</span>
+                    <span
+                      className={cn(
+                        "text-3xs opacity-80",
+                        isActive ? "text-primary-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {preset.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Fine speed slider */}
+            <div className="space-y-1 pt-1">
+              <div className="flex items-center justify-between text-3xs text-muted-foreground">
+                <span>0.25x</span>
+                <span className="font-mono font-semibold text-foreground">
+                  {(editingClip.duration || 3).toFixed(1)}s duration
+                </span>
+                <span>3.0x</span>
+              </div>
+              <input
+                type="range"
+                min="0.25"
+                max="3.0"
+                step="0.05"
+                value={clipSpeed}
+                onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
+                className="h-1.5 w-full cursor-ew-resize rounded-lg bg-muted accent-primary"
+                aria-label="Adjust clip playback speed"
+              />
+            </div>
+          </div>
+
           <div>
             <span className="text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
               Camera motion
@@ -187,10 +282,10 @@ export function ClipInspector({
               type="button"
               onClick={onSplit}
               className="flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 py-1.5 text-2xs font-semibold text-foreground transition-colors hover:bg-muted"
-              title="Split the clip under the playhead"
+              title="Split the clip at playhead (S)"
             >
               <Scissors className="size-3.5 text-primary" />
-              <span>Split</span>
+              <span>Split (S)</span>
             </button>
 
             <button

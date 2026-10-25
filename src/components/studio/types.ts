@@ -207,6 +207,8 @@ export interface StudioClip {
   flipped?: boolean; // CapCut horizontal mirror / flip
   characterIds?: string[]; // shorts/animatic cast members visible in this shot
   locationId?: string; // shorts/animatic locked location for this shot
+  speed?: number; // per-clip playback speed: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x (default 1.0)
+  baseDuration?: number; // base duration before speed scaling (duration = baseDuration / speed)
 }
 
 export type BgmMood =

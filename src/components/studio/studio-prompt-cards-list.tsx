@@ -3,16 +3,15 @@
 import * as React from "react";
 import {
   Check,
-  ChevronsUpDown,
   Copy,
   Download,
+  FileText,
   Loader2,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/apiClient";
 import { isFlowExtensionInstalled, sendToFlow } from "@/lib/flowBridge";
-import { CleanPromptCard } from "./clean-prompt-card";
 import {
   downloadTextFile,
   formatAllPrompts,
@@ -24,9 +23,9 @@ interface StudioPromptCardsListProps {
   clips: StudioClip[];
   defaultClipDuration: number;
   aspectRatio: "9:16" | "16:9";
-  openClipId: string | null;
-  onToggleClip: (clipId: string) => void;
-  onUpdateClip: (clipId: string, patch: Partial<StudioClip>) => void;
+  openClipId?: string | null;
+  onToggleClip?: (clipId: string) => void;
+  onUpdateClip?: (clipId: string, patch: Partial<StudioClip>) => void;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
   cast?: StudioCastMember[];
   title?: string;
@@ -48,16 +47,11 @@ export function StudioPromptCardsList({
   clips,
   defaultClipDuration,
   aspectRatio,
-  openClipId,
-  onToggleClip,
-  onUpdateClip,
   notify,
-  cast,
-  title = "Individual Clip Prompt Cards",
+  title = "Sequential Image Prompts",
   projectTitle = "story",
   stylePreset = "",
 }: StudioPromptCardsListProps) {
-  const [showTextView, setShowTextView] = React.useState(false);
   const [copiedAllPrompts, setCopiedAllPrompts] = React.useState(false);
   const [sendingAllFlow, setSendingAllFlow] = React.useState(false);
 
@@ -111,37 +105,37 @@ export function StudioPromptCardsList({
   };
 
   const handleSendAllToFlow = async () => {
-    if (!clips.length) return;
+    if (!clips.length || !allPromptsFormatted) return;
     setSendingAllFlow(true);
-    notify("Preparing all prompts for Google Flow…", "info");
+    notify("Placing all prompts into Google Flow input…", "info");
 
     try {
+      // 1. Copy all prompts as a safety backup
       await copyText(allPromptsFormatted);
 
+      // 2. Check if extension is installed
       if (!isFlowExtensionInstalled()) {
         window.open("https://flow.google.com", "_blank");
         notify(
-          "All prompts copied to clipboard! Load the extension from the 'extension' folder to automate injection.",
+          "All prompts copied to clipboard! Paste directly into Google Flow's prompt input.",
           "info",
         );
         return;
       }
 
-      const first = clips[0];
+      // 3. Inject all prompts together into Flow's input without auto-generating (autoRun: false)
       const res = await sendToFlow({
-        prompt: first.imagePrompt,
-        imageUrl: first.imageUrl,
-        imageName: "image-1.png",
-        autoRun: true,
+        prompt: allPromptsFormatted,
+        autoRun: false,
       });
 
       if (res.success) {
-        notify(
-          "All prompts copied and the first prompt was placed in Google Flow!",
-          "success",
-        );
+        notify("All prompts placed into Google Flow's input!", "success");
       } else {
-        notify(res.error || "All prompts copied. Opened Google Flow tab.", "info");
+        notify(
+          res.error || "All prompts copied. Opened Google Flow tab.",
+          "info",
+        );
       }
     } catch (error) {
       notify(error instanceof Error ? error.message : String(error), "error");
@@ -154,11 +148,16 @@ export function StudioPromptCardsList({
     <div className="space-y-3 pt-2">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            {title}
-          </h3>
-          <p className="mt-0.5 text-2xs text-muted-foreground">
-            {clips.length} prompts · ~{Math.round(totalDuration)}s · {aspectRatio}
+          <div className="flex items-center gap-2">
+            <span className="flex size-6 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <FileText className="size-3.5" />
+            </span>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              {title}
+            </h3>
+          </div>
+          <p className="mt-1 text-2xs text-muted-foreground">
+            {clips.length} prompts · ~{Math.round(totalDuration)}s · {aspectRatio} · Text View
           </p>
         </div>
 
@@ -169,14 +168,14 @@ export function StudioPromptCardsList({
             onClick={handleSendAllToFlow}
             disabled={sendingAllFlow || clips.length === 0}
             className="h-8 gap-1.5 px-3 text-xs font-semibold"
-            title="Copy every prompt and place the first one in Google Flow"
+            title="Place all prompts together into Google Flow input (without auto-generating)"
           >
             {sendingAllFlow ? (
               <Loader2 className="size-3.5 animate-spin" aria-hidden />
             ) : (
               <Sparkles className="size-3.5" aria-hidden />
             )}
-            {sendingAllFlow ? "Sending…" : "Send All to Flow"}
+            {sendingAllFlow ? "Placing in Flow…" : "Send All to Flow"}
           </Button>
 
           <Button
@@ -201,52 +200,47 @@ export function StudioPromptCardsList({
             variant="outline"
             onClick={handleDownloadPrompts}
             disabled={clips.length === 0}
-            className="h-8 gap-1.5 px-2.5 text-xs"
+            className="h-8 gap-1.5 px-2.5 text-xs font-semibold"
             title="Download all prompts as .txt"
           >
             <Download className="size-3.5" aria-hidden />
             .txt
           </Button>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowTextView((value) => !value)}
-            className="h-8 gap-1.5 px-2.5 text-2xs text-muted-foreground"
-            aria-pressed={showTextView}
-          >
-            <ChevronsUpDown className="size-3.5" aria-hidden />
-            {showTextView ? "Cards View" : "Text View"}
-          </Button>
         </div>
       </div>
 
-      {showTextView ? (
-        <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-          <pre className="max-h-128 overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed text-foreground select-all">
-            {allPromptsFormatted}
+      {/* Only Text View */}
+      <div className="rounded-xl border border-border bg-card shadow-xs">
+        <div className="flex items-center justify-between border-b border-border/70 px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-bold text-foreground">
+              Sequential Prompts Export
+            </span>
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-3xs font-semibold text-muted-foreground">
+              {clips.length} shots
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyAllPrompts}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-3xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Copy prompt text"
+          >
+            {copiedAllPrompts ? (
+              <Check className="size-3 text-success" />
+            ) : (
+              <Copy className="size-3" />
+            )}
+            <span>{copiedAllPrompts ? "Copied" : "Copy"}</span>
+          </button>
+        </div>
+
+        <div className="p-4">
+          <pre className="max-h-160 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground select-all">
+            {allPromptsFormatted || "No prompts generated yet."}
           </pre>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {timedClips.map(({ clip, startTime, endTime }) => (
-            <CleanPromptCard
-              key={clip.id}
-              clip={clip}
-              totalClips={clips.length}
-              open={openClipId === clip.id}
-              onToggle={() => onToggleClip(clip.id)}
-              aspectRatio={aspectRatio}
-              startTime={startTime}
-              endTime={endTime}
-              onUpdateClip={(patch) => onUpdateClip(clip.id, patch)}
-              notify={notify}
-              cast={cast}
-            />
-          ))}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

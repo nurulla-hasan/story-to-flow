@@ -72,7 +72,11 @@ interface TimelineDockProps {
   setActiveTransitionModal: React.Dispatch<React.SetStateAction<TransitionModalState | null>>;
   seekTo: (time: number) => void;
   beginScrub: (event: React.PointerEvent<HTMLDivElement>) => void;
-  startResizing: (event: React.MouseEvent, clipId: string, edge: "left" | "right") => void;
+  startResizing: (
+    event: React.MouseEvent | React.PointerEvent,
+    clipId: string,
+    edge: "left" | "right",
+  ) => void;
   isAllSameDuration: (duration: number) => boolean;
   handleGenerateMoreScenes: () => void;
   handleAutoFillClips: () => void;
@@ -310,7 +314,7 @@ export function TimelineDock({
             type="button"
             onClick={handleSplitAtPlayhead}
             className="flex size-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Split the clip under the playhead"
+            title="Split the clip at playhead (S)"
           >
             <Scissors className="size-3.5" />
           </button>
@@ -556,15 +560,22 @@ export function TimelineDock({
                           <span className="rounded border border-border/60 bg-card/90 px-1 py-0.5 font-mono text-3xs font-bold text-foreground shadow-xs backdrop-blur-sm">
                             {clipDuration.toFixed(1)}s
                           </span>
-                          {sfx ? (
-                            <span className="rounded border border-track-sfx/40 bg-card/90 px-1 py-0.5 text-3xs shadow-xs backdrop-blur-sm">
-                              {sfx.type === "custom"
-                                ? "📁"
-                                : (SFX_PRESETS.find((p) => p.type === sfx.type)?.emoji ?? "🔊")}
-                            </span>
-                          ) : null}
+                          <div className="flex items-center gap-1">
+                            {clip.speed && clip.speed !== 1 ? (
+                              <span className="rounded border border-primary/40 bg-card/90 px-1 py-0.5 font-mono text-3xs font-bold text-primary shadow-xs backdrop-blur-sm">
+                                {clip.speed.toFixed(1)}x
+                              </span>
+                            ) : null}
+                            {sfx ? (
+                              <span className="rounded border border-track-sfx/40 bg-card/90 px-1 py-0.5 text-3xs shadow-xs backdrop-blur-sm">
+                                {sfx.type === "custom"
+                                  ? "📁"
+                                  : (SFX_PRESETS.find((p) => p.type === sfx.type)?.emoji ?? "🔊")}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-    
+
                         <div className="pointer-events-none absolute inset-x-1 bottom-1 flex items-center justify-between gap-1">
                           <span className="rounded border border-border/60 bg-card/90 px-1 py-0.5 font-mono text-3xs font-semibold text-foreground shadow-xs backdrop-blur-sm">
                             #{clip.index}
@@ -573,7 +584,7 @@ export function TimelineDock({
                             {clip.motion || "zoom-in"}
                           </span>
                         </div>
-    
+
                         {isActive ? (
                           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-primary/25">
                             <div
@@ -582,33 +593,60 @@ export function TimelineDock({
                             />
                           </div>
                         ) : null}
-    
+
                         {resizingClip?.id === clip.id ? (
                           <span className="absolute top-1/2 left-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded bg-primary px-1.5 py-0.5 font-mono text-3xs font-bold text-primary-foreground shadow-md">
                             {clipDuration.toFixed(1)}s
                           </span>
                         ) : null}
-    
-                        {isSelected ? (
-                          <>
-                            <div
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onMouseDown={(event) => startResizing(event, clip.id, "left")}
-                              className="absolute inset-y-0 left-0 z-20 flex w-2.5 cursor-ew-resize items-center justify-center bg-primary/25 transition-colors hover:bg-primary/50"
-                              title="Drag to trim the start"
-                            >
-                              <div className="h-6 w-0.5 rounded-full bg-primary" />
-                            </div>
-                            <div
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onMouseDown={(event) => startResizing(event, clip.id, "right")}
-                              className="absolute inset-y-0 right-0 z-20 flex w-2.5 cursor-ew-resize items-center justify-center bg-primary/25 transition-colors hover:bg-primary/50"
-                              title="Drag to stretch or shrink this image"
-                            >
-                              <div className="h-6 w-0.5 rounded-full bg-primary" />
-                            </div>
-                          </>
-                        ) : null}
+
+                        {/* Interactive Edge Trim Handles (Left & Right) */}
+                        <div
+                          role="separator"
+                          aria-label="Trim clip start"
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            setSelectedClipId(clip.id);
+                            startResizing(event, clip.id, "left");
+                          }}
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            setSelectedClipId(clip.id);
+                            startResizing(event, clip.id, "left");
+                          }}
+                          className={cn(
+                            "absolute inset-y-0 left-0 z-30 flex w-2.5 cursor-ew-resize items-center justify-center transition-opacity select-none",
+                            isSelected
+                              ? "bg-primary/25 opacity-100 hover:bg-primary/40"
+                              : "bg-primary/15 opacity-0 group-hover/clip:opacity-100 hover:bg-primary/30",
+                          )}
+                          title="Drag to trim the start (0.1s snap, min 0.5s)"
+                        >
+                          <div className="h-6 w-0.5 rounded-full bg-primary" />
+                        </div>
+                        <div
+                          role="separator"
+                          aria-label="Trim clip end"
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            setSelectedClipId(clip.id);
+                            startResizing(event, clip.id, "right");
+                          }}
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            setSelectedClipId(clip.id);
+                            startResizing(event, clip.id, "right");
+                          }}
+                          className={cn(
+                            "absolute inset-y-0 right-0 z-30 flex w-2.5 cursor-ew-resize items-center justify-center transition-opacity select-none",
+                            isSelected
+                              ? "bg-primary/25 opacity-100 hover:bg-primary/40"
+                              : "bg-primary/15 opacity-0 group-hover/clip:opacity-100 hover:bg-primary/30",
+                          )}
+                          title="Drag to stretch or shrink this clip (0.1s snap, min 0.5s)"
+                        >
+                          <div className="h-6 w-0.5 rounded-full bg-primary" />
+                        </div>
                       </div>
     
                       {index < clipTimings.length - 1 ? (

@@ -8,7 +8,6 @@ interface StudioVoiceoverCardProps {
   voiceover: string;
   totalDuration: number;
   clipCount: number;
-  defaultClipDuration: number;
   copiedVoiceover: boolean;
   onCopyVoiceover: () => void;
   onDownloadVoiceover: () => void;
@@ -18,7 +17,6 @@ export function StudioVoiceoverCard({
   voiceover,
   totalDuration,
   clipCount,
-  defaultClipDuration,
   copiedVoiceover,
   onCopyVoiceover,
   onDownloadVoiceover,
@@ -75,7 +73,7 @@ export function StudioVoiceoverCard({
 
       <div className="flex items-center justify-between text-2xs text-muted-foreground pt-0.5">
         <span>
-          Total Runtime: ~{totalDuration.toFixed(0)}s ({clipCount} images @ {defaultClipDuration}s each)
+          Total Runtime: ~{totalDuration.toFixed(0)}s ({clipCount} sequential images · clean Bangla TTS)
         </span>
         <span>Language: Bangla</span>
       </div>

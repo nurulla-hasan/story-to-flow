@@ -4,8 +4,10 @@ import * as React from "react";
 import {
   BookOpen,
   FilePlus,
+  Film,
   ListOrdered,
   Loader2,
+  Mic,
   Play,
   Save,
   Settings2,
@@ -17,8 +19,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { api, ApiError } from "@/lib/apiClient";
-import type { JobRecord, ProjectData } from "@/lib/types";
+import { cn } from "cn";
+import type { JobRecord, ProjectData, Settings } from "@/lib/types";
 import { sceneCount } from "@/lib/types";
+
+const SHORTS_PACING_OPTIONS = ["auto", "2.5", "3", "4", "5"] as const;
 
 export function LeftPanel({
   data,
@@ -26,16 +31,25 @@ export function LeftPanel({
   notify,
   // onOpenSettings,
   onPlanStarted,
+  onPlanShorts,
+  isShortsPlanning,
+  onStoryReset,
+  shortsShotCount,
 }: {
   data: ProjectData;
   onChanged: () => Promise<void>;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
   onOpenSettings: () => void;
   onPlanStarted: (job: JobRecord) => void;
+  onPlanShorts: (story: string) => void;
+  isShortsPlanning: boolean;
+  onStoryReset?: () => void;
+  shortsShotCount?: number;
 }) {
   const [story, setStory] = React.useState(data.project.story);
   const [prevStory, setPrevStory] = React.useState(data.project.story);
   const [busy, setBusy] = React.useState<"save" | "bible" | "plan" | "full" | "reset" | null>(null);
+  const [settingsBusy, setSettingsBusy] = React.useState(false);
   const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
 
   if (data.project.story !== prevStory) {
@@ -44,9 +58,29 @@ export function LeftPanel({
   }
 
   const settings = data.project.settings;
+  const isShortsMode = settings.workflowMode === "shorts-animatic";
+  const pacing = settings.shortsPacing;
   const dirty = story !== data.project.story;
   const hasBible = data.characters.length > 0;
   const hasScenes = data.scenes.length > 0;
+
+  async function updateSettings(patch: Partial<Settings>) {
+    if (settingsBusy) return;
+    setSettingsBusy(true);
+    try {
+      await api("/api/project", {
+        method: "PATCH",
+        // Send the full settings object: the PATCH schema applies defaults to
+        // omitted keys, which would otherwise reset unrelated fields.
+        body: JSON.stringify({ settings: { ...settings, ...patch } }),
+      });
+      await onChanged();
+    } catch (error) {
+      notify(error instanceof ApiError ? error.message : String(error), "error");
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
 
   async function saveStory() {
     setBusy("save");
@@ -77,6 +111,7 @@ export function LeftPanel({
     try {
       await api("/api/project", { method: "DELETE" });
       setStory("");
+      onStoryReset?.();
       await onChanged();
       notify("Started fresh new story.", "success");
     } catch (error) {
@@ -84,6 +119,14 @@ export function LeftPanel({
     } finally {
       setBusy(null);
     }
+  }
+
+  function planShorts() {
+    if (!story.trim()) {
+      notify("Please paste a story first.", "error");
+      return;
+    }
+    onPlanShorts(story);
   }
 
   async function generateFullPlan() {
@@ -220,57 +263,102 @@ export function LeftPanel({
           </div>
 
           <div className="grid gap-2">
-            {/* Primary 1-Click Action */}
-            <Button
-              type="button"
-              onClick={generateFullPlan}
-              disabled={!story.trim() || Boolean(busy)}
-              className="gap-2"
-            >
-              {busy === "full" ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Play className="size-4 fill-current" aria-hidden />
-              )}
-              {hasScenes ? "Generate Full Plan (New Story)" : "Generate Full Plan (1-Click)"}
-            </Button>
+            {isShortsMode ? (
+              <>
+                <Button
+                  type="button"
+                  onClick={planShorts}
+                  disabled={
+                    !story.trim() ||
+                    isShortsPlanning ||
+                    Boolean(busy) ||
+                    settingsBusy
+                  }
+                  className="gap-2"
+                >
+                  {isShortsPlanning ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Mic className="size-4" aria-hidden />
+                  )}
+                  {isShortsPlanning
+                    ? "Writing Shorts Plan…"
+                    : "Generate Shorts Plan & Voiceover"}
+                </Button>
 
-            {/* Individual Steps (if user wants granular control) */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={createBible}
-                disabled={!story.trim() || Boolean(busy)}
-                className="text-xs"
-              >
-                {busy === "bible" ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Sparkles className="size-3.5" aria-hidden />
-                )}
-                {hasBible ? "Update Bible" : "Create Bible"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={planScenes}
-                disabled={!hasBible || Boolean(busy)}
-                className="text-xs"
-              >
-                {busy === "plan" ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Wand2 className="size-3.5" aria-hidden />
-                )}
-                {hasScenes ? "Re-plan Scenes" : "Plan Scenes"}
-              </Button>
-            </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={createBible}
+                  disabled={!story.trim() || Boolean(busy)}
+                  className="text-xs"
+                >
+                  {busy === "bible" ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="size-3.5" aria-hidden />
+                  )}
+                  {hasBible ? "Update Bible" : "Create Bible"}
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Primary 1-Click Action */}
+                <Button
+                  type="button"
+                  onClick={generateFullPlan}
+                  disabled={!story.trim() || Boolean(busy)}
+                  className="gap-2"
+                >
+                  {busy === "full" ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Play className="size-4 fill-current" aria-hidden />
+                  )}
+                  {hasScenes ? "Generate Full Plan (New Story)" : "Generate Full Plan (1-Click)"}
+                </Button>
+
+                {/* Individual Steps (if user wants granular control) */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={createBible}
+                    disabled={!story.trim() || Boolean(busy)}
+                    className="text-xs"
+                  >
+                    {busy === "bible" ? (
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                    ) : (
+                      <Sparkles className="size-3.5" aria-hidden />
+                    )}
+                    {hasBible ? "Update Bible" : "Create Bible"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={planScenes}
+                    disabled={!hasBible || Boolean(busy)}
+                    className="text-xs"
+                  >
+                    {busy === "plan" ? (
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                    ) : (
+                      <Wand2 className="size-3.5" aria-hidden />
+                    )}
+                    {hasScenes ? "Re-plan Scenes" : "Plan Scenes"}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
-            &quot;Generate Full Plan&quot; detects characters, locks visual/voice attributes, and plans all scenes automatically.
+            {isShortsMode
+              ? "Writes a continuous clean-Bangla voiceover and sequential 2.5–5s image prompts using the locked Characters, Locations and Custom Rules."
+              : '"Generate Full Plan" detects characters, locks visual/voice attributes, and plans all scenes automatically.'}
           </p>
         </CardContent>
       </Card>
@@ -293,11 +381,92 @@ export function LeftPanel({
           </button> */}
         </CardHeader>
         <CardContent>
+          <div className="mb-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Workflow mode
+              </p>
+              {settingsBusy ? (
+                <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden />
+              ) : null}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => void updateSettings({ workflowMode: "video-clips" })}
+                disabled={settingsBusy || Boolean(busy) || isShortsPlanning}
+                aria-pressed={!isShortsMode}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+                  !isShortsMode
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:bg-muted",
+                )}
+              >
+                <span className="flex items-center gap-1.5 text-xs font-semibold">
+                  <Film className="size-3.5" aria-hidden />
+                  Video Clips
+                </span>
+                <span className="text-3xs">10s Flow</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void updateSettings({ workflowMode: "shorts-animatic" })}
+                disabled={settingsBusy || Boolean(busy) || isShortsPlanning}
+                aria-pressed={isShortsMode}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+                  isShortsMode
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:bg-muted",
+                )}
+              >
+                <span className="flex items-center gap-1.5 text-xs font-semibold">
+                  <Mic className="size-3.5" aria-hidden />
+                  Shorts / Voiceover
+                </span>
+                <span className="text-3xs">Images + Voiceover</span>
+              </button>
+            </div>
+          </div>
+
+          {isShortsMode ? (
+            <div className="mb-3">
+              <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Shot pacing
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {SHORTS_PACING_OPTIONS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => void updateSettings({ shortsPacing: value })}
+                    disabled={settingsBusy || Boolean(busy) || isShortsPlanning}
+                    aria-pressed={pacing === value}
+                    className={cn(
+                      "h-7 rounded-md border px-2 text-2xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+                      pacing === value
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {value === "auto" ? "Auto" : `${value}s`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <dl className="divide-y divide-border text-xs">
             <Row label="Language" value={settings.dialogueLanguage === "bn" ? "Bangla" : "English"} />
             <Row
               label="Format"
-              value={`${settings.sceneCountMode === "auto" ? "Auto clips" : `${sceneCount(settings)} clips`} · ${settings.clipSeconds}s · ${settings.aspectRatio}`}
+              value={
+                isShortsMode
+                  ? `Shorts · ${pacing === "auto" ? "Auto pacing" : `${pacing}s / image`} · ${settings.aspectRatio}`
+                  : `${settings.sceneCountMode === "auto" ? "Auto clips" : `${sceneCount(settings)} clips`} · ${settings.clipSeconds}s · ${settings.aspectRatio}`
+              }
             />
             <Row label="Style" value={settings.stylePreset} />
             <Row label="Dialogue" value={settings.dialogueEnabled ? "Enabled" : "Disabled"} />
@@ -308,7 +477,10 @@ export function LeftPanel({
               {data.characters.length} characters · {data.locations.length} locations
             </span>
             <br />
-            {data.scenes.length} scenes planned · {data.rules.length} custom rules
+            {isShortsMode
+              ? `${shortsShotCount ?? 0} shorts shots planned`
+              : `${data.scenes.length} scenes planned`}{" "}
+            · {data.rules.length} custom rules
           </div>
         </CardContent>
       </Card>

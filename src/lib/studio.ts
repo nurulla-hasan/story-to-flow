@@ -49,8 +49,8 @@ export function sanitizeDetachedProps(prompt: string, narration = ""): string {
 
   // Spectacles / Glasses snatched, fallen, in beak, or missing
   const hasDetachedSpectacles =
-    /\b(crow|bird|thief|monkey|wind|hand|beak|ground|floor|air)\b.*\b(spectacles|glasses)\b/i.test(context) ||
-    /\b(spectacles|glasses)\b.*\b(snatched|stolen|falls?|fell|flying away|flew away|held in|in the beak|dropped|missing|dislodged|knocked off)\b/i.test(context);
+    /\b(crow|bird|thief|monkey|beak)\b[^.]*\b(spectacles|glasses)\b/i.test(context) ||
+    /\b(spectacles|glasses)\b[^.]*\b(snatched|stolen|falls?|fell|flying away|flew away|held in|in the beak|dropped|missing|dislodged|knocked off|on the (?:floor|ground))\b/i.test(context);
 
   if (hasDetachedSpectacles) {
     cleaned = cleaned

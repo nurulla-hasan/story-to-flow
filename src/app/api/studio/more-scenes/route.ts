@@ -3,6 +3,7 @@ import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
 import { newId } from "@/lib/types";
 import { detectSfxFromAction, sanitizeDetachedProps } from "@/lib/studio";
+import { cleanNarration } from "@/lib/studio-plan";
 
 const moreScenesRequestSchema = z.object({
   story: z.string().optional(),
@@ -14,6 +15,7 @@ const moreScenesRequestSchema = z.object({
   countNeeded: z.coerce.number().min(1).max(50),
   existingCount: z.coerce.number().default(0),
   voiceoverContext: z.string().optional(),
+  workflowMode: z.enum(["video-clips", "shorts-animatic"]).default("video-clips"),
 });
 
 const moreClipsResponseSchema = z.object({
@@ -69,6 +71,7 @@ RULES:
 2. If a locked accessory or prop is removed, damaged, or transferred in the scene action (e.g. spectacles snatched by a bird), do NOT describe the character wearing it in the character lock block for that specific frame! Temporarily override it (e.g. with spectacles missing / bare eyes) and describe the detached prop only in the action.
 3. Provide complementary narrative camera angles (close-ups, reaction shots, wide angles) and alternate motion presets.
 4. Provide a brief 1-sentence Bengali narration segment ("narration") for each clip.
+${parsed.workflowMode === "shorts-animatic" ? "5. Shorts mode: the narration must be clean, natural Bangla for TTS. No phonetic stretching, no em-dash gasps, no bracketed sound tags, and no SFX words. Set sfx to \"none\"." : ""}
 
 Return JSON conforming to schema now.`;
 
@@ -123,15 +126,22 @@ Return JSON conforming to schema now.`;
       }
 
       const sfx =
-        clip.sfx && clip.sfx !== "none"
-          ? clip.sfx
-          : detectSfxFromAction(clip.narration, promptText);
+        parsed.workflowMode === "shorts-animatic"
+          ? ("none" as const)
+          : clip.sfx && clip.sfx !== "none"
+            ? clip.sfx
+            : detectSfxFromAction(clip.narration, promptText);
+
+      const narration =
+        parsed.workflowMode === "shorts-animatic"
+          ? cleanNarration(clip.narration) || clip.narration.trim()
+          : clip.narration;
 
       return {
         id: newId(),
         index: parsed.existingCount + idx + 1,
         duration: parsed.clipDuration,
-        narration: clip.narration,
+        narration,
         imagePrompt: promptText,
         imageUrl: null,
         motion,

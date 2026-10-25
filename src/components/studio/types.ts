@@ -70,6 +70,8 @@ export interface StudioClip {
   sfx?: SfxType;
   sfxConfig?: ClipSfxConfig;
   flipped?: boolean; // CapCut horizontal mirror / flip
+  characterIds?: string[]; // shorts/animatic cast members visible in this shot
+  locationId?: string; // shorts/animatic locked location for this shot
 }
 
 export type BgmMood =
@@ -80,10 +82,28 @@ export type BgmMood =
   | "inspirational-epic"
   | "custom";
 
+export interface StudioCastMember {
+  id: string;
+  name: string;
+  visualLock: string;
+  voiceLock?: string;
+  refImageUrl?: string | null;
+}
+
+export interface StudioLocationLock {
+  id: string;
+  name?: string;
+  visualLock: string;
+}
+
 export interface StudioProject {
   id: string;
   title: string;
   story: string;
+  workflowMode?: "video-clips" | "shorts-animatic";
+  cast?: StudioCastMember[];
+  locations?: StudioLocationLock[];
+  styleLock?: string;
   characterVisualLock?: string;
   environmentVisualLock?: string;
   stylePreset: string;

@@ -7,6 +7,27 @@ import {
   sanitizeDetachedProps,
   saveStudioProject,
 } from "@/lib/studio";
+import {
+  SHORTS_MOTION_CYCLE,
+  cleanNarration,
+  composeShortsImagePrompt,
+  estimateNarrationDuration,
+  estimateShortsClipCount,
+} from "@/lib/studio-plan";
+
+const castMemberSchema = z.object({
+  id: z.string().min(1).max(120),
+  name: z.string().min(1).max(200),
+  visualLock: z.string().min(10).max(2400),
+  voiceLock: z.string().max(1200).optional(),
+  refImageUrl: z.string().nullable().optional(),
+});
+
+const locationLockSchema = z.object({
+  id: z.string().min(1).max(120),
+  name: z.string().max(200).optional(),
+  visualLock: z.string().min(10).max(2400),
+});
 
 const studioPlanRequestSchema = z.object({
   story: z.string().min(10).max(10000),
@@ -14,6 +35,12 @@ const studioPlanRequestSchema = z.object({
   targetDuration: z.coerce.number().min(10).max(600).optional(),
   stylePreset: z.string().default("3D Pixar Animation"),
   aspectRatio: z.enum(["9:16", "16:9"]).default("9:16"),
+  workflowMode: z.enum(["video-clips", "shorts-animatic"]).default("video-clips"),
+  pacing: z.enum(["auto", "2.5", "3", "4", "5"]).default("auto"),
+  styleLock: z.string().max(2400).optional(),
+  cast: z.array(castMemberSchema).max(24).default([]),
+  locations: z.array(locationLockSchema).max(24).default([]),
+  rules: z.array(z.string().max(2000)).max(50).default([]),
 });
 
 const studioClipResponseSchema = z.object({
@@ -102,10 +129,254 @@ Image diffusion models (Google Flow, Midjourney, Flux) drift and change characte
 
 Return JSON only conforming to the schema. No markdown, no conversation.`;
 
+const shortsClipResponseSchema = z.object({
+  index: z.coerce.number().int().min(1).optional(),
+  duration: z.coerce.number().default(3.5),
+  narration: z.string().min(1).max(1200),
+  action: z.string().min(10).max(1600),
+  motion: z.string().default("zoom-in"),
+  character_ids: z.array(z.string()).max(8).default([]),
+  location_id: z.string().optional(),
+});
+
+const shortsPlanResponseBaseSchema = z.object({
+  title: z.string().default("Shorts Voiceover"),
+  recommended_bgm_mood: z
+    .enum([
+      "suspense-mystery",
+      "emotional-piano",
+      "lofi-chill",
+      "dark-thriller",
+      "inspirational-epic",
+    ])
+    .default("emotional-piano"),
+  clips: z.array(shortsClipResponseSchema).min(1).max(120),
+});
+
+// Some models return "shots" / "shot_number" / camera-style motion labels.
+// Normalize those aliases before validation so a good plan is not rejected.
+const shortsPlanResponseSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const rawShots = record.clips ?? record.shots;
+  if (!Array.isArray(rawShots)) return value;
+
+  return {
+    ...record,
+    clips: rawShots.map((shot) => {
+      if (!shot || typeof shot !== "object") return shot;
+      const item = shot as Record<string, unknown>;
+      const characterIds = item.character_ids ?? item.characterIds;
+      const locationId = item.location_id ?? item.locationId;
+      return {
+        ...item,
+        index: item.index ?? item.shot_number ?? item.shotNumber,
+        narration: item.narration ?? item.voiceover ?? item.voice_over,
+        action:
+          item.action ??
+          item.image_action ??
+          item.imageAction ??
+          item.description,
+        character_ids: Array.isArray(characterIds) ? characterIds : [],
+        location_id:
+          typeof locationId === "string" ? locationId : undefined,
+      };
+    }),
+  };
+}, shortsPlanResponseBaseSchema);
+
+const SHORTS_PLANNER_SYSTEM = `You are a world-class short-form animatic director and storyboard editor (YouTube Shorts / TikTok / Reels).
+
+You are planning a SEQUENTIAL IMAGE ANIMATIC with ONE continuous Bangla voiceover paragraph.
+
+ABSOLUTE NARRATION RULES (clean TTS):
+1. Write natural, clean, broadcast-quality Bangla that a text-to-speech engine can read smoothly.
+2. NEVER use phonetic stretching, em-dash gasps, repeated exclamation marks, onomatopoeia, or bracketed sound tags.
+   Bad: "— ফটা-আ-স্!!", "হু-উ-শ!!", "[whoosh]", "ধপা-আ-স্!!"
+   Good: "হঠাৎ বেলুনটা ফেটে গেল।", "সে দ্রুত উড়ে গেল।", "মাটিতে পড়ে জোরে শব্দ হলো।"
+3. Each clip's "narration" is the next consecutive slice of the same narrator script. When joined in order, the slices MUST read as one smooth story with no repeated sentences and no gaps.
+4. Do not put camera directions or visual descriptions inside the narration.
+5. Keep each narration slice short enough to speak inside that clip's duration (about 2.2 Bangla words per second).
+
+SHOT RULES:
+1. Return a top-level JSON object with a "clips" array (not "shots"). Each clip must contain "narration", "action", "duration", "character_ids" and "location_id".
+2. Write "title" and every "action" in English, even when the story is Bangla. Only the "narration" field is Bangla.
+3. Split the complete story into sequential static image shots. Each shot must advance the story.
+4. "action" describes ONE static frame: framing, who is visible, pose, expression, prop state, lighting. Do NOT include camera movement words (zoom, pan, push-in, dolly).
+5. "character_ids" must contain ONLY exact ids from the supplied CAST list, and only characters actually visible in that shot. Use [] for an environment-only shot.
+6. "location_id" must be one exact id from the supplied LOCATIONS list.
+7. Character appearance, clothing, age and location details are locked elsewhere. Never invent changes to them. If a prop is detached/dropped/stolen, describe its new position and state in the action only.
+8. "motion" is metadata for the editor; choose variety across consecutive shots.
+
+Do not invent recurring characters or locations that are not in the supplied lists.
+Return JSON only, conforming to the schema. No markdown, no conversation.`;
+
+async function planShortsAnimatic(
+  parsed: z.infer<typeof studioPlanRequestSchema>,
+): Promise<Response> {
+  const fixedDuration =
+    parsed.pacing === "auto" ? null : Number(parsed.pacing);
+  const estimatedClips = estimateShortsClipCount(
+    parsed.story,
+    parsed.pacing,
+    parsed.targetDuration,
+  );
+
+  const castBlock =
+    parsed.cast.length > 0
+      ? parsed.cast
+          .map(
+            (member, idx) =>
+              `${idx + 1}. id="${member.id}" | name="${member.name}"\n   visual_lock: ${member.visualLock}`,
+          )
+          .join("\n")
+      : "No cast supplied. Use environment-only shots and character_ids: [].";
+
+  const locationBlock =
+    parsed.locations.length > 0
+      ? parsed.locations
+          .map(
+            (location, idx) =>
+              `${idx + 1}. id="${location.id}" | name="${location.name ?? "Location"}\n   visual_lock: ${location.visualLock}`,
+          )
+          .join("\n")
+      : "No locked locations supplied.";
+
+  const rulesBlock =
+    parsed.rules.length > 0
+      ? parsed.rules.map((rule, idx) => `${idx + 1}. ${rule}`).join("\n")
+      : "None.";
+
+  const pacingBlock = fixedDuration
+    ? `Selected pacing: every clip must be exactly ${fixedDuration} seconds long.\n- Aim for ~${Math.round(fixedDuration * 2.2)} Bangla words of narration per clip.`
+    : `Pacing: AUTO. Vary clip durations between 2.5 and 5.0 seconds to match the story beats.\n- Aim for ~${Math.round(3.5 * 2.2)} Bangla words per clip on average.`;
+
+  const userPrompt = `STORY TEXT:
+${parsed.story}
+
+TIMING:
+- Target runtime: ~${parsed.targetDuration ?? "natural spoken length"} seconds
+- REQUESTED SHOT COUNT: ${estimatedClips} sequential images (you may vary by ±1 to keep sentence boundaries natural)
+${pacingBlock}
+- Visual art style: ${parsed.stylePreset}
+- Aspect ratio: ${parsed.aspectRatio}
+
+CAST (use exact ids in character_ids):
+${castBlock}
+
+LOCATIONS (use exact ids in location_id):
+${locationBlock}
+
+CUSTOM RULES (must follow):
+${rulesBlock}
+
+Write the complete clean Bangla narration as consecutive slices, one per shot. Use natural punctuation. No SFX words, no phonetic stretching, no gasps. Return the JSON result now.`;
+
+  const raw = await chatJSON({
+    role: "planner",
+    schema: shortsPlanResponseSchema,
+    temperature: 0.4,
+    messages: [
+      { role: "system", content: SHORTS_PLANNER_SYSTEM },
+      { role: "user", content: userPrompt },
+    ],
+  });
+
+  const castIds = new Set(parsed.cast.map((member) => member.id));
+  const locationIds = new Set(parsed.locations.map((location) => location.id));
+
+  const clips = raw.clips.map((clip, idx) => {
+    const narration = cleanNarration(clip.narration) || clip.narration.trim();
+    const characterIds = [...new Set(clip.character_ids)].filter((id) =>
+      castIds.has(id),
+    );
+    const locationId =
+      clip.location_id && locationIds.has(clip.location_id)
+        ? clip.location_id
+        : parsed.locations[0]?.id;
+
+    const duration =
+      fixedDuration ?? estimateNarrationDuration(narration);
+    const imagePrompt = composeShortsImagePrompt({
+      styleLock: parsed.styleLock,
+      stylePreset: parsed.stylePreset,
+      cast: parsed.cast,
+      locations: parsed.locations,
+      action: clip.action,
+      characterIds,
+      locationId,
+      narration,
+      aspectRatio: parsed.aspectRatio,
+    });
+
+    return {
+      id: newId(),
+      index: idx + 1,
+      duration,
+      narration,
+      imagePrompt,
+      imageUrl: null,
+      motion: SHORTS_MOTION_CYCLE[idx % SHORTS_MOTION_CYCLE.length],
+      sfx: "none" as const,
+      characterIds,
+      locationId,
+    };
+  });
+
+  const continuousVoiceover = clips
+    .map((clip) => clip.narration)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const recommendedBgmMood = raw.recommended_bgm_mood || "emotional-piano";
+  const averageDuration =
+    clips.reduce((total, clip) => total + clip.duration, 0) /
+    Math.max(1, clips.length);
+
+  const projectResult = {
+    id: "studio-default",
+    title: raw.title || "Shorts Voiceover",
+    story: parsed.story,
+    workflowMode: "shorts-animatic" as const,
+    cast: parsed.cast,
+    locations: parsed.locations,
+    styleLock: parsed.styleLock?.trim() || "",
+    characterVisualLock: parsed.cast[0]?.visualLock ?? "",
+    environmentVisualLock: parsed.locations[0]?.visualLock ?? "",
+    stylePreset: parsed.stylePreset,
+    aspectRatio: parsed.aspectRatio,
+    defaultClipDuration: fixedDuration ?? averageDuration,
+    continuousVoiceover,
+    audioUrl: null,
+    audioDuration: 0,
+    recommendedBgmMood,
+    bgmMood: recommendedBgmMood,
+    bgmVolume: 0.2,
+    clips,
+  };
+
+  saveStudioProject(projectResult);
+
+  return Response.json({
+    success: true,
+    workflowMode: "shorts-animatic",
+    title: projectResult.title,
+    recommendedBgmMood,
+    continuousVoiceover,
+    clips,
+    project: projectResult,
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const json = await request.json();
     const parsed = studioPlanRequestSchema.parse(json);
+
+    if (parsed.workflowMode === "shorts-animatic") {
+      return await planShortsAnimatic(parsed);
+    }
 
     const clipDur = parsed.clipDuration || 3;
     const wordCount = parsed.story.trim().split(/\s+/).length;

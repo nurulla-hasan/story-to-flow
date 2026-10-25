@@ -9,6 +9,8 @@ interface WorkspaceHeaderProps {
   projectName?: string;
   doneCount: number;
   totalScenes: number;
+  workflowMode?: "video-clips" | "shorts-animatic";
+  shortsShotCount?: number;
   onOpenChat: () => void;
   onOpenSettings: () => void;
   onOpenExport: () => void;
@@ -19,11 +21,15 @@ export function WorkspaceHeader({
   projectName,
   doneCount,
   totalScenes,
+  workflowMode = "video-clips",
+  shortsShotCount = 0,
   onOpenChat,
   onOpenSettings,
   onOpenExport,
   onOpenExtension,
 }: WorkspaceHeaderProps) {
+  const isShortsMode = workflowMode === "shorts-animatic";
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-xs">
       <div className="flex h-14 w-full items-center justify-between gap-2 px-3 sm:px-6">
@@ -36,7 +42,9 @@ export function WorkspaceHeader({
               {projectName || "Story to Flow"}
             </h1>
             <p className="hidden truncate text-xs text-muted-foreground md:block">
-              AI video production plan · Google Flow consistency
+              {isShortsMode
+                ? "Shorts / Voiceover workflow · locked cast, clean Bangla TTS"
+                : "AI video production plan · Google Flow consistency"}
             </p>
           </div>
         </div>
@@ -45,7 +53,7 @@ export function WorkspaceHeader({
           <Link
             href="/studio"
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:h-9"
-            title="CapCut-Style Video Studio (3s Clips + Audio Sync + Direct MP4 Export)"
+            title="CapCut-style Video Editor with timeline, image sync and MP4 export"
           >
             <Film className="size-3.5" />
             <span className="hidden sm:inline">Video Studio</span>
@@ -53,7 +61,9 @@ export function WorkspaceHeader({
 
           <span className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold tabular-nums text-foreground lg:inline-flex">
             <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
-            {doneCount} of {totalScenes} clips done
+            {isShortsMode
+              ? `${shortsShotCount} shots planned`
+              : `${doneCount} of ${totalScenes} clips done`}
           </span>
 
           <Button

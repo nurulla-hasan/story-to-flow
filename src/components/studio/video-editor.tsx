@@ -1212,6 +1212,7 @@ export function VideoEditor({
           countNeeded: clipsNeeded,
           existingCount: project.clips.length,
           voiceoverContext: project.continuousVoiceover,
+          workflowMode: project.workflowMode ?? "video-clips",
         }),
       });
 

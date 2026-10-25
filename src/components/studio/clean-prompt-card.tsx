@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { api, copyText } from "@/lib/apiClient";
 import { isFlowExtensionInstalled, sendToFlow } from "@/lib/flowBridge";
 import { cn } from "cn";
-import type { StudioClip } from "./types";
+import type { StudioCastMember, StudioClip } from "./types";
 
 interface CleanPromptCardProps {
   clip: StudioClip;
@@ -28,6 +28,7 @@ interface CleanPromptCardProps {
   endTime: number;
   onUpdateClip: (patch: Partial<StudioClip>) => void;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
+  cast?: StudioCastMember[];
 }
 
 export function CleanPromptCard({
@@ -39,11 +40,16 @@ export function CleanPromptCard({
   endTime,
   onUpdateClip,
   notify,
+  cast,
 }: CleanPromptCardProps) {
   const [copiedPrompt, setCopiedPrompt] = React.useState(false);
   const [sendingFlow, setSendingFlow] = React.useState(false);
   const [uploadingImage, setUploadingImage] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const visibleCast = (clip.characterIds ?? [])
+    .map((id) => cast?.find((member) => member.id === id))
+    .filter((member): member is StudioCastMember => Boolean(member));
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -170,6 +176,18 @@ export function CleanPromptCard({
               <span aria-hidden>·</span>
               <span className="capitalize">{clip.motion || "zoom-in"}</span>
             </span>
+            {visibleCast.length > 0 ? (
+              <span className="mt-1 flex flex-wrap items-center gap-1">
+                {visibleCast.map((member) => (
+                  <span
+                    key={member.id}
+                    className="rounded bg-secondary px-1.5 py-0.5 text-3xs font-semibold text-secondary-foreground"
+                  >
+                    {member.name}
+                  </span>
+                ))}
+              </span>
+            ) : null}
           </span>
         </button>
 

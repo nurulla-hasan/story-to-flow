@@ -19,6 +19,16 @@ export type SceneStatus = z.infer<typeof sceneStatusSchema>;
 export const sceneCountModeSchema = z.enum(["auto", "custom"]);
 export type SceneCountMode = z.infer<typeof sceneCountModeSchema>;
 
+export const workflowModeSchema = z
+  .enum(["video-clips", "shorts-animatic"])
+  .default("video-clips");
+export type WorkflowMode = z.infer<typeof workflowModeSchema>;
+
+export const shortsPacingSchema = z
+  .enum(["auto", "2.5", "3", "4", "5"])
+  .default("auto");
+export type ShortsPacing = z.infer<typeof shortsPacingSchema>;
+
 export const modelsSchema = z.object({
   planner: z.string().max(200).default(""),
   validator: z.string().max(200).default(""),
@@ -26,6 +36,8 @@ export const modelsSchema = z.object({
 });
 
 export const settingsSchema = z.object({
+  workflowMode: workflowModeSchema,
+  shortsPacing: shortsPacingSchema,
   sceneCountMode: sceneCountModeSchema.default("auto"),
   dialogueLanguage: languageSchema.default("bn"),
   accentNote: z.string().max(400).default(""),

@@ -10,6 +10,9 @@ import { RulesPanel } from "@/components/rules-panel";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { JobProgressBanner } from "@/components/job-progress-banner";
 import { ScenesSection } from "@/components/scenes-section";
+import { ShortsPlanPanel } from "@/components/shorts-plan-panel";
+import { useStudioProject } from "@/components/studio/use-studio-project";
+import type { StudioProject } from "@/components/studio/types";
 import { ToastNotification, type ToastState } from "@/components/toast-notification";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ReviewModal } from "@/components/review-modal";
@@ -35,6 +38,9 @@ export default function WorkspacePage() {
   const [toast, setToast] = React.useState<ToastState | null>(null);
   const [activeJob, setActiveJob] = React.useState<JobRecord | null>(null);
   const [cancellingJob, setCancellingJob] = React.useState(false);
+  const [isShortsPlanning, setIsShortsPlanning] = React.useState(false);
+
+  const studio = useStudioProject();
 
   const notify = React.useCallback(
     (message: string, kind: "info" | "error" | "success" = "info") => {
@@ -147,7 +153,80 @@ export default function WorkspacePage() {
     );
   }
 
-  const doneCount = data.scenes.filter((s) => s.status === "done").length;
+  const projectData = data;
+  const doneCount = projectData.scenes.filter((s) => s.status === "done").length;
+  const isShortsMode = projectData.project.settings.workflowMode === "shorts-animatic";
+
+  async function handlePlanShorts(story: string) {
+    if (!story.trim()) {
+      notify("Paste a story in the Story panel first.", "error");
+      return;
+    }
+
+    setIsShortsPlanning(true);
+    try {
+      if (story !== projectData.project.story) {
+        await api("/api/project", {
+          method: "PATCH",
+          body: JSON.stringify({ story }),
+        });
+      }
+
+      if (projectData.characters.length === 0) {
+        notify(
+          "No locked characters yet. Create the Story Bible for consistent character prompts.",
+          "info",
+        );
+      }
+
+      const res = await api<{ success: boolean; project: StudioProject }>(
+        "/api/studio/plan",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            story,
+            workflowMode: "shorts-animatic",
+            pacing: projectData.project.settings.shortsPacing,
+            stylePreset: projectData.project.settings.stylePreset,
+            styleLock: projectData.project.styleLock,
+            aspectRatio: projectData.project.settings.aspectRatio,
+            cast: projectData.characters
+              .filter((character) => character.visual_lock?.trim().length >= 10)
+              .map((character) => ({
+                id: character.id,
+                name: character.name,
+                visualLock: character.visual_lock,
+                voiceLock: character.voice_lock,
+                refImageUrl: character.refImage,
+              })),
+            locations: projectData.locations
+              .filter((location) => location.visual_lock?.trim().length >= 10)
+              .map((location) => ({
+                id: location.id,
+                name: location.name,
+                visualLock: location.visual_lock,
+              })),
+            rules: projectData.rules.map((rule) => rule.text),
+          }),
+        },
+      );
+
+      if (!res.project) {
+        throw new Error("The planner did not return a studio project.");
+      }
+
+      studio.setProject(res.project);
+      notify(
+        `Shorts plan ready: ${res.project.clips.length} shots + continuous voiceover.`,
+        "success",
+      );
+      await refreshData();
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : String(err), "error");
+    } finally {
+      setIsShortsPlanning(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -156,6 +235,8 @@ export default function WorkspacePage() {
         projectName={data.project.name}
         doneCount={doneCount}
         totalScenes={data.scenes.length}
+        workflowMode={data.project.settings.workflowMode}
+        shortsShotCount={studio.project.clips.length}
         onOpenChat={() => setChatOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenExport={() => setExportOpen(true)}
@@ -179,22 +260,36 @@ export default function WorkspacePage() {
             notify={notify}
             onOpenSettings={() => setSettingsOpen(true)}
             onPlanStarted={(job) => setActiveJob(job)}
+            onPlanShorts={handlePlanShorts}
+            isShortsPlanning={isShortsPlanning}
+            onStoryReset={studio.clearProject}
+            shortsShotCount={studio.project.clips.length}
           />
         </aside>
 
-        {/* Center Column: Scenes (N) list */}
-        <ScenesSection
-          data={data}
-          openSceneN={openSceneN}
-          onToggleScene={(n) => setOpenSceneN(openSceneN === n ? null : n)}
-          onExpandCollapseAll={() =>
-            setOpenSceneN(openSceneN !== null ? null : (data.scenes[0]?.n ?? 1))
-          }
-          onChanged={refreshData}
-          onOpenReview={(n) => setReviewSceneN(n)}
-          notify={notify}
-          onPlanStarted={(job) => setActiveJob(job)}
-        />
+        {/* Center Column: Scenes (video-clips mode) or Shorts animatic plan */}
+        {isShortsMode ? (
+          <ShortsPlanPanel
+            project={studio.project}
+            isPlanning={isShortsPlanning}
+            onPlan={() => void handlePlanShorts(data.project.story)}
+            onUpdateClip={studio.updateClip}
+            notify={notify}
+          />
+        ) : (
+          <ScenesSection
+            data={data}
+            openSceneN={openSceneN}
+            onToggleScene={(n) => setOpenSceneN(openSceneN === n ? null : n)}
+            onExpandCollapseAll={() =>
+              setOpenSceneN(openSceneN !== null ? null : (data.scenes[0]?.n ?? 1))
+            }
+            onChanged={refreshData}
+            onOpenReview={(n) => setReviewSceneN(n)}
+            notify={notify}
+            onPlanStarted={(job) => setActiveJob(job)}
+          />
+        )}
 
         {/* Right Column: Characters, Locations, Rules (320px) */}
         <aside className="w-full shrink-0 space-y-4 lg:w-80">

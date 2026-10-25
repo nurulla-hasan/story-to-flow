@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { CleanPromptCard } from "./clean-prompt-card";
-import type { StudioClip } from "./types";
+import type { StudioCastMember, StudioClip } from "./types";
 
 interface StudioPromptCardsListProps {
   clips: StudioClip[];
@@ -12,6 +12,8 @@ interface StudioPromptCardsListProps {
   onToggleClip: (clipId: string) => void;
   onUpdateClip: (clipId: string, patch: Partial<StudioClip>) => void;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
+  cast?: StudioCastMember[];
+  title?: string;
 }
 
 export function StudioPromptCardsList({
@@ -22,6 +24,8 @@ export function StudioPromptCardsList({
   onToggleClip,
   onUpdateClip,
   notify,
+  cast,
+  title = "Individual Clip Prompt Cards",
 }: StudioPromptCardsListProps) {
   const timedClips = React.useMemo(() => {
     let accumulated = 0;
@@ -39,7 +43,7 @@ export function StudioPromptCardsList({
   return (
     <div className="space-y-3 pt-2">
       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-        Individual Clip Prompt Cards
+        {title}
       </h3>
       {timedClips.map(({ clip, startTime, endTime }) => (
         <CleanPromptCard
@@ -53,6 +57,7 @@ export function StudioPromptCardsList({
           endTime={endTime}
           onUpdateClip={(patch) => onUpdateClip(clip.id, patch)}
           notify={notify}
+          cast={cast}
         />
       ))}
     </div>

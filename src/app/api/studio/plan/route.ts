@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
-import { newId } from "@/lib/types";
+import { newId, styleLockForPreset } from "@/lib/types";
 import {
   detectSfxFromAction,
   sanitizeDetachedProps,
@@ -284,6 +284,8 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
 
   const castIds = new Set(parsed.cast.map((member) => member.id));
   const locationIds = new Set(parsed.locations.map((location) => location.id));
+  const styleLock =
+    parsed.styleLock?.trim() || styleLockForPreset(parsed.stylePreset);
 
   const clips = raw.clips.map((clip, idx) => {
     const narration = cleanNarration(clip.narration) || clip.narration.trim();
@@ -298,7 +300,7 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
     const duration =
       fixedDuration ?? estimateNarrationDuration(narration);
     const imagePrompt = composeShortsImagePrompt({
-      styleLock: parsed.styleLock,
+      styleLock,
       stylePreset: parsed.stylePreset,
       cast: parsed.cast,
       locations: parsed.locations,
@@ -341,7 +343,7 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
     workflowMode: "shorts-animatic" as const,
     cast: parsed.cast,
     locations: parsed.locations,
-    styleLock: parsed.styleLock?.trim() || "",
+    styleLock,
     characterVisualLock: parsed.cast[0]?.visualLock ?? "",
     environmentVisualLock: parsed.locations[0]?.visualLock ?? "",
     stylePreset: parsed.stylePreset,

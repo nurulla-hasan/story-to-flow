@@ -18,10 +18,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { SimpleSelect } from "@/components/simple-select";
 import { api, ApiError } from "@/lib/apiClient";
 import { cn } from "cn";
 import type { JobRecord, ProjectData, Settings } from "@/lib/types";
-import { sceneCount } from "@/lib/types";
+import { STYLE_PRESETS, sceneCount } from "@/lib/types";
 
 const SHORTS_PACING_OPTIONS = ["auto", "2.5", "3", "4", "5"] as const;
 
@@ -63,6 +64,14 @@ export function LeftPanel({
   const dirty = story !== data.project.story;
   const hasBible = data.characters.length > 0;
   const hasScenes = data.scenes.length > 0;
+
+  const styleOptions = React.useMemo(() => {
+    const list = STYLE_PRESETS as readonly string[];
+    const all = list.includes(settings.stylePreset)
+      ? list
+      : [settings.stylePreset, ...list];
+    return all.map((preset) => ({ value: preset, label: preset }));
+  }, [settings.stylePreset]);
 
   async function updateSettings(patch: Partial<Settings>) {
     if (settingsBusy) return;
@@ -457,6 +466,46 @@ export function LeftPanel({
               </div>
             </div>
           ) : null}
+
+          <div className="mb-3">
+            <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Visual style
+            </p>
+            <SimpleSelect
+              id="quickStylePreset"
+              value={settings.stylePreset}
+              onValueChange={(value) =>
+                void updateSettings({ stylePreset: value })
+              }
+              options={styleOptions}
+              disabled={settingsBusy || Boolean(busy) || isShortsPlanning}
+            />
+          </div>
+
+          <div className="mb-3">
+            <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Aspect ratio
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(["9:16", "16:9"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => void updateSettings({ aspectRatio: value })}
+                  disabled={settingsBusy || Boolean(busy) || isShortsPlanning}
+                  aria-pressed={settings.aspectRatio === value}
+                  className={cn(
+                    "h-8 rounded-md border text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+                    settings.aspectRatio === value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {value === "9:16" ? "9:16 Vertical" : "16:9 Wide"}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <dl className="divide-y divide-border text-xs">
             <Row label="Language" value={settings.dialogueLanguage === "bn" ? "Bangla" : "English"} />

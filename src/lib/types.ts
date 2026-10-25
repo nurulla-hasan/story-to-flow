@@ -73,11 +73,53 @@ export type SettingsPatch = z.infer<typeof settingsPatchSchema>;
 
 export const STYLE_PRESETS = [
   "Cinematic realism",
+  "3D Pixar Animation",
+  "Minimalist Stickman Cartoon",
+  "Anime & Manga Style",
+  "Vintage Comic Book",
+  "Hand-Drawn Sketch",
+  "Painterly storybook",
   "Warm rural drama",
   "Moody noir",
   "Documentary natural",
-  "Painterly storybook",
 ] as const;
+
+/**
+ * Deterministic style descriptions for every preset. The planner uses these
+ * instead of asking the LLM to invent a style lock, so switching presets always
+ * produces a recognizable and repeatable look across every prompt.
+ */
+export const STYLE_LOCK_BY_PRESET: Record<string, string> = {
+  "cinematic realism":
+    "Photorealistic cinematic realism: 35mm lens, shallow depth of field, natural skin texture, motivated practical lighting, filmic color grade, subtle grain, grounded dramatic mood",
+  "cinematic realistic":
+    "Photorealistic cinematic realism: 35mm lens, shallow depth of field, natural skin texture, motivated practical lighting, filmic color grade, subtle grain, grounded dramatic mood",
+  "3d pixar animation":
+    "Polished 3D Pixar-style animation: stylized rounded characters, expressive oversized eyes, soft subsurface skin, vibrant saturated colors, cinematic studio lighting, detailed textured environments, family-friendly whimsical mood",
+  "minimalist stickman cartoon":
+    "Minimalist stickman 2D cartoon: clean black line figures, simple round heads, flat white background, bold primary accent colors, minimal props, playful hand-drawn motion, humorous webcomic energy",
+  "anime & manga style":
+    "Japanese anime and manga illustration: clean confident line art, large expressive eyes, stylized hair, cel-shaded colors, dynamic composition, speed lines, dramatic rim light, emotional shonen/shojo mood",
+  "vintage comic book":
+    "Vintage 1960s comic book print: bold black ink outlines, halftone dot shading, limited retro CMYK palette, slightly yellowed newsprint texture, dramatic panel composition, ink-splatter accents, pulp adventure mood",
+  "hand-drawn sketch":
+    "Hand-drawn pencil sketch: graphite linework, loose cross-hatching, visible paper grain, monochrome charcoal and sepia tones, unfinished artistic edges, intimate storyboard mood",
+  "painterly storybook":
+    "Painterly storybook illustration: soft gouache and watercolor brushwork, warm pastel palette, gentle diffused light, textured paper, whimsical hand-painted environments, nostalgic fairy-tale mood",
+  "warm rural drama":
+    "Warm rural drama cinematography: golden-hour sunlight, dusty earth tones, lush green fields, weathered village textures, 35mm film grain, gentle camera intimacy, tender nostalgic mood",
+  "moody noir":
+    "Moody film noir: high-contrast chiaroscuro lighting, deep black shadows, cold desaturated palette, wet reflective streets, venetian-blind light patterns, cigarette smoke haze, brooding suspenseful mood",
+  "documentary natural":
+    "Documentary natural realism: handheld observational framing, available natural light, true-to-life colors, subtle grain, candid human detail, unpolished authentic environments, grounded journalistic mood",
+};
+
+export function styleLockForPreset(preset: string, styleNote = ""): string {
+  const base = STYLE_LOCK_BY_PRESET[preset.trim().toLowerCase()];
+  if (!base) return "";
+  const note = styleNote.trim();
+  return note ? `${base}. ${note}` : base;
+}
 
 export function sceneCount(settings: Settings): number {
   return Math.max(

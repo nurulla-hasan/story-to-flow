@@ -2,11 +2,12 @@ import { z } from "zod";
 import { getRepo, DEFAULT_PROJECT_ID } from "@/lib/db";
 import { errorResponse, parseBody } from "@/lib/http";
 import { reassembleAll } from "@/lib/pipeline";
-import { settingsPatchSchema } from "@/lib/types";
+import { settingsPatchSchema, styleLockForPreset } from "@/lib/types";
 
 const projectPatchSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   story: z.string().max(200_000).optional(),
+  styleLock: z.string().max(2400).optional(),
   settings: settingsPatchSchema.optional(),
 });
 
@@ -22,6 +23,23 @@ export async function PATCH(request: Request) {
   try {
     const body = await parseBody(request, projectPatchSchema);
     const repo = getRepo();
+    const existing = repo.getProjectData(DEFAULT_PROJECT_ID);
+
+    // A style preset or note change must replace the generated style lock,
+    // otherwise reassembled prompts would keep the previous look.
+    if (body.settings) {
+      const nextSettings = { ...existing.project.settings, ...body.settings };
+      const styleChanged =
+        nextSettings.stylePreset !== existing.project.settings.stylePreset ||
+        nextSettings.styleNote !== existing.project.settings.styleNote;
+      if (styleChanged) {
+        body.styleLock = styleLockForPreset(
+          nextSettings.stylePreset,
+          nextSettings.styleNote,
+        );
+      }
+    }
+
     repo.updateProject(DEFAULT_PROJECT_ID, body);
     let changedPrompts = 0;
     if (body.settings) changedPrompts = reassembleAll(DEFAULT_PROJECT_ID);

@@ -8,9 +8,11 @@ import { StudioPromptCardsList } from "@/components/studio/studio-prompt-cards-l
 import { StudioVoiceoverCard } from "@/components/studio/studio-voiceover-card";
 import { copyText } from "@/lib/apiClient";
 import type { StudioClip, StudioProject } from "@/components/studio/types";
+import type { ShortsPacing } from "@/lib/types";
 
 interface ShortsPlanPanelProps {
   project: StudioProject;
+  pacing: ShortsPacing;
   isPlanning: boolean;
   onPlan: () => void;
   onUpdateClip: (clipId: string, patch: Partial<StudioClip>) => void;
@@ -37,6 +39,7 @@ function downloadVoiceover(text: string, title: string) {
 
 export function ShortsPlanPanel({
   project,
+  pacing,
   isPlanning,
   onPlan,
   onUpdateClip,
@@ -158,6 +161,7 @@ export function ShortsPlanPanel({
           voiceover={project.continuousVoiceover}
           totalDuration={totalDuration}
           clipCount={clips.length}
+          pacing={pacing}
           copiedVoiceover={copiedVoiceover}
           onCopyVoiceover={handleCopyVoiceover}
           onDownloadVoiceover={() =>
@@ -178,6 +182,8 @@ export function ShortsPlanPanel({
         notify={notify}
         cast={project.cast}
         title="Sequential Image Prompts"
+        projectTitle={project.title}
+        stylePreset={project.stylePreset}
       />
     </section>
   );

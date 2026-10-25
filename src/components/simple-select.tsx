@@ -16,6 +16,7 @@ export function SimpleSelect({
   options,
   placeholder,
   className,
+  disabled,
 }: {
   id?: string;
   value?: string;
@@ -23,12 +24,17 @@ export function SimpleSelect({
   options: Array<{ value: string; label: string }>;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 }) {
   const selectedLabel =
     options.find((opt) => opt.value === value)?.label ?? placeholder ?? value;
 
   return (
-    <Select value={value} onValueChange={(val) => val && onValueChange?.(val)}>
+    <Select
+      value={value}
+      onValueChange={(val) => val && onValueChange?.(val)}
+      disabled={disabled}
+    >
       <SelectTrigger id={id} className={cn("w-full bg-card", className)}>
         <span className="flex-1 text-left truncate">{selectedLabel}</span>
       </SelectTrigger>

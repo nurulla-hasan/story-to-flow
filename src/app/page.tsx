@@ -20,7 +20,7 @@ import { ChatDialog } from "@/components/chat-panel";
 import { ExportDialog } from "@/components/export-dialog";
 import { FlowExtensionDialog } from "@/components/flow-extension-dialog";
 import { api, ApiError } from "@/lib/apiClient";
-import type { JobRecord, ProjectData } from "@/lib/types";
+import { styleLockForPreset, type JobRecord, type ProjectData } from "@/lib/types";
 
 export default function WorkspacePage() {
   const [data, setData] = React.useState<ProjectData | null>(null);
@@ -188,7 +188,11 @@ export default function WorkspacePage() {
             workflowMode: "shorts-animatic",
             pacing: projectData.project.settings.shortsPacing,
             stylePreset: projectData.project.settings.stylePreset,
-            styleLock: projectData.project.styleLock,
+            styleLock:
+              styleLockForPreset(
+                projectData.project.settings.stylePreset,
+                projectData.project.settings.styleNote,
+              ) || projectData.project.styleLock,
             aspectRatio: projectData.project.settings.aspectRatio,
             cast: projectData.characters
               .filter((character) => character.visual_lock?.trim().length >= 10)
@@ -271,6 +275,7 @@ export default function WorkspacePage() {
         {isShortsMode ? (
           <ShortsPlanPanel
             project={studio.project}
+            pacing={data.project.settings.shortsPacing}
             isPlanning={isShortsPlanning}
             onPlan={() => void handlePlanShorts(data.project.story)}
             onUpdateClip={studio.updateClip}

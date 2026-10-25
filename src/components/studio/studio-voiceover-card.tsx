@@ -3,11 +3,13 @@
 import * as React from "react";
 import { Check, Copy, Download, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { ShortsPacing } from "@/lib/types";
 
 interface StudioVoiceoverCardProps {
   voiceover: string;
   totalDuration: number;
   clipCount: number;
+  pacing?: ShortsPacing;
   copiedVoiceover: boolean;
   onCopyVoiceover: () => void;
   onDownloadVoiceover: () => void;
@@ -17,10 +19,12 @@ export function StudioVoiceoverCard({
   voiceover,
   totalDuration,
   clipCount,
+  pacing = "auto",
   copiedVoiceover,
   onCopyVoiceover,
   onDownloadVoiceover,
 }: StudioVoiceoverCardProps) {
+  const pacingLabel = pacing === "auto" ? "2.5–5s auto" : `${pacing}s each`;
   return (
     <div className="rounded-xl border border-brand-border bg-card p-4 shadow-xs space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
@@ -73,7 +77,7 @@ export function StudioVoiceoverCard({
 
       <div className="flex items-center justify-between text-2xs text-muted-foreground pt-0.5">
         <span>
-          Total Runtime: ~{totalDuration.toFixed(0)}s ({clipCount} sequential images · clean Bangla TTS)
+          Total Runtime: ~{totalDuration.toFixed(0)}s ({clipCount} images • {pacingLabel})
         </span>
         <span>Language: Bangla</span>
       </div>

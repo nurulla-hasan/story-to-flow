@@ -1,6 +1,6 @@
 import { findLocation } from "./db/repo";
 import type { CharacterRecord, ProjectData, SceneRecord } from "./types";
-import { languageLabel } from "./types";
+import { languageLabel, styleLockForPreset } from "./types";
 
 export interface AssembleOptions {
   reinforcements?: string[];
@@ -10,6 +10,11 @@ export interface AssembleOptions {
 export function projectStyleLock(data: ProjectData): string {
   const { project } = data;
   if (project.styleLock.trim()) return project.styleLock.trim();
+  const presetLock = styleLockForPreset(
+    project.settings.stylePreset,
+    project.settings.styleNote,
+  );
+  if (presetLock) return presetLock;
   const note = project.settings.styleNote.trim();
   return `${project.settings.stylePreset}${note ? `. ${note}` : ""}`;
 }

@@ -7,6 +7,7 @@ import {
   scenePlanSchema,
   sceneSchema,
   slugify,
+  styleLockForPreset,
   type Bible,
   type ProjectData,
   type Scene,
@@ -135,6 +136,10 @@ Return the story bible JSON.`;
 }
 
 export function normalizeBible(bible: Bible, settings: Settings): Bible {
+  const presetStyleLock = styleLockForPreset(
+    settings.stylePreset,
+    settings.styleNote,
+  );
   const used = new Set<string>();
   const characters = bible.characters.map((character, index) => {
     let id = slugify(character.id || character.name) || `character-${index + 1}`;
@@ -159,7 +164,7 @@ export function normalizeBible(bible: Bible, settings: Settings): Bible {
   });
   return {
     title: bible.title.trim() || "Untitled story",
-    style_lock: bible.style_lock.trim(),
+    style_lock: presetStyleLock || bible.style_lock.trim(),
     characters,
     locations,
   };

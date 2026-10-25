@@ -124,12 +124,16 @@ export interface StudioProject {
 }
 
 export const STUDIO_STYLE_PRESETS = [
+  "Cinematic realism",
   "3D Pixar Animation",
   "Minimalist Stickman Cartoon",
   "Anime & Manga Style",
-  "Cinematic Realistic",
   "Vintage Comic Book",
   "Hand-Drawn Sketch",
+  "Painterly storybook",
+  "Warm rural drama",
+  "Moody noir",
+  "Documentary natural",
 ] as const;
 
 export interface TransitionPreset {

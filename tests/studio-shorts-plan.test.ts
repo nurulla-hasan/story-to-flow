@@ -9,6 +9,7 @@ import {
   reassembleShortsProject,
   resolveShortsCharacterIds,
   resolveShortsLocationId,
+  shortsProjectNeedsLockSync,
   stripCameraMotion,
 } from "../src/lib/studio-plan";
 import type {
@@ -327,5 +328,65 @@ describe("Shorts / animatic planning helpers", () => {
       "Habul, a 62-year-old Bengali watchmaker",
     );
     expect(result.project.clips[0].imagePrompt).not.toContain("glossy black crow");
+  });
+
+  it("detects prompts missing Bible locks without overwriting synced edits", () => {
+    const styleLock = "Warm 3D Pixar animation with soft cinematic lighting.";
+    const project: StudioProject = {
+      id: "studio-default",
+      title: "Watch shop",
+      story: "Habul repairs a watch.",
+      workflowMode: "shorts-animatic",
+      cast,
+      locations,
+      styleLock,
+      stylePreset: "3D Pixar Animation",
+      aspectRatio: "9:16",
+      defaultClipDuration: 3,
+      continuousVoiceover: "শামসু ঘড়ি মেরামত করলেন।",
+      audioUrl: null,
+      audioDuration: 0,
+      clips: [
+        {
+          id: "clip-1",
+          index: 1,
+          duration: 3,
+          imageUrl: null,
+          imagePrompt:
+            "Old style. In this shot: Habul polishes a brass watch, close-up. Vertical 9:16 aspect ratio.",
+          narration: "শামসু ঘড়ি মেরামত করলেন।",
+          motion: "zoom-in",
+          characterIds: ["habul"],
+          locationId: "shop",
+        },
+      ],
+    };
+
+    const input = {
+      project,
+      cast,
+      locations,
+      styleLock,
+      stylePreset: "3D Pixar Animation",
+      aspectRatio: "9:16" as const,
+    };
+
+    expect(shortsProjectNeedsLockSync(input)).toBe(true);
+
+    const reassembled = reassembleShortsProject(input).project;
+    expect(
+      shortsProjectNeedsLockSync({ ...input, project: reassembled }),
+    ).toBe(false);
+
+    const manuallyEdited: StudioProject = {
+      ...reassembled,
+      clips: reassembled.clips.map((clip) => ({
+        ...clip,
+        imagePrompt: `${clip.imagePrompt} Slight manual timing note.`,
+      })),
+    };
+    expect(
+      shortsProjectNeedsLockSync({ ...input, project: manuallyEdited }),
+    ).toBe(false);
   });
 });

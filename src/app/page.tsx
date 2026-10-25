@@ -71,7 +71,11 @@ export default function WorkspacePage() {
     await loadData();
   }, [loadData]);
 
-  const reassembleProject = studio.reassembleProject;
+  const {
+    isLoaded: studioLoaded,
+    reassembleProject,
+    reassembleProjectIfNeeded,
+  } = studio;
 
   const handleLocksChanged = React.useCallback(
     async (meta?: { characterIdMap?: Record<string, string> }) => {
@@ -144,6 +148,20 @@ export default function WorkspacePage() {
     }, 500);
     return () => window.clearInterval(interval);
   }, [activeJob, refreshData, notify]);
+
+  // Repair older Shorts plans once both the workspace Bible and the cached
+  // studio project are available. Only prompts that are actually missing a
+  // lock are touched, so manual prompt edits that already contain the locks
+  // survive a reload.
+  const firstLockSyncDone = React.useRef(false);
+  React.useEffect(() => {
+    if (firstLockSyncDone.current) return;
+    if (!data || !studioLoaded) return;
+    firstLockSyncDone.current = true;
+    if (data.project.settings.workflowMode === "shorts-animatic") {
+      reassembleProjectIfNeeded(data);
+    }
+  }, [data, studioLoaded, reassembleProjectIfNeeded]);
 
   if (loading) {
     return (

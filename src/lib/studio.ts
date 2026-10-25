@@ -20,22 +20,14 @@ export function loadStudioProject(): StudioProject | null {
 }
 
 export function saveStudioProject(project: StudioProject): void {
-  try {
-    ensureDirs();
-    fs.writeFileSync(STUDIO_PROJECT_FILE, JSON.stringify(project, null, 2), "utf-8");
-  } catch (err) {
-    console.error("[studio] Failed to save studio project:", err);
-  }
+  ensureDirs();
+  fs.writeFileSync(STUDIO_PROJECT_FILE, JSON.stringify(project, null, 2), "utf-8");
 }
 
 export function clearStudioProject(): void {
-  try {
-    ensureDirs();
-    if (fs.existsSync(STUDIO_PROJECT_FILE)) {
-      fs.unlinkSync(STUDIO_PROJECT_FILE);
-    }
-  } catch (err) {
-    console.warn("[studio] Failed to clear studio project:", err);
+  ensureDirs();
+  if (fs.existsSync(STUDIO_PROJECT_FILE)) {
+    fs.unlinkSync(STUDIO_PROJECT_FILE);
   }
 }
 

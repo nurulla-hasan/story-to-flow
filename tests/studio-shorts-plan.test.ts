@@ -559,7 +559,51 @@ describe("Shorts / animatic planning helpers", () => {
 
       const formatted = formatAllPrompts(sampleClips, 4.0);
       expect(formatted).toContain("[🖼️ Static Image]");
-      expect(formatted).toContain("[🎥 Hero Video (Flow Animate) • Magic transformation]");
+      expect(formatted).toContain(
+        "[🎥 4s Video Clip (Flow Animate) • Magic transformation]",
+      );
+    });
+
+    it("enforces strict 4-second video generation prompt rules for hero video shots", () => {
+      const videoPrompt = composeShortsImagePrompt({
+        styleLock: "Warm 3D Pixar animation with soft cinematic lighting.",
+        stylePreset: "3D Pixar Animation",
+        cast,
+        locations,
+        characterIds: ["habul"],
+        locationId: "shop",
+        action:
+          "Fast-paced camera tracking Habul diving across the room as blue smoke pours from the bottle.",
+        narration: "হঠাৎ ধোঁয়া বেরিয়ে এলো!",
+        aspectRatio: "9:16",
+        recommendedMediaType: "video",
+        heroReason: "Magic transformation",
+      });
+
+      expect(videoPrompt).toContain("Dynamic 4-second animated video clip");
+      expect(videoPrompt).toContain("In this 4-second video sequence: Fast-paced camera tracking Habul diving");
+      expect(videoPrompt).toContain("Strictly 4.0 seconds duration. Continuous high-velocity motion.");
+      expect(videoPrompt).toContain("Vertical 9:16 aspect ratio.");
+
+      // Static image counterpart strips camera tracking words and uses standard format
+      const imagePrompt = composeShortsImagePrompt({
+        styleLock: "Warm 3D Pixar animation with soft cinematic lighting.",
+        stylePreset: "3D Pixar Animation",
+        cast,
+        locations,
+        characterIds: ["habul"],
+        locationId: "shop",
+        action:
+          "Camera slowly zooming in on Habul inspecting gears.",
+        narration: "কাশেম বসে রইল।",
+        aspectRatio: "9:16",
+        recommendedMediaType: "image",
+      });
+
+      expect(imagePrompt).not.toContain("Dynamic 4-second animated video clip");
+      expect(imagePrompt).toContain("In this shot: Habul inspecting gears");
+      expect(imagePrompt).not.toContain("zooming in");
+      expect(imagePrompt).not.toContain("Strictly 4.0 seconds duration");
     });
   });
 });

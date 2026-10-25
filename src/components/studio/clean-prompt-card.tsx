@@ -95,6 +95,8 @@ export function CleanPromptCard({
         imageUrl: clip.imageUrl,
         imageName: `image-${clip.index}.png`,
         autoRun: !clip.imageUrl,
+        mediaType: isHeroVideo ? "video" : "image",
+        duration: isHeroVideo ? 4.0 : undefined,
       });
 
       if (res.success) {
@@ -169,7 +171,7 @@ export function CleanPromptCard({
               </span>
               {isHeroVideo ? (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded border border-purple-500/40 bg-purple-500/10 px-2 py-0.5 font-mono text-3xs font-bold text-purple-400 shadow-xs">
-                  <span>🎥 Hero Video (Flow Animate)</span>
+                  <span>🎥 4s Video Clip (Flow Animate)</span>
                   {hero.heroReason ? (
                     <span className="font-normal opacity-90">· {hero.heroReason}</span>
                   ) : null}

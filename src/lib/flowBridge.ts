@@ -41,6 +41,8 @@ export async function sendToFlow(options: {
   imageUrl?: string | null;
   imageName?: string;
   autoRun?: boolean;
+  mediaType?: "video" | "image";
+  duration?: number;
 }): Promise<FlowSendResult> {
   const { prompt, imageUrl, imageName, autoRun = true } = options;
 
@@ -112,6 +114,11 @@ export async function sendToFlow(options: {
         imageDataUrl,
         imageName: imageName || "start-frame.png",
         autoRun,
+        mediaType: options.mediaType || "image",
+        duration:
+          options.mediaType === "video"
+            ? options.duration || 4.0
+            : undefined,
       },
       "*"
     );

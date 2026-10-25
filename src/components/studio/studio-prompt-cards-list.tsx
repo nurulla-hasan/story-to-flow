@@ -165,6 +165,8 @@ export function StudioPromptCardsList({
 
       const res = await sendToFlow({
         prompt: heroFormatted,
+        mediaType: "video",
+        duration: 4.0,
         autoRun: false,
       });
 
@@ -202,6 +204,7 @@ export function StudioPromptCardsList({
       // 3. Inject all prompts together into Flow's input without auto-generating (autoRun: false)
       const res = await sendToFlow({
         prompt: allPromptsFormatted,
+        mediaType: "image",
         autoRun: false,
       });
 
@@ -328,7 +331,7 @@ export function StudioPromptCardsList({
               )}
             >
               <Film className="size-3 text-purple-400" />
-              <span>Hero Videos ({heroCount})</span>
+              <span>4s Video Clips ({heroCount})</span>
             </button>
             <button
               type="button"

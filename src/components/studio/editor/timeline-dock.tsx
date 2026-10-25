@@ -39,6 +39,74 @@ import {
   type VoiceSegmentTiming,
 } from "./editor-shared";
 
+interface VoiceSegmentWaveformProps {
+  audioPeaks: number[] | null;
+  totalAudioDuration: number;
+  startOffset: number;
+  duration: number;
+  width: number;
+  height?: number;
+}
+
+function VoiceSegmentWaveform({
+  audioPeaks,
+  totalAudioDuration,
+  startOffset,
+  duration,
+  width,
+  height = 48,
+}: VoiceSegmentWaveformProps) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const renderW = Math.max(1, Math.floor(width));
+    const renderH = Math.max(1, Math.floor(height));
+
+    if (canvas.width !== renderW || canvas.height !== renderH) {
+      canvas.width = renderW;
+      canvas.height = renderH;
+    }
+
+    ctx.clearRect(0, 0, renderW, renderH);
+
+    if (!audioPeaks || audioPeaks.length === 0 || totalAudioDuration <= 0) {
+      return;
+    }
+
+    const barWidth = 2;
+    const gap = 1;
+    const totalBars = Math.max(1, Math.floor(renderW / (barWidth + gap)));
+
+    const styles = getComputedStyle(canvas);
+    ctx.fillStyle =
+      styles.getPropertyValue("--track-voice").trim() || "#22d3ee";
+
+    for (let i = 0; i < totalBars; i++) {
+      const segProgress = i / totalBars;
+      const audioTime = startOffset + segProgress * duration;
+      const frac = Math.max(0, Math.min(1, audioTime / totalAudioDuration));
+      const peakIdx = Math.floor(frac * audioPeaks.length);
+      const amp = audioPeaks[peakIdx] || 0;
+      const barH = Math.max(2, Math.min(renderH - 8, amp * (renderH - 10)));
+      const x = i * (barWidth + gap);
+      const y = (renderH - barH) / 2;
+      ctx.fillRect(x, y, barWidth, barH);
+    }
+  }, [audioPeaks, totalAudioDuration, startOffset, duration, width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 size-full opacity-65"
+    />
+  );
+}
+
 interface TimelineDockProps {
   project: StudioProject;
   onUpdateProject: (patch: Partial<StudioProject>) => void;
@@ -69,7 +137,8 @@ interface TimelineDockProps {
   customDuration: string;
   resizingClip: { id: string; duration: number } | null;
   timelineScrollRef: React.RefObject<HTMLDivElement | null>;
-  waveformCanvasRef: React.RefObject<HTMLCanvasElement | null>;
+  waveformCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  audioPeaks?: number[] | null;
   audioInputRef: React.RefObject<HTMLInputElement | null>;
   bgmInputRef: React.RefObject<HTMLInputElement | null>;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
@@ -130,7 +199,7 @@ export function TimelineDock({
   customDuration,
   resizingClip,
   timelineScrollRef,
-  waveformCanvasRef,
+  audioPeaks = null,
   audioInputRef,
   bgmInputRef,
   setIsMuted,
@@ -807,12 +876,13 @@ export function TimelineDock({
                       )}
                       title={`Voice segment #${idx + 1} · ${timing.segment.duration.toFixed(1)}s (Offset: ${timing.segment.startOffset.toFixed(1)}s)`}
                     >
-                      {idx === 0 && waveformCanvasRef ? (
-                        <canvas
-                          ref={waveformCanvasRef}
-                          className="pointer-events-none absolute inset-0 size-full opacity-60"
-                        />
-                      ) : null}
+                      <VoiceSegmentWaveform
+                        audioPeaks={audioPeaks}
+                        totalAudioDuration={project.audioDuration || 0}
+                        startOffset={timing.segment.startOffset}
+                        duration={timing.segment.duration}
+                        width={segWidth}
+                      />
 
                       <div className="relative z-10 flex h-full items-center justify-between px-2">
                         <span className="truncate font-mono text-3xs font-semibold text-track-voice">
@@ -839,9 +909,12 @@ export function TimelineDock({
                   className="absolute inset-y-1 left-0 overflow-hidden rounded-md border border-track-voice/30 bg-card/70"
                   style={{ width: `${voiceoverWidth}px` }}
                 >
-                  <canvas
-                    ref={waveformCanvasRef}
-                    className="absolute inset-0 size-full"
+                  <VoiceSegmentWaveform
+                    audioPeaks={audioPeaks}
+                    totalAudioDuration={project.audioDuration || 0}
+                    startOffset={0}
+                    duration={project.audioDuration || 0}
+                    width={voiceoverWidth}
                   />
                   <span className="absolute top-1 left-1 rounded bg-card/85 px-1 py-0.5 font-mono text-3xs font-semibold text-track-voice shadow-xs">
                     Voiceover · {formatSec(effectiveAudioDuration)}

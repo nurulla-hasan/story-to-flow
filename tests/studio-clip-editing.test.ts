@@ -479,4 +479,31 @@ describe("Undo & Redo History Engine", () => {
     expect(resetState.audioDuration).toBe(0);
     expect(resetState.voiceSegments).toEqual([]);
   });
+
+  it("calculates accurate fractional waveform peak ranges for split voice segments", () => {
+    const totalAudioDuration = 124.0;
+    const totalPeaks = 1000;
+
+    // Segment 1: 0.0s to 1.3s
+    const seg1Start = 0.0;
+    const seg1Dur = 1.3;
+    const seg1FracStart = seg1Start / totalAudioDuration;
+    const seg1FracEnd = (seg1Start + seg1Dur) / totalAudioDuration;
+    const seg1PeakStart = Math.floor(seg1FracStart * totalPeaks);
+    const seg1PeakEnd = Math.floor(seg1FracEnd * totalPeaks);
+
+    expect(seg1PeakStart).toBe(0);
+    expect(seg1PeakEnd).toBe(10); // First 10 peaks for 1.3s
+
+    // Segment 2: 1.3s to 124.0s
+    const seg2Start = 1.3;
+    const seg2Dur = 122.7;
+    const seg2FracStart = seg2Start / totalAudioDuration;
+    const seg2FracEnd = (seg2Start + seg2Dur) / totalAudioDuration;
+    const seg2PeakStart = Math.floor(seg2FracStart * totalPeaks);
+    const seg2PeakEnd = Math.floor(seg2FracEnd * totalPeaks);
+
+    expect(seg2PeakStart).toBe(10);
+    expect(seg2PeakEnd).toBe(1000); // Remaining 990 peaks for 122.7s
+  });
 });

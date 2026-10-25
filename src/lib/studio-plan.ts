@@ -377,12 +377,16 @@ export interface ComposeShortsPromptInput {
   locationId?: string;
   narration: string;
   aspectRatio: "9:16" | "16:9";
+  recommendedMediaType?: "video" | "image";
+  heroReason?: string;
 }
 
 export interface ComposeShortsShotResult {
   imagePrompt: string;
   characterIds: string[];
   locationId?: string;
+  recommendedMediaType?: "video" | "image";
+  heroReason?: string;
 }
 
 export function composeShortsImagePrompt({
@@ -395,7 +399,9 @@ export function composeShortsImagePrompt({
   locationId,
   narration,
   aspectRatio,
+  recommendedMediaType,
 }: ComposeShortsPromptInput): string {
+  const isVideo = recommendedMediaType === "video";
   const resolvedCharacterIds = resolveShortsCharacterIds({
     cast,
     characterIds,
@@ -418,13 +424,23 @@ export function composeShortsImagePrompt({
     locations.find((entry) => entry.id === resolvedLocationId) ?? locations[0];
 
   const style = (styleLock?.trim() || stylePreset.trim()).replace(/\.\s*$/, "");
-  const actionText = stripCameraMotion(action);
+  // For video shots, preserve explicit camera tracking and kinetic physics.
+  // For static image shots, strip video camera motion phrases to avoid diffusion artifacts.
+  const actionText = isVideo ? action.trim() : stripCameraMotion(action);
 
   const parts = [
+    isVideo ? "Dynamic 4-second animated video clip" : "",
     style,
     ...castLocks.map((lock) => lock.replace(/\.\s*$/, "")),
     location?.visualLock?.trim().replace(/\.\s*$/, ""),
-    actionText ? `In this shot: ${actionText}` : "",
+    actionText
+      ? isVideo
+        ? `In this 4-second video sequence: ${actionText}`
+        : `In this shot: ${actionText}`
+      : "",
+    isVideo
+      ? "Strictly 4.0 seconds duration. Continuous high-velocity motion."
+      : "",
   ].filter(Boolean);
 
   let prompt = parts
@@ -463,6 +479,8 @@ export function composeShortsShot(input: ComposeShortsPromptInput): ComposeShort
   return {
     characterIds,
     locationId,
+    recommendedMediaType: input.recommendedMediaType,
+    heroReason: input.heroReason,
     imagePrompt: composeShortsImagePrompt({
       ...input,
       characterIds,
@@ -584,6 +602,8 @@ export function shortsProjectNeedsLockSync({
       locationId: clip.locationId,
       narration: clip.narration,
       aspectRatio: nextAspectRatio,
+      recommendedMediaType: clip.recommendedMediaType,
+      heroReason: clip.heroReason,
     });
 
     if (
@@ -653,6 +673,8 @@ export function reassembleShortsProject({
       locationId: clip.locationId,
       narration: clip.narration,
       aspectRatio: nextAspectRatio,
+      recommendedMediaType: clip.recommendedMediaType,
+      heroReason: clip.heroReason,
     });
 
     if (

@@ -143,14 +143,16 @@ Image diffusion models (Google Flow, Midjourney, Flux) drift and change characte
    - Ghost laugh / villain chuckle -> 'evil-laugh'
    - Comedy fail / defeat / wah-wah -> 'sad-trombone'
    - If none -> 'none'.
-9. SMART "HERO SHOT" TAGGING (Video vs Static Image to optimize generation credits):
+9. SMART "HERO SHOT" VIDEO PROMPT GENERATION (Video vs Static Image):
    Evaluate the kinetic energy and narrative weight of each shot:
    - Tag "recommended_media_type": "video" ONLY for the top 20–25% "Hero Action Moments" (strictly maximum 4 to 6 shots per story):
      * High-velocity movement (explosions, bursts, flight, falls, crashes, chases).
-     * Magical transformations & particle eruptions (smoke pouring from bottle, genie appearing, chicks hatching, time freeze wave).
+     * Magical transformations & particle eruptions (smoke pouring from bottle, genie appearing, chicks hatching, portal opening).
      * Critical character interactions (snatching items, jumping, biting, collisions).
-     * Include a brief "hero_reason" (e.g. "Magic transformation", "Impact landing", "High physical action", "Sudden escape").
-   - Tag "recommended_media_type": "image" for all other shots (establishing environments, stationary dialog, looking/holding items, facial reaction close-ups).
+     * Provide a brief "hero_reason" (e.g. "Magic transformation", "Impact landing", "High physical action", "Sudden escape").
+     * MANDATORY VIDEO ACTION PROMPT: For every "video" shot, write "action" with active continuous physical motion and explicit camera tracking physics (e.g. "Fast-paced camera tracking a massive brown mudslide rushing down...", "High-friction sliding wheels showering bright orange sparks for exactly 4 seconds..."). NEVER describe a static or passive pose for a video shot!
+   - Tag "recommended_media_type": "image" for all other shots (75–80% of shots):
+     * Establishing environments, stationary dialog, looking/holding items, facial reaction close-ups.
 10. Each prompt must follow this structure: "[Visual style]. [Character visual lock with any detached item cleanly overridden], [Environment lock]. In this shot: [specific framing, action, detached prop location, emotion]. [Aspect ratio directive]."
 
 Return JSON only conforming to the schema. No markdown, no conversation.`;
@@ -240,14 +242,16 @@ SHOT RULES:
 6. "location_id" must be one exact id from the supplied LOCATIONS list.
 7. Character appearance, clothing, age and location details are locked elsewhere. Never invent changes to them. If a prop is detached/dropped/stolen, describe its new position and state in the action only.
 8. "motion" is metadata for the editor; choose variety across consecutive shots.
-9. SMART "HERO SHOT" TAGGING (Video vs Static Image to optimize generation credits):
+9. SMART "HERO SHOT" VIDEO PROMPT GENERATION (Video vs Static Image):
    Evaluate the kinetic energy and narrative weight of each shot:
    - Tag "recommended_media_type": "video" ONLY for the top 20–25% "Hero Action Moments" (strictly maximum 4 to 6 shots per story):
      * High-velocity movement (explosions, bursts, flight, falls, crashes, chases).
-     * Magical transformations & particle eruptions (smoke pouring from bottle, genie appearing, chicks hatching, time freeze wave).
+     * Magical transformations & particle eruptions (smoke pouring from bottle, genie appearing, chicks hatching, portal opening).
      * Critical character interactions (snatching items, jumping, biting, collisions).
-     * Include a brief "hero_reason" (e.g. "Magic transformation", "Impact landing", "High physical action", "Sudden escape").
-   - Tag "recommended_media_type": "image" for all other shots (establishing environments, stationary dialog, looking/holding items, facial reaction close-ups).
+     * Provide a brief "hero_reason" (e.g. "Magic transformation", "Impact landing", "High physical action", "Sudden escape").
+     * MANDATORY VIDEO ACTION PROMPT: For every "video" shot, write "action" with active continuous physical motion and explicit camera tracking physics (e.g. "Fast-paced camera tracking a massive brown mudslide rushing down...", "High-friction sliding wheels showering bright orange sparks for exactly 4 seconds..."). NEVER describe a static or passive pose for a video shot!
+   - Tag "recommended_media_type": "image" for all other shots (75–80% of shots):
+     * Establishing environments, stationary dialog, looking/holding items, facial reaction close-ups.
 
 Do not invent recurring characters or locations that are not in the supplied lists.
 Return JSON only, conforming to the schema. No markdown, no conversation.`;
@@ -339,9 +343,11 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
   const clips = raw.clips.map((clip, idx) => {
     const narration = cleanNarration(clip.narration) || clip.narration.trim();
     const action = clip.action.trim();
+    const isVideo = (clip.recommended_media_type ?? "image") === "video";
 
-    const duration =
-      fixedDuration ?? estimateNarrationDuration(narration);
+    const duration = isVideo
+      ? 4.0
+      : fixedDuration ?? estimateNarrationDuration(narration);
     const resolved = composeShortsShot({
       styleLock,
       stylePreset: parsed.stylePreset,
@@ -352,6 +358,8 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
       locationId: clip.location_id,
       narration,
       aspectRatio: parsed.aspectRatio,
+      recommendedMediaType: clip.recommended_media_type ?? "image",
+      heroReason: clip.hero_reason || undefined,
     });
 
     return {
@@ -548,6 +556,11 @@ Return the JSON result now.`;
         promptText = `${promptText}${aspectSuffix}`;
       }
 
+      const isVideo = (clip.recommended_media_type ?? "image") === "video";
+      if (isVideo && !promptText.startsWith("Dynamic 4-second")) {
+        promptText = `Dynamic 4-second animated video clip. ${promptText.replace(/\.\s*$/, "")}. Strictly 4.0 seconds duration. Continuous high-velocity motion.`;
+      }
+
       const sfx =
         clip.sfx && clip.sfx !== "none"
           ? clip.sfx
@@ -556,7 +569,7 @@ Return the JSON result now.`;
       return {
         id: newId(),
         index: clip.index || idx + 1,
-        duration: clipDur,
+        duration: isVideo ? 4.0 : clipDur,
         narration: clip.narration,
         imagePrompt: promptText,
         imageUrl: null,

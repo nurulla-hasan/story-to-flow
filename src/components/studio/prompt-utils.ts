@@ -32,17 +32,17 @@ export function formatAllPrompts(
   let elapsed = 0;
   return clips
     .map((clip, index) => {
-      const duration = clip.duration || defaultDuration || 3.0;
+      const hero = evaluateHeroShot(clip);
+      const isHero = hero.recommendedMediaType === "video";
+      const duration = isHero ? 4.0 : (clip.duration || defaultDuration || 3.0);
       const start = elapsed;
       const end = elapsed + duration;
       elapsed = end;
 
       const time = formatTimeRange(start, end);
-      const hero = evaluateHeroShot(clip);
-      const badge =
-        hero.recommendedMediaType === "video"
-          ? `[🎥 Hero Video (Flow Animate)${hero.heroReason ? ` • ${hero.heroReason}` : ""}]`
-          : "[🖼️ Static Image]";
+      const badge = isHero
+        ? `[🎥 4s Video Clip (Flow Animate)${hero.heroReason ? ` • ${hero.heroReason}` : ""}]`
+        : "[🖼️ Static Image]";
 
       return (
         `IMAGE #${String(clip.index || index + 1).padStart(2, "0")} (${time} • ${duration.toFixed(1)}s • ${clip.motion || "zoom-in"}) ${badge}\n` +

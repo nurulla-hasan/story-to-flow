@@ -68,6 +68,11 @@ export function VideoEditor({
 }: VideoEditorProps) {
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
+  const currentTimeRef = React.useRef(0);
+
+  React.useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
   const [isMuted, setIsMuted] = React.useState(false);
   const [showSubtitles, setShowSubtitles] = React.useState(true);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
@@ -232,7 +237,12 @@ export function VideoEditor({
 
   // Voice segments & timings (splittable multi-segment voice track)
   const voiceSegments = React.useMemo(
-    () => getProjectVoiceSegments(project),
+    () =>
+      getProjectVoiceSegments({
+        voiceSegments: project.voiceSegments,
+        audioUrl: project.audioUrl,
+        audioDuration: project.audioDuration,
+      }),
     [project.voiceSegments, project.audioUrl, project.audioDuration],
   );
 
@@ -490,38 +500,72 @@ export function VideoEditor({
   const bgmVolume = project.bgmVolume ?? 0.20;
   const saturation = project.saturation ?? 100;
 
+  const playbackStateRef = React.useRef({
+    currentTime,
+    currentSpeed,
+    isMuted,
+    voiceVolume,
+    bgmVolume,
+    totalDuration,
+    voiceTimings,
+    activeTiming,
+  });
+
+  React.useEffect(() => {
+    playbackStateRef.current = {
+      currentTime,
+      currentSpeed,
+      isMuted,
+      voiceVolume,
+      bgmVolume,
+      totalDuration,
+      voiceTimings,
+      activeTiming,
+    };
+  });
+
   // Handle Voiceover, BGM & Video media play/pause
   React.useEffect(() => {
     const audio = audioRef.current;
     const bgm = bgmRef.current;
+    const {
+      currentTime: time,
+      currentSpeed: spd,
+      isMuted: muted,
+      voiceVolume: vVol,
+      bgmVolume: bVol,
+      totalDuration: totalDur,
+      voiceTimings: vTimings,
+      activeTiming: actTiming,
+    } = playbackStateRef.current;
 
     if (isPlaying) {
       if (audio) {
-        const activeVoice = voiceTimings.find(
-          (t) => currentTime >= t.start && currentTime < t.end,
+        const activeVoice = vTimings.find(
+          (t) => time >= t.start && time < t.end,
         );
         if (activeVoice) {
           audio.currentTime =
-            activeVoice.segment.startOffset + (currentTime - activeVoice.start);
-          audio.playbackRate = currentSpeed;
-          audio.volume = isMuted ? 0 : voiceVolume;
+            activeVoice.segment.startOffset + (time - activeVoice.start);
+          audio.playbackRate = spd;
+          audio.volume = muted ? 0 : vVol;
           audio.play().catch(() => {});
         }
       }
       if (bgm) {
-        bgm.currentTime = currentTime % (bgm.duration || totalDuration);
-        bgm.volume = isMuted ? 0 : bgmVolume;
+        bgm.currentTime = time % (bgm.duration || totalDur);
+        bgm.volume = muted ? 0 : bVol;
         bgm.play().catch(() => {});
       }
-      if (activeTiming) {
-        const media = getClipMedia(activeTiming.clip);
+      if (actTiming) {
+        const media = getClipMedia(actTiming.clip);
         if (media.type === "video" && media.url) {
           const vid = videoCacheRef.current.get(media.url);
           if (vid && vid.readyState >= 1) {
-            const clipSpeed = activeTiming.clip.speed || 1;
-            vid.currentTime = Math.max(0, (currentTime - activeTiming.start) * clipSpeed);
-            vid.volume = isMuted ? 0 : (activeTiming.clip.videoVolume ?? 0);
-            vid.playbackRate = currentSpeed * clipSpeed;
+            const clipSpeed = actTiming.clip.speed || 1;
+            vid.currentTime = Math.max(0, (time - actTiming.start) * clipSpeed);
+            vid.volume = muted ? 0 : (actTiming.clip.videoVolume ?? 0);
+            vid.playbackRate = spd * clipSpeed;
             vid.play().catch(() => {});
           }
         }
@@ -620,6 +664,7 @@ export function VideoEditor({
   const seekTo = React.useCallback(
     (time: number) => {
       const clamped = Math.max(0, Math.min(time, totalDuration));
+      currentTimeRef.current = clamped;
       setCurrentTime(clamped);
 
       // 1. Sync voiceover segment audio
@@ -816,38 +861,64 @@ export function VideoEditor({
     }
   }, [currentTime, isPlaying, pxPerSec]);
 
-  // Playback animation loop: syncs canvas, audio and video media
+  // Playback animation loop: syncs canvas, audio and video media smoothly forward
   React.useEffect(() => {
     let lastStamp = performance.now();
 
     const loop = (stamp: number) => {
       if (isPlaying) {
-        const delta = (stamp - lastStamp) / 1000;
-        setCurrentTime((prev) => {
-          const next = prev + delta * currentSpeed;
-          if (next >= totalDuration) {
-            setIsPlaying(false);
-            seekTo(0);
-            return 0;
-          }
-          return next;
-        });
+        const delta = Math.max(0, Math.min(0.1, (stamp - lastStamp) / 1000));
+        let nextTime = currentTimeRef.current + delta * currentSpeed;
 
-        // Sync voice segment audio
+        // When voiceover audio is active, sync timeline time with audio hardware clock
         const audio = audioRef.current;
-        if (audio) {
+        if (
+          audio &&
+          !audio.paused &&
+          !audio.ended &&
+          Number.isFinite(audio.currentTime)
+        ) {
           const activeVoice = voiceTimings.find(
-            (t) => currentTime >= t.start && currentTime < t.end,
+            (t) =>
+              currentTimeRef.current >= t.start &&
+              currentTimeRef.current < t.end,
+          );
+          if (activeVoice) {
+            const calculatedTime =
+              activeVoice.start +
+              (audio.currentTime - activeVoice.segment.startOffset);
+            if (
+              calculatedTime >= activeVoice.start &&
+              calculatedTime <= activeVoice.end + 0.2
+            ) {
+              nextTime = calculatedTime;
+            }
+          }
+        }
+
+        if (nextTime >= totalDuration) {
+          setIsPlaying(false);
+          seekTo(0);
+          return;
+        }
+
+        currentTimeRef.current = nextTime;
+        setCurrentTime(nextTime);
+
+        // Sync voice segment audio when crossing boundary or starting
+        if (audio && isPlaying) {
+          const activeVoice = voiceTimings.find(
+            (t) => nextTime >= t.start && nextTime < t.end,
           );
           if (activeVoice) {
             const targetAudioTime =
-              activeVoice.segment.startOffset + (currentTime - activeVoice.start);
+              activeVoice.segment.startOffset + (nextTime - activeVoice.start);
             if (audio.paused) {
               audio.currentTime = targetAudioTime;
               audio.playbackRate = currentSpeed;
               audio.volume = isMuted ? 0 : voiceVolume;
               audio.play().catch(() => {});
-            } else if (Math.abs(audio.currentTime - targetAudioTime) > 0.3) {
+            } else if (Math.abs(audio.currentTime - targetAudioTime) > 0.8) {
               audio.currentTime = targetAudioTime;
             }
           } else if (!audio.paused) {
@@ -856,7 +927,7 @@ export function VideoEditor({
         }
 
         // Sync active video clip
-        if (activeTiming) {
+        if (activeTiming && isPlaying) {
           const media = getClipMedia(activeTiming.clip);
           if (media.type === "video" && media.url) {
             const vid = videoCacheRef.current.get(media.url);
@@ -864,7 +935,7 @@ export function VideoEditor({
               const clipSpeed = activeTiming.clip.speed || 1;
               const targetVidTime = Math.max(
                 0,
-                (currentTime - activeTiming.start) * clipSpeed,
+                (nextTime - activeTiming.start) * clipSpeed,
               );
               const clampedVidTime = Math.min(
                 vid.duration || targetVidTime,
@@ -875,7 +946,7 @@ export function VideoEditor({
               if (vid.paused) {
                 vid.currentTime = clampedVidTime;
                 vid.play().catch(() => {});
-              } else if (Math.abs(vid.currentTime - clampedVidTime) > 0.3) {
+              } else if (Math.abs(vid.currentTime - clampedVidTime) > 0.8) {
                 vid.currentTime = clampedVidTime;
               }
             }
@@ -895,7 +966,6 @@ export function VideoEditor({
     totalDuration,
     currentSpeed,
     seekTo,
-    currentTime,
     voiceTimings,
     activeTiming,
     isMuted,
@@ -1094,10 +1164,10 @@ export function VideoEditor({
           scale = 1.12 - progress * 0.12;
         } else if (motion === "pan-left") {
           scale = 1.08;
-          offsetX = (progress - 0.5) * 36;
+          offsetX = (0.5 - progress) * 36;
         } else if (motion === "pan-right") {
           scale = 1.08;
-          offsetX = (0.5 - progress) * 36;
+          offsetX = (progress - 0.5) * 36;
         }
 
         ctx.translate(width / 2 + offsetX, height / 2 + offsetY);
@@ -2448,6 +2518,7 @@ export function VideoEditor({
         resizingClip={resizingClip}
         timelineScrollRef={timelineScrollRef}
         waveformCanvasRef={waveformCanvasRef}
+        audioPeaks={audioPeaks}
         audioInputRef={audioInputRef}
         bgmInputRef={bgmInputRef}
         setIsMuted={setIsMuted}

@@ -150,6 +150,24 @@ describe("Automatic SFX (Foley) Detection from Story & Action", () => {
     expect(detectSfxFromAction("দ্রুত গতিতে বাতাসে হুশ করে উড়ে গেল")).toBe("whoosh");
   });
 
+  it("detects new impact and comedy effects from action prompts", () => {
+    expect(detectSfxFromAction("He bonks his head on the low branch.")).toBe("bonk");
+    expect(detectSfxFromAction("He slips on a banana peel.")).toBe("cartoon-slip");
+    expect(detectSfxFromAction("The plan fails and everyone groans.")).toBe("sad-trombone");
+    expect(detectSfxFromAction("The plot twist hits with a dramatic boom.")).toBe("vine-boom");
+  });
+
+  it("detects new horror and story-detail effects without stealing glass or crow", () => {
+    expect(detectSfxFromAction("A sudden thunder clap shakes the sky.")).toBe("thunder");
+    expect(detectSfxFromAction("The heavy door slams shut behind him.")).toBe("door-slam");
+    expect(detectSfxFromAction("The ghost lets out an evil laugh.")).toBe("evil-laugh");
+    expect(detectSfxFromAction("Gold coins clink inside the treasure chest.")).toBe("coin-clink");
+    expect(detectSfxFromAction("She jumps into the pond with a splash.")).toBe(
+      "water-splash",
+    );
+    expect(detectSfxFromAction("The old door creaks open slowly.")).toBe("door-creak");
+  });
+
   it("returns none when no acoustic event is mentioned", () => {
     expect(detectSfxFromAction("বৃদ্ধ কারিগর শান্তভাবে টেবিলে বসে রইল।")).toBe("none");
   });

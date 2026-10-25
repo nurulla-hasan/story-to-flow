@@ -19,22 +19,37 @@ export interface ClipTransition {
   duration: number; // in seconds, e.g. 0.4
 }
 
-export type SfxType =
-  | "none"
-  | "cartoon-pop"
-  | "heavy-thud"
-  | "whoosh"
-  | "magic-chime"
-  | "glass-shatter"
-  | "boing"
-  | "crow-caw"
-  | "clock-tick";
+export const SFX_TYPES = [
+  "none",
+  "whoosh",
+  "cartoon-pop",
+  "heavy-thud",
+  "bonk",
+  "cartoon-slip",
+  "boing",
+  "glass-shatter",
+  "water-splash",
+  "magic-chime",
+  "vine-boom",
+  "thunder",
+  "door-creak",
+  "door-slam",
+  "coin-clink",
+  "clock-tick",
+  "crow-caw",
+  "evil-laugh",
+  "sad-trombone",
+] as const;
+
+export type SfxType = (typeof SFX_TYPES)[number];
 
 export interface SfxPreset {
   type: SfxType;
   label: string;
   emoji: string;
   description: string;
+  /** Used to group the picker by story genre / function. */
+  group?: string;
 }
 
 export interface ClipSfxConfig {
@@ -48,14 +63,132 @@ export interface ClipSfxConfig {
 
 export const SFX_PRESETS: SfxPreset[] = [
   { type: "none", label: "None", emoji: "🚫", description: "No sound effect" },
-  { type: "whoosh", label: "Whoosh / Fly", emoji: "💨", description: "Fast movement, flight, swift pan" },
-  { type: "cartoon-pop", label: "Bubble Pop", emoji: "🎈", description: "Pop, bubble burst, sudden snap" },
-  { type: "heavy-thud", label: "Heavy Thud", emoji: "💥", description: "Falling down on mattress/ground, impact" },
-  { type: "glass-shatter", label: "Glass Shatter", emoji: "🔨", description: "Cup falling, shattering glass or splash" },
-  { type: "magic-chime", label: "Magic Chime", emoji: "🪄", description: "Time freeze, magical sparkle, lever pull" },
-  { type: "boing", label: "Cartoon Boing", emoji: "🌀", description: "Spring bounce, funny recoil" },
-  { type: "crow-caw", label: "Crow / Bird Caw", emoji: "🦅", description: "Crow cawing in the air" },
-  { type: "clock-tick", label: "Clock Tick", emoji: "⏰", description: "Antique mechanical watch ticking" },
+  {
+    type: "whoosh",
+    label: "Whoosh / Fly",
+    emoji: "💨",
+    description: "Fast movement, flight, swift pan",
+    group: "Action & Impact",
+  },
+  {
+    type: "heavy-thud",
+    label: "Heavy Thud",
+    emoji: "💥",
+    description: "Body fall, crash landing, heavy impact",
+    group: "Action & Impact",
+  },
+  {
+    type: "bonk",
+    label: "Bonk / Head Hit",
+    emoji: "🥥",
+    description: "Head hit, coconut bonk, wooden knock",
+    group: "Action & Impact",
+  },
+  {
+    type: "glass-shatter",
+    label: "Glass Shatter",
+    emoji: "🫙",
+    description: "Cup, bottle or window breaking",
+    group: "Action & Impact",
+  },
+  {
+    type: "water-splash",
+    label: "Water Splash",
+    emoji: "💦",
+    description: "Splash in water, curd, pond or mud",
+    group: "Action & Impact",
+  },
+  {
+    type: "door-slam",
+    label: "Door Slam",
+    emoji: "🚪",
+    description: "Heavy door slamming shut",
+    group: "Action & Impact",
+  },
+  {
+    type: "cartoon-pop",
+    label: "Cartoon Pop",
+    emoji: "🫧",
+    description: "Bubble burst, pop, sudden snap",
+    group: "Cartoon & Comedy",
+  },
+  {
+    type: "cartoon-slip",
+    label: "Cartoon Slip",
+    emoji: "🍌",
+    description: "Banana peel, mud slip, comic tumble",
+    group: "Cartoon & Comedy",
+  },
+  {
+    type: "boing",
+    label: "Spring Boing",
+    emoji: "🌀",
+    description: "Spring jump, bounce, funny recoil",
+    group: "Cartoon & Comedy",
+  },
+  {
+    type: "vine-boom",
+    label: "Vine Boom",
+    emoji: "💣",
+    description: "Dramatic shock, twist reveal, meme boom",
+    group: "Cartoon & Comedy",
+  },
+  {
+    type: "sad-trombone",
+    label: "Sad Trombone",
+    emoji: "🎺",
+    description: "Comedy fail, defeat, wah-wah-wah",
+    group: "Cartoon & Comedy",
+  },
+  {
+    type: "magic-chime",
+    label: "Magic Chime",
+    emoji: "🪄",
+    description: "Spell, sparkle, transformation, time freeze",
+    group: "Magic",
+  },
+  {
+    type: "thunder",
+    label: "Thunder Clap",
+    emoji: "⚡",
+    description: "Lightning strike, storm rumble",
+    group: "Ghost & Horror",
+  },
+  {
+    type: "door-creak",
+    label: "Door Creak",
+    emoji: "🚪",
+    description: "Spooky door, slow hinge, clock opening",
+    group: "Ghost & Horror",
+  },
+  {
+    type: "evil-laugh",
+    label: "Evil Laugh",
+    emoji: "👻",
+    description: "Ghost laugh, villain chuckle, mischief",
+    group: "Ghost & Horror",
+  },
+  {
+    type: "crow-caw",
+    label: "Crow Caw",
+    emoji: "🐦‍⬛",
+    description: "Crow or raven call in the air",
+    group: "Ghost & Horror",
+  },
+  {
+    type: "coin-clink",
+    label: "Coin Clink",
+    emoji: "🪙",
+    description: "Coins, gold treasure, small metal jingle",
+    group: "Story Detail",
+  },
+  {
+    type: "clock-tick",
+    label: "Clock Tick",
+    emoji: "⏰",
+    description: "Antique watch, wall clock, mechanical tick",
+    group: "Story Detail",
+  },
 ];
 
 export interface StudioClip {

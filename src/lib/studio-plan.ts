@@ -158,12 +158,108 @@ function wordBoundaryMatch(haystack: string, keyword: string): boolean {
   return pattern.test(haystack);
 }
 
+const CHARACTER_GENERIC_STOP_WORDS = new Set([
+  ...MATCH_STOP_WORDS,
+  // Generic English descriptors
+  "baby",
+  "miniature",
+  "little",
+  "tiny",
+  "small",
+  "young",
+  "old",
+  "man",
+  "men",
+  "woman",
+  "women",
+  "boy",
+  "boys",
+  "girl",
+  "girls",
+  "kid",
+  "kids",
+  "child",
+  "children",
+  "person",
+  "people",
+  "figure",
+  // Generic Bengali descriptors
+  "ছানা",
+  "বাচ্চা",
+  "শিশু",
+  "খোকা",
+  "খুকি",
+  "বুড়ো",
+  "বুড়ো",
+  "বৃদ্ধ",
+  "বৃদ্ধা",
+  "ছেলে",
+  "মেয়ে",
+  "মেয়ে",
+  "মানুষ",
+  "লোক",
+  "ছোট",
+  "ছোট্ট",
+  "বড়",
+  "বড়",
+]);
+
+function stemBengaliNoun(token: string): string | null {
+  if (!/[\u0980-\u09ff]/u.test(token) || token.length < 3) return null;
+  const stemmed = token.replace(
+    /(?:গুলোর|গুলির|গুলো|গুলি|দের|য়ের|ের|কে|টা|টি|তে|র|ে|য়)$/u,
+    "",
+  );
+  if (stemmed.length >= 2 && stemmed !== token) {
+    return stemmed;
+  }
+  return null;
+}
+
+function stemEnglishNoun(token: string): string | null {
+  if (/[\u0980-\u09ff]/u.test(token) || token.length < 4) return null;
+  if (token.endsWith("ies") && token.length > 4) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.endsWith("es") && token.length > 4) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith("s") && !token.endsWith("ss") && token.length > 3) {
+    return token.slice(0, -1);
+  }
+  return null;
+}
+
 function characterKeywords(member: StudioCastMember): string[] {
   const keywords = new Set<string>();
   const fullName = normalizeForMatch(member.name.trim());
   if (fullName) keywords.add(fullName);
-  for (const token of matchTokens(member.name)) keywords.add(token);
-  for (const token of matchTokens(member.id)) keywords.add(token);
+
+  const idPhrase = normalizeForMatch(member.id.replace(/[-_]+/g, " ").trim());
+  if (idPhrase && idPhrase !== fullName) {
+    keywords.add(idPhrase);
+  }
+
+  const rawTokens = [
+    ...matchTokens(member.name),
+    ...matchTokens(member.id.replace(/[-_]+/g, " ")),
+  ];
+
+  for (const token of rawTokens) {
+    if (CHARACTER_GENERIC_STOP_WORDS.has(token)) continue;
+    keywords.add(token);
+
+    const bengaliRoot = stemBengaliNoun(token);
+    if (bengaliRoot && !CHARACTER_GENERIC_STOP_WORDS.has(bengaliRoot)) {
+      keywords.add(bengaliRoot);
+    }
+
+    const englishRoot = stemEnglishNoun(token);
+    if (englishRoot && !CHARACTER_GENERIC_STOP_WORDS.has(englishRoot)) {
+      keywords.add(englishRoot);
+    }
+  }
+
   return [...keywords];
 }
 
@@ -184,9 +280,10 @@ interface ResolveCharacterIdsInput {
 }
 
 /**
- * Keep valid planner ids and recover any cast member whose name or id keyword
- * appears in the shot action / voiceover slice. This prevents an empty or stale
- * `character_ids` array from silently dropping the Bible locks.
+ * Keep valid planner ids strictly when provided. If the planner omitted or
+ * failed to provide valid character_ids, recover any cast member whose full name
+ * or distinctive root noun appears in the shot action / voiceover slice.
+ * Generic words like "ছানা" / "baby" are ignored to prevent cross-character collisions.
  */
 export function resolveShortsCharacterIds({
   cast,
@@ -201,11 +298,26 @@ export function resolveShortsCharacterIds({
     if (byId.has(id)) selected.add(id);
   }
 
+  // 1. When the LLM/planner already provides valid character_ids for a shot,
+  // trust character_ids strictly and do not run loose single-word keyword matching
+  // that pulls in unrelated characters.
+  if (selected.size > 0) {
+    return cast
+      .filter((member) => selected.has(member.id))
+      .map((member) => member.id);
+  }
+
+  // 2. Otherwise (missing/empty/stale character_ids), recover characters whose
+  // full name or distinctive root noun appears in the shot action / voiceover.
   const haystack = normalizeForMatch(`${action} ${narration}`);
   if (haystack.trim()) {
     for (const member of cast) {
       if (selected.has(member.id)) continue;
-      if (characterKeywords(member).some((keyword) => keywordAppears(haystack, keyword))) {
+      if (
+        characterKeywords(member).some((keyword) =>
+          keywordAppears(haystack, keyword),
+        )
+      ) {
         selected.add(member.id);
       }
     }

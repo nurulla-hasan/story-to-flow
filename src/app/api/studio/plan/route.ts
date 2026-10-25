@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SFX_TYPES } from "@/components/studio/types";
 import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
 import { getRepo, DEFAULT_PROJECT_ID } from "@/lib/db";
@@ -58,19 +59,7 @@ const studioClipResponseSchema = z.object({
   motion: z
     .enum(["zoom-in", "zoom-out", "pan-left", "pan-right", "static"])
     .default("zoom-in"),
-  sfx: z
-    .enum([
-      "none",
-      "cartoon-pop",
-      "heavy-thud",
-      "whoosh",
-      "magic-chime",
-      "glass-shatter",
-      "boing",
-      "crow-caw",
-      "clock-tick",
-    ])
-    .default("none"),
+  sfx: z.enum(SFX_TYPES).default("none"),
 });
 
 const studioPlanResponseSchema = z.object({
@@ -123,14 +112,24 @@ Image diffusion models (Google Flow, Midjourney, Flux) drift and change characte
      * Speed / Flight: Write "— হু-উ-শ!!" (never plain "হুশ")
      * Shock / Sudden realization: Use an em-dash ("—") immediately before the exclamation to trigger Cartesia's natural breath-gasp, followed by double exclamation marks ("!!") for pitch modulation (e.g. "হঠাৎ — আর সাথে সাথে সময় পুরোপুরি থমকে গেল!!").
 8. AUTOMATIC SFX (FOLEY) TAGGING: For each clip, tag "sfx" based on the acoustic event:
-   - Bubble burst / snap -> 'cartoon-pop'
-   - Falling down / mattress / crash / impact -> 'heavy-thud'
    - Flying / swooping / speed -> 'whoosh'
-   - Magical sparkle / lever pull / time freeze -> 'magic-chime'
-   - Cup falling / glass shattering -> 'glass-shatter'
-   - Spring bounce -> 'boing'
-   - Crow / bird cawing -> 'crow-caw'
+   - Body falling / crash landing / heavy impact -> 'heavy-thud'
+   - Head hit / coconut bonk / wooden knock -> 'bonk'
+   - Slipping on mud / banana peel / comic tumble -> 'cartoon-slip'
+   - Spring jump / bounce / recoil -> 'boing'
+   - Bubble burst / pop / snap -> 'cartoon-pop'
+   - Cup, bottle or window breaking -> 'glass-shatter'
+   - Water, pond, curd or mud splash -> 'water-splash'
+   - Magical sparkle / transformation / time freeze -> 'magic-chime'
+   - Dramatic shock / twist reveal / meme boom -> 'vine-boom'
+   - Lightning / storm / thunder clap -> 'thunder'
+   - Spooky door hinge / slow clock opening -> 'door-creak'
+   - Heavy door shutting -> 'door-slam'
+   - Coins / gold treasure jingle -> 'coin-clink'
    - Clock ticking -> 'clock-tick'
+   - Crow / raven cawing -> 'crow-caw'
+   - Ghost laugh / villain chuckle -> 'evil-laugh'
+   - Comedy fail / defeat / wah-wah -> 'sad-trombone'
    - If none -> 'none'.
 9. Each prompt must follow this structure: "[Visual style]. [Character visual lock with any detached item cleanly overridden], [Environment lock]. In this shot: [specific framing, action, detached prop location, emotion]. [Aspect ratio directive]."
 
@@ -456,7 +455,7 @@ CRITICAL RULES:
 3. Establish a strict "character_visual_lock" and "environment_visual_lock" to ensure 100% visual consistency.
 4. If a locked accessory or prop is removed, damaged, or transferred in the scene action (e.g. spectacles snatched by a bird, hat flying, cup dropped), do NOT describe the character wearing it in the character lock block for that specific frame! Temporarily override it (e.g. with spectacles missing / bare eyes) and describe the detached prop only in the action.
 5. CAMERA MOVEMENT METADATA: Alternate camera motions ('zoom-in', 'pan-left', 'zoom-out', 'pan-right', 'static') across clips in the 'motion' field. NEVER use 'zoom-in' for all clips! Keep the 'image_prompt' focused purely on visual image content without video camera movement phrases.
-6. Tag each clip's "sfx" accurately ('cartoon-pop', 'heavy-thud', 'whoosh', 'magic-chime', 'glass-shatter', 'boing', 'crow-caw', 'clock-tick', or 'none').
+6. Describe clear acoustic cues in the action (pop, thud, splash, thunder, creak, coins, chime, laugh, whoosh). The server automatically tags SFX from the narration and action; never put SFX words in the spoken narration.
 7. In every clip's "image_prompt", anchor the locked character appearance and clothing without variation.
 
 Return the JSON result now.`;

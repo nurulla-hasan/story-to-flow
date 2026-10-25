@@ -173,6 +173,81 @@ describe("Shorts / animatic planning helpers", () => {
     ).toEqual(["brass-spider"]);
   });
 
+  it("prevents substring keyword collision between characters sharing generic words like ছানা or baby", () => {
+    const multiCast: StudioCastMember[] = [
+      {
+        id: "baby-genie",
+        name: "জিনের ছানা",
+        visualLock:
+          "A tiny glowing baby genie with sparkling indigo skin and big playful eyes.",
+      },
+      {
+        id: "mechanical-chicks",
+        name: "মেকানিক্যাল সোনালি মুরগির ছানা",
+        visualLock:
+          "Three miniature clockwork mechanical baby chicks made of polished brass and gold gears.",
+      },
+    ];
+
+    // 1. Strict mode: when characterIds is already valid, trust it strictly and do NOT pull in chicks
+    expect(
+      resolveShortsCharacterIds({
+        cast: multiCast,
+        characterIds: ["baby-genie"],
+        action: "জিনের ছানা বোতল থেকে বের হয়ে হাসল।",
+        narration: "",
+      }),
+    ).toEqual(["baby-genie"]);
+
+    // 2. Keyword fallback mode: when characterIds is empty, distinctive root nouns match without collision
+    expect(
+      resolveShortsCharacterIds({
+        cast: multiCast,
+        characterIds: [],
+        action: "জিনের ছানা বোতল থেকে মাথা বের করে হাসল।",
+        narration: "জিনটি আকাশে ভাসল।",
+      }),
+    ).toEqual(["baby-genie"]);
+
+    expect(
+      resolveShortsCharacterIds({
+        cast: multiCast,
+        characterIds: [],
+        action: "ডিম ফুটে সোনালি মুরগির ছানা বের হয়ে এলো।",
+        narration: "মুরগিগুলো খুশিতে ডাকাডাকি করল।",
+      }),
+    ).toEqual(["mechanical-chicks"]);
+
+    // 3. Standalone generic word "ছানা" without distinctive root does NOT pull in either character
+    expect(
+      resolveShortsCharacterIds({
+        cast: multiCast,
+        characterIds: [],
+        action: "একটি ছোট্ট ছানা দূরে খেলা করছে।",
+        narration: "",
+      }),
+    ).toEqual([]);
+
+    // 4. English distinctive root noun matching works similarly
+    expect(
+      resolveShortsCharacterIds({
+        cast: multiCast,
+        characterIds: [],
+        action: "The baby genie floats happily in the air.",
+        narration: "",
+      }),
+    ).toEqual(["baby-genie"]);
+
+    expect(
+      resolveShortsCharacterIds({
+        cast: multiCast,
+        characterIds: [],
+        action: "The mechanical chicks peck at golden clockwork grain.",
+        narration: "",
+      }),
+    ).toEqual(["mechanical-chicks"]);
+  });
+
   it("matches a location by name and always returns a locked setting", () => {
     const twoLocations: StudioLocationLock[] = [
       ...locations,

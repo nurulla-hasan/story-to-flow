@@ -6,13 +6,18 @@ import {
   type ClipMotion,
   type ClipSfxConfig,
   type ClipTransition,
+  type SfxType,
   type StudioClip,
   type StudioProject,
   type TransitionType,
 } from "./types";
 import { api } from "@/lib/apiClient";
 import { BGM_MOOD_PRESETS, generateCinematicBgm } from "@/lib/bgm";
-import { playUniversalSfx } from "@/lib/sfx";
+import {
+  loadAudioBuffer,
+  loadPresetSfxBuffer,
+  playUniversalSfx,
+} from "@/lib/sfx";
 import { AudioMixer } from "./editor/audio-mixer";
 import { ClipInspector } from "./editor/clip-inspector";
 import { CommandBar } from "./editor/command-bar";
@@ -1435,6 +1440,27 @@ export function VideoEditor({
       if (exportCtx) {
         drawFrame(0, exportCtx, width, height);
       }
+
+      // Preload every SFX used in this project before the recorder starts.
+      // Without this, the first export trigger could miss its timing window
+      // while the browser fetches and decodes a newly selected preset.
+      const presetSfxTypes = new Set<SfxType>();
+      const customSfxUrls = new Set<string>();
+      for (const timing of clipTimings) {
+        const cfg = getClipSfxConfig(timing.clip);
+        if (!cfg || cfg.type === "none") continue;
+        if (cfg.type === "custom") {
+          if (cfg.customUrl) customSfxUrls.add(cfg.customUrl);
+        } else {
+          presetSfxTypes.add(cfg.type);
+        }
+      }
+      await Promise.all([
+        ...[...presetSfxTypes].map((type) =>
+          loadPresetSfxBuffer(audioCtx, type),
+        ),
+        ...[...customSfxUrls].map((url) => loadAudioBuffer(audioCtx, url)),
+      ]);
 
       const sfxTriggeredDuringExport = new Set<string>();
       recorder.start();

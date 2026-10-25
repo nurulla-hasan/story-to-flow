@@ -21,6 +21,7 @@ import { cn } from "cn";
 import {
   SFX_PRESETS,
   TRANSITION_PRESETS,
+  type SfxPreset,
   type StudioProject,
   type TransitionType,
 } from "../types";
@@ -68,6 +69,58 @@ export function EditorModals({
   uploadingSfx,
   notify,
 }: EditorModalsProps) {
+  const nonePreset = SFX_PRESETS.find((preset) => preset.type === "none");
+
+  const sfxGroups = React.useMemo(() => {
+    const groups = new Map<string, SfxPreset[]>();
+    for (const preset of SFX_PRESETS) {
+      if (preset.type === "none") continue;
+      const group = preset.group ?? "More";
+      const list = groups.get(group) ?? [];
+      list.push(preset);
+      groups.set(group, list);
+    }
+    return [...groups.entries()];
+  }, []);
+
+  const renderSfxPresetButton = (preset: SfxPreset) => (
+    <button
+      key={preset.type}
+      type="button"
+      onClick={() =>
+        setActiveSfxModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                config: {
+                  ...prev.config,
+                  type: preset.type,
+                  customUrl: null,
+                  customName: null,
+                },
+              }
+            : null,
+        )
+      }
+      className={cn(
+        "flex items-center gap-2 rounded-lg border p-2 text-left transition-all",
+        preset.type === "none" && "col-span-2 justify-center sm:col-span-3",
+        activeSfxModal?.config.type === preset.type &&
+          !activeSfxModal.config.customUrl
+          ? "border-track-sfx bg-track-sfx-soft font-bold text-track-sfx ring-1 ring-track-sfx/40"
+          : "border-border bg-card text-foreground hover:bg-muted",
+      )}
+    >
+      <span className="text-base leading-none">{preset.emoji}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-3xs font-semibold">{preset.label}</div>
+        <div className="truncate text-3xs text-muted-foreground">
+          {preset.description}
+        </div>
+      </div>
+    </button>
+  );
+
   return (
     <>
       {/* CapCut transition selector */}
@@ -264,44 +317,29 @@ export function EditorModals({
                 </div>
               ) : null}
       
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                {SFX_PRESETS.map((preset) => (
-                  <button
-                    key={preset.type}
-                    type="button"
-                    onClick={() =>
-                      setActiveSfxModal((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              config: {
-                                ...prev.config,
-                                type: preset.type,
-                                customUrl:
-                                  preset.type === "none" ? null : prev.config.customUrl,
-                              },
-                            }
-                          : null,
-                      )
-                    }
-                    className={cn(
-                      "flex items-center gap-2 rounded-lg border p-2 text-left transition-all",
-                      activeSfxModal.config.type === preset.type &&
-                        !activeSfxModal.config.customUrl
-                        ? "border-track-sfx bg-track-sfx-soft font-bold text-track-sfx ring-1 ring-track-sfx/40"
-                        : "border-border bg-card text-foreground hover:bg-muted",
-                    )}
-                  >
-                    <span className="text-base leading-none">{preset.emoji}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-3xs font-semibold">{preset.label}</div>
-                      <div className="truncate text-3xs text-muted-foreground">
-                        {preset.description}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              {nonePreset ? (
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {renderSfxPresetButton(nonePreset)}
+                </div>
+              ) : null}
+
+              {sfxGroups.map(([group, presets]) => (
+                <div key={group} className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-3xs font-bold uppercase tracking-wide text-muted-foreground">
+                    <span className="size-1 rounded-full bg-track-sfx" />
+                    <span>{group}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {presets.map(renderSfxPresetButton)}
+                  </div>
+                </div>
+              ))}
+
+              <p className="text-3xs leading-4 text-muted-foreground">
+                Premium audio loads from{" "}
+                <span className="font-mono text-foreground">/sfx/&lt;type&gt;.mp3</span>.
+                If a file is missing, the built-in synth fallback still plays.
+              </p>
             </div>
       
             {activeSfxModal.config.type !== "none" ? (

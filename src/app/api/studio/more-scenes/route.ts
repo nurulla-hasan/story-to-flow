@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SFX_TYPES } from "@/components/studio/types";
 import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
 import { newId } from "@/lib/types";
@@ -27,19 +28,7 @@ const moreClipsResponseSchema = z.object({
         motion: z
           .enum(["zoom-in", "zoom-out", "pan-left", "pan-right", "static"])
           .default("zoom-in"),
-        sfx: z
-          .enum([
-            "none",
-            "cartoon-pop",
-            "heavy-thud",
-            "whoosh",
-            "magic-chime",
-            "glass-shatter",
-            "boing",
-            "crow-caw",
-            "clock-tick",
-          ])
-          .default("none"),
+        sfx: z.enum(SFX_TYPES).default("none"),
       }),
     )
     .min(1)
@@ -71,7 +60,7 @@ RULES:
 2. If a locked accessory or prop is removed, damaged, or transferred in the scene action (e.g. spectacles snatched by a bird), do NOT describe the character wearing it in the character lock block for that specific frame! Temporarily override it (e.g. with spectacles missing / bare eyes) and describe the detached prop only in the action.
 3. Provide complementary narrative camera angles (close-ups, reaction shots, wide angles) and alternate motion presets.
 4. Provide a brief 1-sentence Bengali narration segment ("narration") for each clip.
-${parsed.workflowMode === "shorts-animatic" ? "5. Shorts mode: the narration must be clean, natural Bangla for TTS. No phonetic stretching, no em-dash gasps, no bracketed sound tags, and no SFX words. Set sfx to \"none\"." : ""}
+${parsed.workflowMode === "shorts-animatic" ? "5. Shorts mode: the narration must be clean, natural Bangla for TTS. No phonetic stretching, no em-dash gasps, no bracketed sound tags, and no SFX words. Set sfx to \"none\"." : "5. Tag each clip's \"sfx\" with the closest acoustic event: whoosh, heavy-thud, bonk, cartoon-slip, boing, cartoon-pop, glass-shatter, water-splash, magic-chime, vine-boom, thunder, door-creak, door-slam, coin-clink, clock-tick, crow-caw, evil-laugh, sad-trombone, or none."}
 
 Return JSON conforming to schema now.`;
 

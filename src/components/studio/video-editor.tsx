@@ -45,6 +45,7 @@ import {
 import { PreviewStage } from "./editor/preview-stage";
 import { TimelineDock } from "./editor/timeline-dock";
 import { TransportBar } from "./editor/transport-bar";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface VideoEditorProps {
   project: StudioProject;
@@ -53,6 +54,7 @@ interface VideoEditorProps {
   notify: (message: string, kind?: "info" | "error" | "success") => void;
   onImportImagesClick: () => void;
   saveStatus: "idle" | "saving" | "saved" | "error";
+  onResetProject?: () => void;
 }
 
 export function VideoEditor({
@@ -62,6 +64,7 @@ export function VideoEditor({
   notify,
   onImportImagesClick,
   saveStatus,
+  onResetProject,
 }: VideoEditorProps) {
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -70,6 +73,7 @@ export function VideoEditor({
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
   const [selectedTrack, setSelectedTrack] = React.useState<"video" | "voice">("video");
   const [selectedVoiceSegmentId, setSelectedVoiceSegmentId] = React.useState<string | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = React.useState(false);
 
   // Undo & Redo History Stack (up to 50 states)
   const [history, setHistory] = React.useState<StudioProject[]>([]);
@@ -677,6 +681,32 @@ export function VideoEditor({
       voiceVolume,
     ],
   );
+
+  const handleResetProject = React.useCallback(() => {
+    setResetDialogOpen(true);
+  }, []);
+
+  const handleConfirmReset = React.useCallback(() => {
+    setIsPlaying(false);
+    seekTo(0);
+    setSelectedClipId(null);
+    setSelectedVoiceSegmentId(null);
+    setSelectedTrack("video");
+
+    if (onResetProject) {
+      onResetProject();
+    } else {
+      commitProjectUpdate({
+        clips: [],
+        audioUrl: null,
+        audioDuration: 0,
+        voiceSegments: [],
+        bgmUrl: null,
+      });
+    }
+
+    notify("Project has been completely reset.", "success");
+  }, [seekTo, onResetProject, commitProjectUpdate, notify]);
 
   // Native fullscreen preview (CapCut-style "expand monitor")
   React.useEffect(() => {
@@ -2271,6 +2301,7 @@ export function VideoEditor({
         isExporting={isExporting}
         exportProgress={exportProgress}
         onExport={handleExportVideo}
+        onResetProject={handleResetProject}
       />
 
       {/* ── Library + monitor + properties ──────────────────────── */}
@@ -2541,6 +2572,18 @@ export function VideoEditor({
         customSfxInputRef={customSfxInputRef}
         uploadingSfx={uploadingSfx}
         notify={notify}
+      />
+
+      {/* Shadcn Alert Dialog for Reset Confirmation */}
+      <ConfirmDialog
+        open={resetDialogOpen}
+        onOpenChange={setResetDialogOpen}
+        title="Reset Studio Project?"
+        description="Are you sure you want to reset everything? All video clips, images, voiceover segments, and timeline transforms will be completely cleared."
+        confirmLabel="Yes, Reset Everything"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={handleConfirmReset}
       />
     </section>
   );

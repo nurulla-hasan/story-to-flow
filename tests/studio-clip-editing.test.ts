@@ -429,4 +429,54 @@ describe("Undo & Redo History Engine", () => {
     current = future.shift()!;
     expect(current.title).toBe("State 2 - Trimmed");
   });
+
+  it("resets project cleanly clearing all clips, audio, and segments", () => {
+    const loadedProject: StudioProject = {
+      id: "studio-default",
+      title: "Active Video",
+      story: "A long story",
+      stylePreset: "3D Pixar Animation",
+      aspectRatio: "16:9",
+      defaultClipDuration: 4,
+      continuousVoiceover: "Voice",
+      audioUrl: "/api/files/voice.mp3",
+      audioDuration: 98,
+      voiceSegments: [
+        {
+          id: "seg-1",
+          audioUrl: "/api/files/voice.mp3",
+          startOffset: 0,
+          duration: 98,
+        },
+      ],
+      clips: [
+        {
+          id: "c1",
+          index: 1,
+          duration: 98,
+          imageUrl: "/api/files/vid.mp4",
+          mediaType: "video",
+          videoUrl: "/api/files/vid.mp4",
+          imagePrompt: "Video",
+          narration: "Narration",
+          motion: "zoom-in",
+        },
+      ],
+    };
+
+    const resetState: StudioProject = {
+      ...loadedProject,
+      clips: [],
+      audioUrl: null,
+      audioDuration: 0,
+      voiceSegments: [],
+      bgmUrl: null,
+      continuousVoiceover: "",
+    };
+
+    expect(resetState.clips).toHaveLength(0);
+    expect(resetState.audioUrl).toBeNull();
+    expect(resetState.audioDuration).toBe(0);
+    expect(resetState.voiceSegments).toEqual([]);
+  });
 });

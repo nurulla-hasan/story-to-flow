@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { api, copyText } from "@/lib/apiClient";
 import { isFlowExtensionInstalled, sendToFlow } from "@/lib/flowBridge";
 import { cn } from "cn";
+import { evaluateHeroShot } from "@/lib/hero-shot";
 import type { StudioCastMember, StudioClip } from "./types";
 
 interface CleanPromptCardProps {
@@ -50,6 +51,9 @@ export function CleanPromptCard({
   const visibleCast = (clip.characterIds ?? [])
     .map((id) => cast?.find((member) => member.id === id))
     .filter((member): member is StudioCastMember => Boolean(member));
+
+  const hero = evaluateHeroShot(clip);
+  const isHeroVideo = hero.recommendedMediaType === "video";
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -159,13 +163,25 @@ export function CleanPromptCard({
           </span>
 
           <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2">
+            <span className="flex flex-wrap items-center gap-2">
               <span className="truncate text-sm font-medium text-foreground font-bangla">
                 {clip.narration || clip.imagePrompt.slice(0, 60)}
               </span>
+              {isHeroVideo ? (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-purple-500/40 bg-purple-500/10 px-2 py-0.5 font-mono text-3xs font-bold text-purple-400 shadow-xs">
+                  <span>🎥 Hero Video (Flow Animate)</span>
+                  {hero.heroReason ? (
+                    <span className="font-normal opacity-90">· {hero.heroReason}</span>
+                  ) : null}
+                </span>
+              ) : (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border/70 bg-muted px-1.5 py-0.5 font-mono text-3xs font-medium text-muted-foreground shadow-xs">
+                  🖼️ Static Image
+                </span>
+              )}
               {clip.imageUrl ? (
                 <span className="hidden shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-3xs font-semibold text-primary sm:inline">
-                  Image attached
+                  Attached
                 </span>
               ) : null}
             </span>

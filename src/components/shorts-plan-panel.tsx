@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { StudioPromptCardsList } from "@/components/studio/studio-prompt-cards-list";
 import { StudioVoiceoverCard } from "@/components/studio/studio-voiceover-card";
 import { copyText } from "@/lib/apiClient";
+import { evaluateHeroShot } from "@/lib/hero-shot";
 import type { StudioClip, StudioProject } from "@/components/studio/types";
 import type { ShortsPacing } from "@/lib/types";
 
@@ -54,6 +55,13 @@ export function ShortsPlanPanel({
     0,
   );
   const attachedCount = clips.filter((clip) => clip.imageUrl).length;
+  const heroVideoCount = clips.filter(
+    (c) =>
+      (c.recommendedMediaType || evaluateHeroShot(c).recommendedMediaType) ===
+      "video",
+  ).length;
+  const staticImageCount = clips.length - heroVideoCount;
+  const estFlowCost = heroVideoCount * 3 + staticImageCount * 1;
 
   const handleCopyVoiceover = async () => {
     if (!project.continuousVoiceover) return;
@@ -124,10 +132,10 @@ export function ShortsPlanPanel({
             Shorts / Voiceover plan
           </p>
           <h2 className="mt-0.5 text-sm font-bold text-foreground">
-            {clips.length} sequential images · ~{Math.round(totalDuration)}s
+            {clips.length} shots planned: {heroVideoCount} Hero Videos • {staticImageCount} Static Images | Est. Flow Cost: ~{estFlowCost} Credits
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {attachedCount}/{clips.length} images attached · character locks injected per shot
+            ~{Math.round(totalDuration)}s runtime · {attachedCount}/{clips.length} media attached · character locks injected per shot
           </p>
         </div>
 

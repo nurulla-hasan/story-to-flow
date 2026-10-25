@@ -60,6 +60,8 @@ const studioClipResponseSchema = z.object({
     .enum(["zoom-in", "zoom-out", "pan-left", "pan-right", "static"])
     .default("zoom-in"),
   sfx: z.enum(SFX_TYPES).default("none"),
+  recommended_media_type: z.enum(["video", "image"]).default("image"),
+  hero_reason: z.string().max(200).optional(),
 });
 
 const studioPlanResponseSchema = z.object({
@@ -141,7 +143,15 @@ Image diffusion models (Google Flow, Midjourney, Flux) drift and change characte
    - Ghost laugh / villain chuckle -> 'evil-laugh'
    - Comedy fail / defeat / wah-wah -> 'sad-trombone'
    - If none -> 'none'.
-9. Each prompt must follow this structure: "[Visual style]. [Character visual lock with any detached item cleanly overridden], [Environment lock]. In this shot: [specific framing, action, detached prop location, emotion]. [Aspect ratio directive]."
+9. SMART "HERO SHOT" TAGGING (Video vs Static Image to optimize generation credits):
+   Evaluate the kinetic energy and narrative weight of each shot:
+   - Tag "recommended_media_type": "video" ONLY for the top 20–25% "Hero Action Moments" (strictly maximum 4 to 6 shots per story):
+     * High-velocity movement (explosions, bursts, flight, falls, crashes, chases).
+     * Magical transformations & particle eruptions (smoke pouring from bottle, genie appearing, chicks hatching, time freeze wave).
+     * Critical character interactions (snatching items, jumping, biting, collisions).
+     * Include a brief "hero_reason" (e.g. "Magic transformation", "Impact landing", "High physical action", "Sudden escape").
+   - Tag "recommended_media_type": "image" for all other shots (establishing environments, stationary dialog, looking/holding items, facial reaction close-ups).
+10. Each prompt must follow this structure: "[Visual style]. [Character visual lock with any detached item cleanly overridden], [Environment lock]. In this shot: [specific framing, action, detached prop location, emotion]. [Aspect ratio directive]."
 
 Return JSON only conforming to the schema. No markdown, no conversation.`;
 
@@ -153,6 +163,8 @@ const shortsClipResponseSchema = z.object({
   motion: z.string().default("zoom-in"),
   character_ids: z.array(z.string()).max(8).default([]),
   location_id: z.string().optional(),
+  recommended_media_type: z.enum(["video", "image"]).default("image"),
+  hero_reason: z.string().max(200).optional(),
 });
 
 const shortsPlanResponseBaseSchema = z.object({
@@ -196,6 +208,13 @@ const shortsPlanResponseSchema = z.preprocess((value) => {
         character_ids: Array.isArray(characterIds) ? characterIds : [],
         location_id:
           typeof locationId === "string" ? locationId : undefined,
+        recommended_media_type:
+          item.recommended_media_type ??
+          item.recommendedMediaType ??
+          item.media_type ??
+          item.mediaType ??
+          "image",
+        hero_reason: item.hero_reason ?? item.heroReason ?? item.reason,
       };
     }),
   };
@@ -221,6 +240,14 @@ SHOT RULES:
 6. "location_id" must be one exact id from the supplied LOCATIONS list.
 7. Character appearance, clothing, age and location details are locked elsewhere. Never invent changes to them. If a prop is detached/dropped/stolen, describe its new position and state in the action only.
 8. "motion" is metadata for the editor; choose variety across consecutive shots.
+9. SMART "HERO SHOT" TAGGING (Video vs Static Image to optimize generation credits):
+   Evaluate the kinetic energy and narrative weight of each shot:
+   - Tag "recommended_media_type": "video" ONLY for the top 20–25% "Hero Action Moments" (strictly maximum 4 to 6 shots per story):
+     * High-velocity movement (explosions, bursts, flight, falls, crashes, chases).
+     * Magical transformations & particle eruptions (smoke pouring from bottle, genie appearing, chicks hatching, time freeze wave).
+     * Critical character interactions (snatching items, jumping, biting, collisions).
+     * Include a brief "hero_reason" (e.g. "Magic transformation", "Impact landing", "High physical action", "Sudden escape").
+   - Tag "recommended_media_type": "image" for all other shots (establishing environments, stationary dialog, looking/holding items, facial reaction close-ups).
 
 Do not invent recurring characters or locations that are not in the supplied lists.
 Return JSON only, conforming to the schema. No markdown, no conversation.`;
@@ -339,6 +366,8 @@ Write the complete clean Bangla narration as consecutive slices, one per shot. U
       sfx: "none" as const,
       characterIds: resolved.characterIds,
       locationId: resolved.locationId,
+      recommendedMediaType: clip.recommended_media_type ?? "image",
+      heroReason: clip.hero_reason || undefined,
     };
   });
 
@@ -533,6 +562,8 @@ Return the JSON result now.`;
         imageUrl: null,
         motion,
         sfx,
+        recommendedMediaType: clip.recommended_media_type ?? "image",
+        heroReason: clip.hero_reason || undefined,
       };
     });
 

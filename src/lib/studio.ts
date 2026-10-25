@@ -194,3 +194,5 @@ export function detectSfxFromAction(narration: string, actionOrPrompt = ""): Sfx
 
   return "none";
 }
+
+export { evaluateHeroShot } from "./hero-shot";

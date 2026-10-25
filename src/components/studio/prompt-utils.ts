@@ -1,4 +1,5 @@
 import type { StudioClip, StudioProject } from "./types";
+import { evaluateHeroShot } from "../../lib/hero-shot";
 
 export type PromptExportProject = Pick<
   StudioProject,
@@ -37,8 +38,14 @@ export function formatAllPrompts(
       elapsed = end;
 
       const time = formatTimeRange(start, end);
+      const hero = evaluateHeroShot(clip);
+      const badge =
+        hero.recommendedMediaType === "video"
+          ? `[🎥 Hero Video (Flow Animate)${hero.heroReason ? ` • ${hero.heroReason}` : ""}]`
+          : "[🖼️ Static Image]";
+
       return (
-        `IMAGE #${String(clip.index || index + 1).padStart(2, "0")} (${time} • ${duration.toFixed(1)}s • ${clip.motion || "zoom-in"})\n` +
+        `IMAGE #${String(clip.index || index + 1).padStart(2, "0")} (${time} • ${duration.toFixed(1)}s • ${clip.motion || "zoom-in"}) ${badge}\n` +
         `VOICEOVER: ${clip.narration}\n` +
         `PROMPT: ${clip.imagePrompt}`
       );

@@ -6,12 +6,17 @@ import {
   Copy,
   Download,
   FileText,
+  Film,
+  Image as ImageIcon,
   Loader2,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/apiClient";
 import { isFlowExtensionInstalled, sendToFlow } from "@/lib/flowBridge";
+import { evaluateHeroShot } from "@/lib/hero-shot";
+import { cn } from "cn";
 import {
   downloadTextFile,
   formatAllPrompts,
@@ -54,6 +59,33 @@ export function StudioPromptCardsList({
 }: StudioPromptCardsListProps) {
   const [copiedAllPrompts, setCopiedAllPrompts] = React.useState(false);
   const [sendingAllFlow, setSendingAllFlow] = React.useState(false);
+  const [filterMode, setFilterMode] = React.useState<"all" | "video" | "image">("all");
+
+  const heroClips = React.useMemo(() => {
+    return clips.filter(
+      (c) =>
+        (c.recommendedMediaType || evaluateHeroShot(c).recommendedMediaType) ===
+        "video",
+    );
+  }, [clips]);
+
+  const staticClips = React.useMemo(() => {
+    return clips.filter(
+      (c) =>
+        (c.recommendedMediaType || evaluateHeroShot(c).recommendedMediaType) !==
+        "video",
+    );
+  }, [clips]);
+
+  const heroCount = heroClips.length;
+  const staticCount = staticClips.length;
+  const estFlowCost = heroCount * 3 + staticCount * 1;
+
+  const displayClips = React.useMemo(() => {
+    if (filterMode === "video") return heroClips;
+    if (filterMode === "image") return staticClips;
+    return clips;
+  }, [filterMode, heroClips, staticClips, clips]);
 
   const timedClips = React.useMemo(() => {
     let accumulated = 0;
@@ -72,8 +104,8 @@ export function StudioPromptCardsList({
     timedClips.length > 0 ? timedClips[timedClips.length - 1].endTime : 0;
 
   const allPromptsFormatted = React.useMemo(
-    () => formatAllPrompts(clips, defaultClipDuration),
-    [clips, defaultClipDuration],
+    () => formatAllPrompts(displayClips, defaultClipDuration),
+    [displayClips, defaultClipDuration],
   );
 
   const handleCopyAllPrompts = async () => {
@@ -82,7 +114,12 @@ export function StudioPromptCardsList({
       await copyText(allPromptsFormatted);
       setCopiedAllPrompts(true);
       window.setTimeout(() => setCopiedAllPrompts(false), 2000);
-      notify("All Google Flow prompts copied to clipboard!", "success");
+      notify(
+        filterMode === "all"
+          ? "All Google Flow prompts copied to clipboard!"
+          : `Copied ${displayClips.length} filtered prompts to clipboard!`,
+        "success",
+      );
     } catch {
       notify("Could not access clipboard.", "error");
     }
@@ -93,15 +130,54 @@ export function StudioPromptCardsList({
     const content = formatPromptsExport(
       {
         title: projectTitle,
-        clips,
+        clips: displayClips,
         aspectRatio,
         defaultClipDuration,
         stylePreset,
       },
       totalDuration,
     );
-    downloadTextFile(content, `${slugifyTitle(projectTitle)}-flow-prompts.txt`);
-    notify("Downloaded all Flow prompts!", "success");
+    downloadTextFile(
+      content,
+      `${slugifyTitle(projectTitle)}-${filterMode}-prompts.txt`,
+    );
+    notify("Downloaded prompts .txt file!", "success");
+  };
+
+  const handleAnimateHeroShots = async () => {
+    if (!heroClips.length) return;
+    setSendingAllFlow(true);
+    notify(`Placing ${heroClips.length} Hero Video animation prompts into Google Flow…`, "info");
+
+    const heroFormatted = formatAllPrompts(heroClips, defaultClipDuration);
+
+    try {
+      await copyText(heroFormatted);
+
+      if (!isFlowExtensionInstalled()) {
+        window.open("https://flow.google.com", "_blank");
+        notify(
+          `${heroClips.length} Hero Video prompts copied to clipboard! Paste directly into Google Flow.`,
+          "info",
+        );
+        return;
+      }
+
+      const res = await sendToFlow({
+        prompt: heroFormatted,
+        autoRun: false,
+      });
+
+      if (res.success) {
+        notify(`Placed ${heroClips.length} Hero Video prompts into Google Flow!`, "success");
+      } else {
+        notify(res.error || "Hero prompts copied. Opened Google Flow tab.", "info");
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      setSendingAllFlow(false);
+    }
   };
 
   const handleSendAllToFlow = async () => {
@@ -157,11 +233,26 @@ export function StudioPromptCardsList({
             </h3>
           </div>
           <p className="mt-1 text-2xs text-muted-foreground">
-            {clips.length} prompts · ~{Math.round(totalDuration)}s · {aspectRatio} · Text View
+            {clips.length} shots planned: {heroCount} Hero Videos • {staticCount} Static Images | Est. Flow Cost: ~{estFlowCost} Credits
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {heroCount > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleAnimateHeroShots}
+              disabled={sendingAllFlow}
+              className="h-8 gap-1.5 border-purple-500/40 bg-purple-500/10 px-3 text-xs font-semibold text-purple-400 hover:bg-purple-500/20"
+              title="Place only the hero action video prompts into Google Flow"
+            >
+              <Wand2 className="size-3.5" aria-hidden />
+              <span>Animate {heroCount} Hero Shots in Flow</span>
+            </Button>
+          ) : null}
+
           <Button
             type="button"
             size="sm"
@@ -175,7 +266,7 @@ export function StudioPromptCardsList({
             ) : (
               <Sparkles className="size-3.5" aria-hidden />
             )}
-            {sendingAllFlow ? "Placing in Flow…" : "Send All to Flow"}
+            {sendingAllFlow ? "Placing in Flow…" : "Send All Images to Flow"}
           </Button>
 
           <Button
@@ -209,30 +300,69 @@ export function StudioPromptCardsList({
         </div>
       </div>
 
-      {/* Only Text View */}
+      {/* Filter Pills & Text Export Box */}
       <div className="rounded-xl border border-border bg-card shadow-xs">
-        <div className="flex items-center justify-between border-b border-border/70 px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-bold text-foreground">
-              Sequential Prompts Export
-            </span>
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-3xs font-semibold text-muted-foreground">
-              {clips.length} shots
-            </span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-4 py-2.5">
+          {/* Quick Filter Buttons */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFilterMode("all")}
+              className={cn(
+                "rounded-md px-2 py-1 font-mono text-3xs font-semibold transition-colors",
+                filterMode === "all"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              All ({clips.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("video")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 font-mono text-3xs font-semibold transition-colors",
+                filterMode === "video"
+                  ? "border border-purple-500/40 bg-purple-500/20 text-purple-300 font-bold shadow-xs"
+                  : "bg-muted text-muted-foreground hover:text-purple-300",
+              )}
+            >
+              <Film className="size-3 text-purple-400" />
+              <span>Hero Videos ({heroCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("image")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 font-mono text-3xs font-semibold transition-colors",
+                filterMode === "image"
+                  ? "bg-secondary text-secondary-foreground font-bold shadow-xs"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <ImageIcon className="size-3 text-muted-foreground" />
+              <span>Static Images ({staticCount})</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleCopyAllPrompts}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-3xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Copy prompt text"
-          >
-            {copiedAllPrompts ? (
-              <Check className="size-3 text-success" />
-            ) : (
-              <Copy className="size-3" />
-            )}
-            <span>{copiedAllPrompts ? "Copied" : "Copy"}</span>
-          </button>
+
+          <div className="flex items-center gap-3">
+            <span className="hidden font-mono text-3xs text-muted-foreground md:inline">
+              Est. Flow Cost: ~{estFlowCost} Credits
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyAllPrompts}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-3xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="Copy prompt text"
+            >
+              {copiedAllPrompts ? (
+                <Check className="size-3 text-success" />
+              ) : (
+                <Copy className="size-3" />
+              )}
+              <span>{copiedAllPrompts ? "Copied" : "Copy"}</span>
+            </button>
+          </div>
         </div>
 
         <div className="p-4">

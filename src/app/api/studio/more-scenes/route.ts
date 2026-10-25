@@ -29,6 +29,8 @@ const moreClipsResponseSchema = z.object({
           .enum(["zoom-in", "zoom-out", "pan-left", "pan-right", "static"])
           .default("zoom-in"),
         sfx: z.enum(SFX_TYPES).default("none"),
+        recommended_media_type: z.enum(["video", "image"]).default("image"),
+        hero_reason: z.string().max(200).optional(),
       }),
     )
     .min(1)
@@ -135,6 +137,8 @@ Return JSON conforming to schema now.`;
         imageUrl: null,
         motion,
         sfx,
+        recommendedMediaType: clip.recommended_media_type ?? "image",
+        heroReason: clip.hero_reason || undefined,
       };
     });
 

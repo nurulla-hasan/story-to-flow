@@ -200,6 +200,8 @@ export interface StudioClip {
   mediaUrl?: string | null; // unified media source (or imageUrl / videoUrl)
   videoUrl?: string | null; // explicit video source URL
   videoVolume?: number; // 0.0 (muted) to 1.0 (default 0.0 so voiceover is primary)
+  recommendedMediaType?: "video" | "image"; // AI-planned: video for hero action moments, image for static
+  heroReason?: string; // Reason for video classification (e.g. "Magic transformation", "Impact landing")
   imagePrompt: string;
   narration: string;
   /** Raw static shot action, kept so lock edits can rebuild the prompt. */

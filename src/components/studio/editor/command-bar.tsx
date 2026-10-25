@@ -13,6 +13,7 @@ import {
   ImagePlus,
   Loader2,
   Music,
+  RotateCcw,
   Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ interface CommandBarProps {
   isExporting: boolean;
   exportProgress: number;
   onExport: () => void;
+  onResetProject?: () => void;
 }
 
 export function CommandBar({
@@ -51,6 +53,7 @@ export function CommandBar({
   isExporting,
   exportProgress,
   onExport,
+  onResetProject,
 }: CommandBarProps) {
   return (
     <header className="relative z-30 shrink-0 border-b border-border bg-editor-chrome">
@@ -173,6 +176,20 @@ export function CommandBar({
           <Captions className="size-3.5" />
           <span className="hidden sm:inline">{showSubtitles ? "CC on" : "CC off"}</span>
         </Button>
+
+        {onResetProject ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onResetProject}
+            className="h-8 shrink-0 gap-1.5 border-border px-2 text-2xs font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:px-2.5"
+            title="Reset project: clear all clips, media, voiceover, and settings"
+          >
+            <RotateCcw className="size-3.5" />
+            <span>Reset</span>
+          </Button>
+        ) : null}
 
         <Button
           type="button"

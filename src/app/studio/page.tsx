@@ -15,6 +15,7 @@ export default function StudioEditorPage() {
     setProject,
     updateProject,
     updateClip,
+    clearProject,
   } = useStudioProject();
   const [toast, setToast] = React.useState<ToastState | null>(null);
 
@@ -51,6 +52,7 @@ export default function StudioEditorPage() {
           notify={notify}
           onImportImagesClick={openBatchFileDialog}
           saveStatus={saveStatus}
+          onResetProject={clearProject}
         />
       )}
 

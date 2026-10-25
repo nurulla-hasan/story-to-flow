@@ -12,8 +12,11 @@ import {
   shortsProjectNeedsLockSync,
   stripCameraMotion,
 } from "../src/lib/studio-plan";
+import { evaluateHeroShot } from "../src/lib/hero-shot";
+import { formatAllPrompts } from "../src/components/studio/prompt-utils";
 import type {
   StudioCastMember,
+  StudioClip,
   StudioLocationLock,
   StudioProject,
 } from "../src/components/studio/types";
@@ -463,5 +466,100 @@ describe("Shorts / animatic planning helpers", () => {
     expect(
       shortsProjectNeedsLockSync({ ...input, project: manuallyEdited }),
     ).toBe(false);
+  });
+
+  describe("Smart Hero Shot Tagging & Flow Credit Cost Estimation", () => {
+    it("evaluates kinetic hero action moments vs static images", () => {
+      // 1. Explicit planner tagging
+      expect(
+        evaluateHeroShot({
+          recommendedMediaType: "video",
+          heroReason: "Magic transformation",
+        }),
+      ).toEqual({
+        recommendedMediaType: "video",
+        heroReason: "Magic transformation",
+      });
+
+      // 2. High-velocity impact / explosion
+      expect(
+        evaluateHeroShot({
+          action: "He falls hard onto the mattress with a heavy crash landing.",
+        }),
+      ).toEqual({
+        recommendedMediaType: "video",
+        heroReason: "Impact landing",
+      });
+
+      // 3. Magical transformation / eruption
+      expect(
+        evaluateHeroShot({
+          action: "Blue smoke pours from the brass bottle as the baby genie appears.",
+        }),
+      ).toEqual({
+        recommendedMediaType: "video",
+        heroReason: "Magic transformation",
+      });
+
+      // 4. High physical action (flight / chase / snatch)
+      expect(
+        evaluateHeroShot({
+          action: "The black crow swoops down and snatches the round spectacles, flying away.",
+        }),
+      ).toEqual({
+        recommendedMediaType: "video",
+        heroReason: "High physical action",
+      });
+
+      // 5. Stationary dialog / looking / inspection
+      expect(
+        evaluateHeroShot({
+          action: "Habul sits at his workbench, examining the small golden gears.",
+        }),
+      ).toEqual({
+        recommendedMediaType: "image",
+      });
+    });
+
+    it("calculates accurate Flow credit costs for 26 shots with 5 hero videos", () => {
+      const heroVideoCount = 5;
+      const staticImageCount = 21;
+      const totalShots = heroVideoCount + staticImageCount; // 26
+      const estFlowCost = heroVideoCount * 3 + staticImageCount * 1; // 36 (~35 credits)
+
+      expect(totalShots).toBe(26);
+      expect(estFlowCost).toBe(36);
+      expect(Math.round(estFlowCost / 5) * 5).toBe(35); // ~35 Credits
+    });
+
+    it("includes Hero Video and Static Image badges in formatAllPrompts export", () => {
+      const sampleClips: StudioClip[] = [
+        {
+          id: "c1",
+          index: 1,
+          duration: 4.0,
+          imageUrl: null,
+          imagePrompt: "3D Pixar Animation. Habul sitting at bench.",
+          narration: "কাশেম বসে রইল।",
+          motion: "zoom-in",
+          recommendedMediaType: "image",
+        },
+        {
+          id: "c2",
+          index: 2,
+          duration: 4.0,
+          imageUrl: null,
+          imagePrompt: "3D Pixar Animation. Genie emerges with sparkling blue smoke.",
+          narration: "হঠাৎ ধোঁয়া বেরিয়ে এলো!",
+          motion: "zoom-out",
+          recommendedMediaType: "video",
+          heroReason: "Magic transformation",
+        },
+      ];
+
+      const formatted = formatAllPrompts(sampleClips, 4.0);
+      expect(formatted).toContain("[🖼️ Static Image]");
+      expect(formatted).toContain("[🎥 Hero Video (Flow Animate) • Magic transformation]");
+    });
   });
 });

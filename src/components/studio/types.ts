@@ -196,6 +196,10 @@ export interface StudioClip {
   index: number;
   duration: number; // in seconds (e.g. 3.0, 2.5, 4.0)
   imageUrl: string | null;
+  mediaType?: "image" | "video"; // "image" by default, or "video"
+  mediaUrl?: string | null; // unified media source (or imageUrl / videoUrl)
+  videoUrl?: string | null; // explicit video source URL
+  videoVolume?: number; // 0.0 (muted) to 1.0 (default 0.0 so voiceover is primary)
   imagePrompt: string;
   narration: string;
   /** Raw static shot action, kept so lock edits can rebuild the prompt. */
@@ -209,6 +213,14 @@ export interface StudioClip {
   locationId?: string; // shorts/animatic locked location for this shot
   speed?: number; // per-clip playback speed: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x (default 1.0)
   baseDuration?: number; // base duration before speed scaling (duration = baseDuration / speed)
+}
+
+export interface StudioVoiceSegment {
+  id: string;
+  audioUrl: string;
+  startOffset: number; // in seconds from the original audio start
+  duration: number; // duration of this segment in seconds
+  name?: string;
 }
 
 export type BgmMood =
@@ -249,6 +261,7 @@ export interface StudioProject {
   continuousVoiceover: string;
   audioUrl: string | null;
   audioDuration: number;
+  voiceSegments?: StudioVoiceSegment[]; // splittable multi-segment voice track
   audioSpeed?: number; // e.g. 0.8, 1.0, 1.1, 1.2, 1.5
   voiceVolume?: number; // 0 to 1, default 1.0
   bgmUrl?: string | null;

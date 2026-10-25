@@ -287,7 +287,7 @@ function MediaPanel({
           className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-2 text-2xs font-bold text-primary-foreground shadow-xs transition-opacity hover:opacity-90"
         >
           <ImagePlus className="size-3.5" />
-          Import images
+          Import Media (Images/Video)
         </button>
       </div>
 

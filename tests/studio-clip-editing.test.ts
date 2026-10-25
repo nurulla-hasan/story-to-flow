@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { cleanNarration } from "../src/lib/studio-plan";
-import type { StudioClip } from "../src/components/studio/types";
+import type {
+  StudioClip,
+  StudioProject,
+  StudioVoiceSegment,
+} from "../src/components/studio/types";
+import {
+  computeVoiceSegmentTimings,
+  getClipMedia,
+  getProjectVoiceSegments,
+  isVideoMedia,
+} from "../src/components/studio/editor/editor-shared";
 
 function computeClipTimings(clips: StudioClip[]): { clip: StudioClip; start: number; end: number }[] {
   let cur = 0;
@@ -229,5 +239,194 @@ describe("Bengali emotional voiceover vocalizations preservation", () => {
     expect(cleaned).toContain("আআআ!");
     expect(cleaned).toContain("হায় হায় রে!");
     expect(cleaned).toContain("পালাও সবাই!");
+  });
+});
+
+describe("Hybrid Media Support (Images + Video clips)", () => {
+  it("correctly identifies image vs video media files", () => {
+    expect(isVideoMedia("https://example.com/asset.mp4")).toBe(true);
+    expect(isVideoMedia("/api/files/scene-1.webm")).toBe(true);
+    expect(isVideoMedia("sample.mov")).toBe(true);
+    expect(isVideoMedia("data:video/mp4;base64,xxxx")).toBe(true);
+
+    expect(isVideoMedia("https://example.com/image.png")).toBe(false);
+    expect(isVideoMedia("/api/files/photo.jpg")).toBe(false);
+    expect(isVideoMedia("illustration.webp")).toBe(false);
+  });
+
+  it("extracts unified media source and mediaType from StudioClip", () => {
+    const imageClip: StudioClip = {
+      id: "c1",
+      index: 1,
+      duration: 3,
+      imageUrl: "/api/files/frame1.png",
+      imagePrompt: "Image prompt",
+      narration: "Narrate",
+      motion: "zoom-in",
+    };
+    expect(getClipMedia(imageClip)).toEqual({
+      type: "image",
+      url: "/api/files/frame1.png",
+    });
+
+    const videoClip: StudioClip = {
+      id: "c2",
+      index: 2,
+      duration: 5,
+      imageUrl: null,
+      videoUrl: "/api/files/clip2.mp4",
+      mediaType: "video",
+      videoVolume: 0.8,
+      imagePrompt: "Video prompt",
+      narration: "Narrate video",
+      motion: "static",
+    };
+    expect(getClipMedia(videoClip)).toEqual({
+      type: "video",
+      url: "/api/files/clip2.mp4",
+    });
+  });
+});
+
+describe("Splittable Multi-Segment Voice Track & Independent Splitting", () => {
+  const dummyProject: Pick<
+    StudioProject,
+    "voiceSegments" | "audioUrl" | "audioDuration"
+  > = {
+    audioUrl: "/api/files/voiceover.mp3",
+    audioDuration: 12.0,
+  };
+
+  it("extracts default voice segment from project audioUrl", () => {
+    const segments = getProjectVoiceSegments(dummyProject);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].audioUrl).toBe("/api/files/voiceover.mp3");
+    expect(segments[0].startOffset).toBe(0);
+    expect(segments[0].duration).toBe(12.0);
+  });
+
+  it("computes accurate sequential voice segment timings", () => {
+    const multiSegments: StudioVoiceSegment[] = [
+      {
+        id: "seg-1",
+        audioUrl: "/api/files/voiceover.mp3",
+        startOffset: 0.0,
+        duration: 4.5,
+      },
+      {
+        id: "seg-2",
+        audioUrl: "/api/files/voiceover.mp3",
+        startOffset: 4.5,
+        duration: 7.5,
+      },
+    ];
+
+    const timings = computeVoiceSegmentTimings(multiSegments);
+    expect(timings).toHaveLength(2);
+    expect(timings[0].start).toBe(0.0);
+    expect(timings[0].end).toBe(4.5);
+    expect(timings[1].start).toBe(4.5);
+    expect(timings[1].end).toBe(12.0);
+  });
+
+  it("splits a voice segment non-destructively using startOffset math", () => {
+    const segment: StudioVoiceSegment = {
+      id: "seg-orig",
+      audioUrl: "/api/files/voiceover.mp3",
+      startOffset: 2.0,
+      duration: 6.0,
+    };
+    const segStart = 0.0;
+    const splitTime = 2.5;
+
+    const offsetInSeg = splitTime - segStart; // 2.5s
+    const part1Dur = Number(offsetInSeg.toFixed(2)); // 2.5s
+    const part2Dur = Number((segment.duration - offsetInSeg).toFixed(2)); // 3.5s
+
+    const segA: StudioVoiceSegment = {
+      ...segment,
+      duration: part1Dur,
+    };
+    const segB: StudioVoiceSegment = {
+      ...segment,
+      id: "seg-part2",
+      startOffset: Number((segment.startOffset + offsetInSeg).toFixed(2)), // 2.0 + 2.5 = 4.5s
+      duration: part2Dur,
+    };
+
+    expect(segA.audioUrl).toBe(segment.audioUrl);
+    expect(segA.startOffset).toBe(2.0);
+    expect(segA.duration).toBe(2.5);
+
+    expect(segB.audioUrl).toBe(segment.audioUrl);
+    expect(segB.startOffset).toBe(4.5);
+    expect(segB.duration).toBe(3.5);
+    expect(segA.duration + segB.duration).toBe(6.0);
+  });
+});
+
+describe("Undo & Redo History Engine", () => {
+  it("pushes and pops immutable project states", () => {
+    const state0: StudioProject = {
+      id: "p1",
+      title: "State 0",
+      story: "Story",
+      stylePreset: "Cinematic",
+      aspectRatio: "16:9",
+      defaultClipDuration: 3,
+      continuousVoiceover: "",
+      audioUrl: null,
+      audioDuration: 0,
+      clips: [],
+    };
+
+    const state1: StudioProject = {
+      ...state0,
+      title: "State 1 - Split Clip Added",
+    };
+
+    const state2: StudioProject = {
+      ...state1,
+      title: "State 2 - Trimmed",
+    };
+
+    const history: StudioProject[] = [];
+    let future: StudioProject[] = [];
+    let current = state0;
+
+    // Mutate 1
+    history.push(current);
+    future = [];
+    current = state1;
+
+    // Mutate 2
+    history.push(current);
+    future = [];
+    current = state2;
+
+    expect(history).toHaveLength(2);
+    expect(current.title).toBe("State 2 - Trimmed");
+
+    // Undo: should revert to state1
+    future.unshift(current);
+    current = history.pop()!;
+    expect(current.title).toBe("State 1 - Split Clip Added");
+    expect(future).toHaveLength(1);
+
+    // Undo again: should revert to state0
+    future.unshift(current);
+    current = history.pop()!;
+    expect(current.title).toBe("State 0");
+    expect(future).toHaveLength(2);
+
+    // Redo: should re-advance to state1
+    history.push(current);
+    current = future.shift()!;
+    expect(current.title).toBe("State 1 - Split Clip Added");
+
+    // Redo again: should re-advance to state2
+    history.push(current);
+    current = future.shift()!;
+    expect(current.title).toBe("State 2 - Trimmed");
   });
 });

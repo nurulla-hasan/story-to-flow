@@ -58,7 +58,7 @@ export default function StudioEditorPage() {
         ref={batchFileInputRef}
         type="file"
         multiple
-        accept="image/*"
+        accept="image/*,video/mp4,video/webm,video/quicktime"
         className="sr-only"
         onChange={handleBatchFileChange}
       />

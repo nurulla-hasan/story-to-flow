@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Copy,
+  Film,
   FlipHorizontal,
   Gauge,
   ImagePlus,
@@ -14,6 +15,7 @@ import {
   StepBack,
   StepForward,
   Trash2,
+  Volume2,
 } from "lucide-react";
 import { cn } from "cn";
 import { SFX_PRESETS, type StudioClip } from "../types";
@@ -257,11 +259,49 @@ export function ClipInspector({
                 singleImageInputRef.current?.click();
               }}
               className="col-span-2 flex items-center justify-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1.5 text-2xs font-semibold text-foreground transition-colors hover:bg-muted"
-              title="Attach or replace the image for this clip"
+              title="Attach or replace the media (image/video) for this clip"
             >
-              <ImagePlus className="size-3.5 text-primary" />
-              <span>{editingClip.imageUrl ? "Replace image" : "Attach image"}</span>
+              {editingClip.mediaType === "video" || editingClip.videoUrl ? (
+                <Film className="size-3.5 text-primary" />
+              ) : (
+                <ImagePlus className="size-3.5 text-primary" />
+              )}
+              <span>
+                {editingClip.videoUrl || editingClip.imageUrl
+                  ? editingClip.mediaType === "video" || editingClip.videoUrl
+                    ? "Replace video"
+                    : "Replace image/video"
+                  : "Attach media (image/video)"}
+              </span>
             </button>
+
+            {editingClip.mediaType === "video" || editingClip.videoUrl ? (
+              <div className="col-span-2 space-y-1 rounded-md border border-border bg-muted/30 p-2">
+                <div className="flex items-center justify-between text-3xs font-semibold text-muted-foreground">
+                  <span className="flex items-center gap-1 text-foreground">
+                    <Volume2 className="size-3 text-primary" />
+                    <span>Video clip audio</span>
+                  </span>
+                  <span className="font-mono text-primary font-bold">
+                    {Math.round((editingClip.videoVolume ?? 0) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={editingClip.videoVolume ?? 0}
+                  onChange={(e) =>
+                    onUpdateClip(editingClip.id, {
+                      videoVolume: parseFloat(e.target.value),
+                    })
+                  }
+                  className="h-1.5 w-full cursor-ew-resize rounded-lg bg-muted accent-primary"
+                  aria-label="Video volume"
+                />
+              </div>
+            ) : null}
 
             <button
               type="button"

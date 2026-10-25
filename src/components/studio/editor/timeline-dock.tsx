@@ -17,6 +17,7 @@ import {
   Scissors,
   Sliders,
   Sparkles,
+  SplitSquareVertical,
   Trash2,
   Volume2,
   VolumeX,
@@ -35,6 +36,7 @@ import {
   TRACK_HEIGHT,
   type ClipTiming,
   type TransitionModalState,
+  type VoiceSegmentTiming,
 } from "./editor-shared";
 
 interface TimelineDockProps {
@@ -50,6 +52,11 @@ interface TimelineDockProps {
   currentTime: number;
   activeClipIndex: number;
   selectedClipId: string | null;
+  selectedTrack?: "video" | "voice";
+  setSelectedTrack?: React.Dispatch<React.SetStateAction<"video" | "voice">>;
+  selectedVoiceSegmentId?: string | null;
+  setSelectedVoiceSegmentId?: React.Dispatch<React.SetStateAction<string | null>>;
+  voiceTimings?: VoiceSegmentTiming[];
   sfxCount: number;
   bgmLabel: string;
   bgmVolume: number;
@@ -84,6 +91,8 @@ interface TimelineDockProps {
   handleSetAllClipsDuration: (duration: number) => void;
   handleFitTimeline: () => void;
   handleSplitAtPlayhead: () => void;
+  handleSplitSelected?: () => void;
+  handleSplitAllAtPlayhead?: () => void;
   handleDuplicateActiveClip: () => void;
   handleDeleteActiveClip: () => void;
   handleToggleFlip: (clip: StudioClip) => void;
@@ -104,6 +113,11 @@ export function TimelineDock({
   currentTime,
   activeClipIndex,
   selectedClipId,
+  selectedTrack = "video",
+  setSelectedTrack,
+  selectedVoiceSegmentId = null,
+  setSelectedVoiceSegmentId,
+  voiceTimings = [],
   sfxCount,
   bgmLabel,
   bgmVolume,
@@ -134,6 +148,8 @@ export function TimelineDock({
   handleSetAllClipsDuration,
   handleFitTimeline,
   handleSplitAtPlayhead,
+  handleSplitSelected = handleSplitAtPlayhead,
+  handleSplitAllAtPlayhead = handleSplitAtPlayhead,
   handleDuplicateActiveClip,
   handleDeleteActiveClip,
   handleToggleFlip,
@@ -310,14 +326,31 @@ export function TimelineDock({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <button
+          <Button
             type="button"
-            onClick={handleSplitAtPlayhead}
-            className="flex size-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Split the clip at playhead (S)"
+            size="sm"
+            variant="outline"
+            onClick={handleSplitSelected}
+            className="h-7 gap-1 px-2 text-2xs font-semibold"
+            title={`Split selected ${selectedTrack === "voice" ? "voice segment" : "video clip"} at playhead (S)`}
           >
-            <Scissors className="size-3.5" />
-          </button>
+            <Scissors className="size-3 text-primary" />
+            <span>Split Selected (S)</span>
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleSplitAllAtPlayhead}
+            className="h-7 gap-1 px-2 text-2xs font-semibold"
+            title="Split both video and voice tracks at playhead (Ctrl+Shift+S)"
+          >
+            <SplitSquareVertical className="size-3 text-primary" />
+            <span className="hidden sm:inline">Split All (Ctrl+Shift+S)</span>
+            <span className="sm:hidden">All</span>
+          </Button>
+
           <button
             type="button"
             onClick={handleDuplicateActiveClip}
@@ -504,8 +537,10 @@ export function TimelineDock({
                   const clipDuration = clip.duration || 3;
                   const clipWidth = Math.max(44, clipDuration * pxPerSec);
                   const isSelected = clip.id === selectedClipId;
+                  const isClipSelected = isSelected && selectedTrack === "video";
                   const isActive = index === activeClipIndex;
                   const sfx = getClipSfxConfig(clip);
+                  const isVideo = clip.mediaType === "video" || Boolean(clip.videoUrl);
                   const hasTransition = Boolean(
                     clip.transition && clip.transition.type !== "none",
                   );
@@ -513,32 +548,46 @@ export function TimelineDock({
                     1,
                     Math.max(0, (currentTime - start) / Math.max(0.1, clipDuration)),
                   );
-    
+
                   return (
                     <React.Fragment key={clip.id}>
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => setSelectedClipId(clip.id)}
+                        onClick={() => {
+                          setSelectedTrack?.("video");
+                          setSelectedClipId(clip.id);
+                          setSelectedVoiceSegmentId?.(null);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
+                            setSelectedTrack?.("video");
                             setSelectedClipId(clip.id);
+                            setSelectedVoiceSegmentId?.(null);
                             seekTo(start);
                           }
                         }}
                         style={{ width: `${clipWidth}px` }}
                         className={cn(
                           "group/clip relative h-full shrink-0 cursor-pointer overflow-hidden border-y border-r border-border/70 bg-card transition-shadow first:border-l",
-                          isSelected
-                            ? "z-20 ring-2 ring-primary"
+                          isClipSelected
+                            ? "z-20 ring-2 ring-primary border-primary"
                             : isActive
                               ? "ring-1 ring-primary/40"
                               : "hover:brightness-105",
                         )}
-                        title={`Clip #${clip.index} · ${clipDuration.toFixed(1)}s · ${clip.motion || "zoom-in"}`}
+                        title={`Clip #${clip.index} · ${clipDuration.toFixed(1)}s · ${isVideo ? "Video" : "Image"} · ${clip.motion || "zoom-in"}`}
                       >
-                        {clip.imageUrl ? (
+                        {isVideo && (clip.videoUrl || clip.imageUrl) ? (
+                          <video
+                            src={clip.videoUrl || clip.imageUrl || ""}
+                            className="pointer-events-none size-full object-cover"
+                            muted
+                            playsInline
+                            preload="metadata"
+                          />
+                        ) : clip.imageUrl ? (
                           <Image
                             src={clip.imageUrl}
                             alt={`Clip ${clip.index}`}
@@ -550,12 +599,12 @@ export function TimelineDock({
                         ) : (
                           <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground/70">
                             <ImagePlus className="size-4" />
-                            <span className="text-3xs">No image</span>
+                            <span className="text-3xs">No media</span>
                           </div>
                         )}
-    
+
                         <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-editor-screen/55 via-transparent to-editor-screen/35" />
-    
+
                         <div className="pointer-events-none absolute inset-x-1 top-1 flex items-start justify-between gap-1">
                           <span className="rounded border border-border/60 bg-card/90 px-1 py-0.5 font-mono text-3xs font-bold text-foreground shadow-xs backdrop-blur-sm">
                             {clipDuration.toFixed(1)}s
@@ -577,9 +626,14 @@ export function TimelineDock({
                         </div>
 
                         <div className="pointer-events-none absolute inset-x-1 bottom-1 flex items-center justify-between gap-1">
-                          <span className="rounded border border-border/60 bg-card/90 px-1 py-0.5 font-mono text-3xs font-semibold text-foreground shadow-xs backdrop-blur-sm">
-                            #{clip.index}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="rounded border border-border/60 bg-card/90 px-1 py-0.5 font-mono text-3xs font-semibold text-foreground shadow-xs backdrop-blur-sm">
+                              #{clip.index}
+                            </span>
+                            <span className="rounded border border-border/60 bg-card/90 px-1 py-0.5 text-3xs font-medium text-foreground shadow-xs backdrop-blur-sm">
+                              {isVideo ? "🎥 Video" : "🖼️ Image"}
+                            </span>
+                          </div>
                           <span className="hidden truncate rounded border border-border/60 bg-card/80 px-1 py-0.5 text-3xs font-medium text-muted-foreground sm:block">
                             {clip.motion || "zoom-in"}
                           </span>
@@ -702,13 +756,85 @@ export function TimelineDock({
               </div>
             </div>
     
-            {/* Voice track */}
+            {/* Voice track (splittable multi-segment) */}
             <div
               className="relative overflow-hidden border-b border-border/60 bg-track-voice-soft/40"
               style={{ height: TRACK_HEIGHT.voice }}
               onPointerDown={beginScrub}
             >
-              {project.audioUrl ? (
+              {voiceTimings.length > 0 ? (
+                voiceTimings.map((timing, idx) => {
+                  const isVoiceSelected =
+                    selectedTrack === "voice" &&
+                    selectedVoiceSegmentId === timing.segment.id;
+                  const isVoiceActive =
+                    currentTime >= timing.start && currentTime < timing.end;
+                  const progress = Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      (currentTime - timing.start) / Math.max(0.1, timing.segment.duration),
+                    ),
+                  );
+                  const segWidth = Math.max(
+                    36,
+                    (timing.segment.duration / (project.audioSpeed || 1)) * pxPerSec,
+                  );
+                  const segLeft =
+                    (timing.start / (project.audioSpeed || 1)) * pxPerSec;
+
+                  return (
+                    <div
+                      key={timing.segment.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedTrack?.("voice");
+                        setSelectedVoiceSegmentId?.(timing.segment.id);
+                        setSelectedClipId(null);
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      style={{
+                        left: `${segLeft}px`,
+                        width: `${segWidth}px`,
+                      }}
+                      className={cn(
+                        "group/voice absolute inset-y-1 overflow-hidden rounded-md border bg-card/85 cursor-pointer transition-all",
+                        isVoiceSelected
+                          ? "z-20 ring-2 ring-track-voice border-track-voice bg-card shadow-sm"
+                          : "border-track-voice/30 hover:border-track-voice/60",
+                      )}
+                      title={`Voice segment #${idx + 1} · ${timing.segment.duration.toFixed(1)}s (Offset: ${timing.segment.startOffset.toFixed(1)}s)`}
+                    >
+                      {idx === 0 && waveformCanvasRef ? (
+                        <canvas
+                          ref={waveformCanvasRef}
+                          className="pointer-events-none absolute inset-0 size-full opacity-60"
+                        />
+                      ) : null}
+
+                      <div className="relative z-10 flex h-full items-center justify-between px-2">
+                        <span className="truncate font-mono text-3xs font-semibold text-track-voice">
+                          🎙️ Voice #{idx + 1} · {timing.segment.duration.toFixed(1)}s
+                        </span>
+                        <span className="hidden font-mono text-3xs text-muted-foreground sm:inline">
+                          +{timing.segment.startOffset.toFixed(1)}s
+                        </span>
+                      </div>
+
+                      {isVoiceActive ? (
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-track-voice/20">
+                          <div
+                            className="h-full bg-track-voice"
+                            style={{ width: `${progress * 100}%` }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              ) : project.audioUrl ? (
                 <div
                   className="absolute inset-y-1 left-0 overflow-hidden rounded-md border border-track-voice/30 bg-card/70"
                   style={{ width: `${voiceoverWidth}px` }}

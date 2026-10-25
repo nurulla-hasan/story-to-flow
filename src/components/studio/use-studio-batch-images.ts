@@ -24,27 +24,28 @@ export function useStudioBatchImages({
 
   const importImageFiles = React.useCallback(
     async (files: File[]) => {
-      const imageFiles = files.filter(
+      const mediaFiles = files.filter(
         (f) =>
           f.type.startsWith("image/") ||
-          /\.(png|jpe?g|webp|gif|avif)$/i.test(f.name),
+          f.type.startsWith("video/") ||
+          /\.(png|jpe?g|webp|gif|avif|mp4|webm|mov|m4v)$/i.test(f.name),
       );
 
-      if (imageFiles.length === 0) {
-        notify("No valid image files found.", "error");
+      if (mediaFiles.length === 0) {
+        notify("No valid media files (images or video clips) found.", "error");
         return;
       }
 
       if (clips.length === 0) {
         notify(
-          "Please generate Flow prompts first before importing images.",
+          "Please generate Flow prompts first before importing media.",
           "error",
         );
         return;
       }
 
-      // Sort files naturally by filename (e.g. image-1, image-2, image-10)
-      imageFiles.sort((a, b) =>
+      // Sort files naturally by filename (e.g. image-1, image-2, clip_01, clip_02)
+      mediaFiles.sort((a, b) =>
         a.name.localeCompare(b.name, undefined, {
           numeric: true,
           sensitivity: "base",
@@ -56,11 +57,11 @@ export function useStudioBatchImages({
         [];
       const unassignedFiles: File[] = [];
 
-      // 1. Match by number in filename (e.g. image-1, clip_02, 3.jpg, 04.png)
-      for (const file of imageFiles) {
+      // 1. Match by number in filename (e.g. image-1, clip_02, video_03, 3.jpg, 04.mp4)
+      for (const file of mediaFiles) {
         const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
         const numMatch = nameWithoutExt.match(
-          /(?:image|clip|scene|img|#)?[-_\s]*0*(\d+)/i,
+          /(?:image|clip|scene|img|video|#)?[-_\s]*0*(\d+)/i,
         );
         const num = numMatch ? parseInt(numMatch[1], 10) : NaN;
         const targetClip = !isNaN(num)
@@ -96,30 +97,41 @@ export function useStudioBatchImages({
       }
 
       if (assignments.length === 0) {
-        notify("Could not match any images to the planned clips.", "error");
+        notify("Could not match any media files to the planned clips.", "error");
         return;
       }
 
       // Show instant local preview
-      const localMap = new Map<string, string>();
+      const localMap = new Map<string, { url: string; isVideo: boolean }>();
       assignments.forEach(({ clipId, file }) => {
-        localMap.set(clipId, URL.createObjectURL(file));
+        const isVideo =
+          file.type.startsWith("video/") ||
+          /\.(mp4|webm|mov|m4v)$/i.test(file.name);
+        localMap.set(clipId, { url: URL.createObjectURL(file), isVideo });
       });
 
       setProject((prev) => ({
         ...prev,
         clips: prev.clips.map((clip) => {
-          const newUrl = localMap.get(clip.id);
-          return newUrl ? { ...clip, imageUrl: newUrl } : clip;
+          const entry = localMap.get(clip.id);
+          if (!entry) return clip;
+          return {
+            ...clip,
+            imageUrl: entry.url,
+            videoUrl: entry.isVideo ? entry.url : null,
+            mediaUrl: entry.url,
+            mediaType: entry.isVideo ? ("video" as const) : ("image" as const),
+            videoVolume: clip.videoVolume ?? 0,
+          };
         }),
       }));
 
       notify(
-        `Saving ${assignments.length} image${assignments.length > 1 ? "s" : ""} to permanent storage…`,
+        `Saving ${assignments.length} media file${assignments.length > 1 ? "s" : ""} to permanent storage…`,
         "info",
       );
 
-      // Upload to server so images persist across reloads
+      // Upload to server so media files persist across reloads
       try {
         const formData = new FormData();
         assignments.forEach(({ file }) => {
@@ -135,12 +147,18 @@ export function useStudioBatchImages({
         });
 
         if (res.files?.length) {
-          const serverUrlMap = new Map<string, string>();
+          const serverUrlMap = new Map<
+            string,
+            { url: string; isVideo: boolean }
+          >();
           assignments.forEach(({ clipId, file }, idx) => {
             const uploaded =
               res.files.find((u) => u.name === file.name) || res.files[idx];
             if (uploaded?.url) {
-              serverUrlMap.set(clipId, uploaded.url);
+              const isVideo =
+                file.type.startsWith("video/") ||
+                /\.(mp4|webm|mov|m4v)$/i.test(file.name);
+              serverUrlMap.set(clipId, { url: uploaded.url, isVideo });
             }
           });
 
@@ -148,8 +166,17 @@ export function useStudioBatchImages({
             const updated = {
               ...prev,
               clips: prev.clips.map((clip) => {
-                const permanentUrl = serverUrlMap.get(clip.id);
-                return permanentUrl ? { ...clip, imageUrl: permanentUrl } : clip;
+                const entry = serverUrlMap.get(clip.id);
+                if (!entry) return clip;
+                return {
+                  ...clip,
+                  imageUrl: entry.url,
+                  videoUrl: entry.isVideo ? entry.url : null,
+                  mediaUrl: entry.url,
+                  mediaType: entry.isVideo
+                    ? ("video" as const)
+                    : ("image" as const),
+                };
               }),
             };
             api("/api/studio/project", {
@@ -161,13 +188,13 @@ export function useStudioBatchImages({
         }
 
         notify(
-          `Successfully saved ${assignments.length} image${assignments.length > 1 ? "s" : ""}!`,
+          `Successfully saved ${assignments.length} media file${assignments.length > 1 ? "s" : ""}!`,
           "success",
         );
       } catch (err) {
         console.warn("[studio] Upload fallback to local preview:", err);
         notify(
-          `Attached ${assignments.length} image${assignments.length > 1 ? "s" : ""} locally!`,
+          `Attached ${assignments.length} media file${assignments.length > 1 ? "s" : ""} locally!`,
           "success",
         );
       }

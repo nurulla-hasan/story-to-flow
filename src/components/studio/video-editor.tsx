@@ -35,9 +35,12 @@ import {
   type MobileEditorTab,
 } from "./editor/editor-sidebar";
 import {
+  computeVoiceSegmentTimings,
   formatSec,
   generateClipId,
+  getClipMedia,
   getClipSfxConfig,
+  getProjectVoiceSegments,
 } from "./editor/editor-shared";
 import { PreviewStage } from "./editor/preview-stage";
 import { TimelineDock } from "./editor/timeline-dock";
@@ -65,6 +68,51 @@ export function VideoEditor({
   const [isMuted, setIsMuted] = React.useState(false);
   const [showSubtitles, setShowSubtitles] = React.useState(true);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  const [selectedTrack, setSelectedTrack] = React.useState<"video" | "voice">("video");
+  const [selectedVoiceSegmentId, setSelectedVoiceSegmentId] = React.useState<string | null>(null);
+
+  // Undo & Redo History Stack (up to 50 states)
+  const [history, setHistory] = React.useState<StudioProject[]>([]);
+  const [future, setFuture] = React.useState<StudioProject[]>([]);
+  const canUndo = history.length > 0;
+  const canRedo = future.length > 0;
+
+  const commitProjectUpdate = React.useCallback(
+    (patch: Partial<StudioProject>) => {
+      setHistory((prev) => [...prev.slice(-49), project]);
+      setFuture([]);
+      onUpdateProject(patch);
+    },
+    [project, onUpdateProject],
+  );
+
+  const commitClipUpdate = React.useCallback(
+    (clipId: string, patch: Partial<StudioClip>) => {
+      setHistory((prev) => [...prev.slice(-49), project]);
+      setFuture([]);
+      onUpdateClip(clipId, patch);
+    },
+    [project, onUpdateClip],
+  );
+
+  const handleUndo = React.useCallback(() => {
+    if (history.length === 0) return;
+    const prevProject = history[history.length - 1];
+    setHistory((prev) => prev.slice(0, -1));
+    setFuture((prev) => [project, ...prev]);
+    onUpdateProject(prevProject);
+    notify("Undo", "info");
+  }, [history, project, onUpdateProject, notify]);
+
+  const handleRedo = React.useCallback(() => {
+    if (future.length === 0) return;
+    const nextProject = future[0];
+    setFuture((prev) => prev.slice(1));
+    setHistory((prev) => [...prev.slice(-49), project]);
+    onUpdateProject(nextProject);
+    notify("Redo", "info");
+  }, [future, project, onUpdateProject, notify]);
+
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [activeTool, setActiveTool] = React.useState<EditorTool | null>("media");
   const [inspectorTab, setInspectorTab] = React.useState<InspectorTab>("clip");
@@ -110,8 +158,9 @@ export function VideoEditor({
   const lastPlayedSfxClipRef = React.useRef<string | null>(null);
   const sfxAudioCtxRef = React.useRef<AudioContext | null>(null);
 
-  // Preloaded image elements cache for smooth real-time rendering
+  // Preloaded image & video elements cache for smooth real-time rendering
   const imageCacheRef = React.useRef<Map<string, HTMLImageElement>>(new Map());
+  const videoCacheRef = React.useRef<Map<string, HTMLVideoElement>>(new Map());
   const [imageVersion, setImageVersion] = React.useState(0);
 
   const totalDuration = React.useMemo(() => {
@@ -177,10 +226,19 @@ export function VideoEditor({
   const editingClip = editingTiming?.clip ?? null;
   const isEditingSelected = Boolean(selectedTiming);
 
-  // Split at Playhead (S key / Split tool)
-  const handleSplitAtPlayhead = React.useCallback(() => {
-    // 1. If a clip is selected and playhead is inside its range, split that clip.
-    // 2. Otherwise, if playhead is inside the active clip at playhead, split that clip.
+  // Voice segments & timings (splittable multi-segment voice track)
+  const voiceSegments = React.useMemo(
+    () => getProjectVoiceSegments(project),
+    [project.voiceSegments, project.audioUrl, project.audioDuration],
+  );
+
+  const voiceTimings = React.useMemo(
+    () => computeVoiceSegmentTimings(voiceSegments),
+    [voiceSegments],
+  );
+
+  // Split Video Clip at Playhead
+  const handleSplitVideoAtPlayhead = React.useCallback(() => {
     const targetTiming =
       selectedTiming &&
       currentTime >= selectedTiming.start &&
@@ -193,7 +251,7 @@ export function VideoEditor({
           : selectedTiming ?? activeTiming;
 
     if (!targetTiming) {
-      notify("Select a clip or position the playhead over a clip to split.", "info");
+      notify("Select a video clip or position the playhead over a clip to split.", "info");
       return;
     }
 
@@ -240,22 +298,186 @@ export function VideoEditor({
     const reindexed = newClips.map((c, i) => ({ ...c, index: i + 1 }));
 
     setSelectedClipId(clip2.id);
-    onUpdateProject({ clips: reindexed });
+    setSelectedTrack("video");
+    setSelectedVoiceSegmentId(null);
+    commitProjectUpdate({ clips: reindexed });
     notify(`Split Clip #${clip.index} into two at ${formatSec(currentTime)}!`, "success");
-  }, [selectedTiming, activeTiming, currentTime, project.clips, onUpdateProject, notify]);
+  }, [selectedTiming, activeTiming, currentTime, project.clips, commitProjectUpdate, notify]);
 
-  // Preload attached images and repaint the canvas as soon as each one is ready
+  // Split Voice Segment at Playhead (non-destructive startOffset math)
+  const handleSplitVoiceAtPlayhead = React.useCallback(() => {
+    if (voiceTimings.length === 0) {
+      notify("No voiceover on the timeline to split.", "info");
+      return;
+    }
+
+    const targetTiming =
+      (selectedVoiceSegmentId
+        ? voiceTimings.find((t) => t.segment.id === selectedVoiceSegmentId)
+        : null) ||
+      voiceTimings.find((t) => currentTime >= t.start && currentTime <= t.end) ||
+      voiceTimings[0];
+
+    if (!targetTiming) return;
+
+    const { segment, start, end } = targetTiming;
+    if (currentTime < start || currentTime > end) {
+      notify(
+        `Move playhead inside voice segment (${formatSec(start)}–${formatSec(end)}) to split.`,
+        "info",
+      );
+      return;
+    }
+
+    const offsetInSeg = currentTime - start;
+    const remainingInSeg = end - currentTime;
+
+    if (offsetInSeg < 0.2 || remainingInSeg < 0.2) {
+      notify("Position playhead at least 0.2s inside the voice segment to split.", "info");
+      return;
+    }
+
+    const part1Dur = Number(offsetInSeg.toFixed(2));
+    const part2Dur = Number((segment.duration - offsetInSeg).toFixed(2));
+
+    const seg1 = {
+      ...segment,
+      duration: part1Dur,
+    };
+
+    const seg2 = {
+      ...segment,
+      id: `vseg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      startOffset: Number((segment.startOffset + offsetInSeg).toFixed(2)),
+      duration: part2Dur,
+    };
+
+    const targetIdx = voiceSegments.findIndex((s) => s.id === segment.id);
+    if (targetIdx === -1) return;
+
+    const newSegments = [...voiceSegments];
+    newSegments.splice(targetIdx, 1, seg1, seg2);
+
+    commitProjectUpdate({ voiceSegments: newSegments });
+    setSelectedVoiceSegmentId(seg2.id);
+    setSelectedTrack("voice");
+    setSelectedClipId(null);
+    notify(`Split voiceover at ${formatSec(currentTime)}!`, "success");
+  }, [voiceTimings, voiceSegments, selectedVoiceSegmentId, currentTime, commitProjectUpdate, notify]);
+
+  // Track-aware split: splits currently selected track
+  const handleSplitSelected = React.useCallback(() => {
+    if (selectedTrack === "voice" || (selectedVoiceSegmentId && !selectedClipId)) {
+      handleSplitVoiceAtPlayhead();
+    } else {
+      handleSplitVideoAtPlayhead();
+    }
+  }, [selectedTrack, selectedVoiceSegmentId, selectedClipId, handleSplitVoiceAtPlayhead, handleSplitVideoAtPlayhead]);
+
+  // Split All: cuts through BOTH video and voice tracks intersecting playhead simultaneously
+  const handleSplitAllAtPlayhead = React.useCallback(() => {
+    let splitAny = false;
+
+    // 1. Split intersecting video clip
+    let nextClips = project.clips;
+    const videoTarget = clipTimings.find(
+      (t) => currentTime > t.start && currentTime < t.end,
+    );
+    if (videoTarget) {
+      const offsetInClip = currentTime - videoTarget.start;
+      const remainingInClip = videoTarget.end - currentTime;
+      if (offsetInClip >= 0.2 && remainingInClip >= 0.2) {
+        const part1Dur = Number(Math.max(0.3, offsetInClip).toFixed(1));
+        const part2Dur = Number(Math.max(0.3, videoTarget.clip.duration - part1Dur).toFixed(1));
+        const speed = videoTarget.clip.speed ?? 1.0;
+        const clip1: StudioClip = {
+          ...videoTarget.clip,
+          duration: part1Dur,
+          baseDuration: Number((part1Dur * speed).toFixed(1)),
+        };
+        const clip2: StudioClip = {
+          ...videoTarget.clip,
+          id: generateClipId(),
+          duration: part2Dur,
+          baseDuration: Number((part2Dur * speed).toFixed(1)),
+        };
+        const targetIdx = project.clips.findIndex((c) => c.id === videoTarget.clip.id);
+        if (targetIdx !== -1) {
+          const updated = [...project.clips];
+          updated.splice(targetIdx, 1, clip1, clip2);
+          nextClips = updated.map((c, i) => ({ ...c, index: i + 1 }));
+          splitAny = true;
+        }
+      }
+    }
+
+    // 2. Split intersecting voice segment
+    let nextVoice = voiceSegments;
+    const voiceTarget = voiceTimings.find(
+      (t) => currentTime > t.start && currentTime < t.end,
+    );
+    if (voiceTarget) {
+      const offsetInSeg = currentTime - voiceTarget.start;
+      const remainingInSeg = voiceTarget.end - currentTime;
+      if (offsetInSeg >= 0.2 && remainingInSeg >= 0.2) {
+        const part1Dur = Number(offsetInSeg.toFixed(2));
+        const part2Dur = Number((voiceTarget.segment.duration - offsetInSeg).toFixed(2));
+        const seg1 = {
+          ...voiceTarget.segment,
+          duration: part1Dur,
+        };
+        const seg2 = {
+          ...voiceTarget.segment,
+          id: `vseg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          startOffset: Number((voiceTarget.segment.startOffset + offsetInSeg).toFixed(2)),
+          duration: part2Dur,
+        };
+        const targetIdx = voiceSegments.findIndex((s) => s.id === voiceTarget.segment.id);
+        if (targetIdx !== -1) {
+          const updated = [...voiceSegments];
+          updated.splice(targetIdx, 1, seg1, seg2);
+          nextVoice = updated;
+          splitAny = true;
+        }
+      }
+    }
+
+    if (splitAny) {
+      commitProjectUpdate({
+        clips: nextClips,
+        voiceSegments: nextVoice,
+      });
+      notify(`Split all tracks at ${formatSec(currentTime)}!`, "success");
+    } else {
+      notify("Move playhead inside a video clip or voice segment to split.", "info");
+    }
+  }, [clipTimings, voiceTimings, voiceSegments, project.clips, currentTime, commitProjectUpdate, notify]);
+
+  // Preload attached media (images and videos) for smooth real-time rendering
   React.useEffect(() => {
     project.clips.forEach((clip) => {
-      if (clip.imageUrl && !imageCacheRef.current.has(clip.imageUrl)) {
-        const img = new window.Image();
-        img.crossOrigin = "anonymous";
-        const url = clip.imageUrl;
-        img.onload = () => {
-          imageCacheRef.current.set(url, img);
-          setImageVersion((version) => version + 1);
-        };
-        img.src = url;
+      const media = getClipMedia(clip);
+      if (!media.url) return;
+
+      if (media.type === "video") {
+        if (!videoCacheRef.current.has(media.url)) {
+          const vid = document.createElement("video");
+          vid.src = media.url;
+          vid.crossOrigin = "anonymous";
+          vid.playsInline = true;
+          vid.muted = true;
+          vid.preload = "auto";
+          vid.onloadeddata = () => setImageVersion((v) => v + 1);
+          videoCacheRef.current.set(media.url, vid);
+        }
+      } else {
+        if (!imageCacheRef.current.has(media.url)) {
+          const img = new window.Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => setImageVersion((version) => version + 1);
+          img.src = media.url;
+          imageCacheRef.current.set(media.url, img);
+        }
       }
     });
   }, [project.clips]);
@@ -264,26 +486,48 @@ export function VideoEditor({
   const bgmVolume = project.bgmVolume ?? 0.20;
   const saturation = project.saturation ?? 100;
 
-  // Handle Voiceover & BGM play/pause (runs ONLY when isPlaying state toggles, not on every tick!)
+  // Handle Voiceover, BGM & Video media play/pause
   React.useEffect(() => {
     const audio = audioRef.current;
     const bgm = bgmRef.current;
 
     if (isPlaying) {
       if (audio) {
-        audio.currentTime = currentTime;
-        audio.playbackRate = currentSpeed;
-        audio.volume = isMuted ? 0 : voiceVolume;
-        audio.play().catch(() => {});
+        const activeVoice = voiceTimings.find(
+          (t) => currentTime >= t.start && currentTime < t.end,
+        );
+        if (activeVoice) {
+          audio.currentTime =
+            activeVoice.segment.startOffset + (currentTime - activeVoice.start);
+          audio.playbackRate = currentSpeed;
+          audio.volume = isMuted ? 0 : voiceVolume;
+          audio.play().catch(() => {});
+        }
       }
       if (bgm) {
         bgm.currentTime = currentTime % (bgm.duration || totalDuration);
         bgm.volume = isMuted ? 0 : bgmVolume;
         bgm.play().catch(() => {});
       }
+      if (activeTiming) {
+        const media = getClipMedia(activeTiming.clip);
+        if (media.type === "video" && media.url) {
+          const vid = videoCacheRef.current.get(media.url);
+          if (vid && vid.readyState >= 1) {
+            const clipSpeed = activeTiming.clip.speed || 1;
+            vid.currentTime = Math.max(0, (currentTime - activeTiming.start) * clipSpeed);
+            vid.volume = isMuted ? 0 : (activeTiming.clip.videoVolume ?? 0);
+            vid.playbackRate = currentSpeed * clipSpeed;
+            vid.play().catch(() => {});
+          }
+        }
+      }
     } else {
       if (audio) audio.pause();
       if (bgm) bgm.pause();
+      videoCacheRef.current.forEach((vid) => {
+        if (!vid.paused) vid.pause();
+      });
     }
   }, [isPlaying]);
 
@@ -368,20 +612,70 @@ export function VideoEditor({
     }
   }, [bgmVolume, isMuted, enableDucking]);
 
-  // Sync audio time ONLY when user manually seeks (dragging playhead / clicking timeline)
+  // Sync audio and video time when user manually seeks
   const seekTo = React.useCallback(
     (time: number) => {
       const clamped = Math.max(0, Math.min(time, totalDuration));
       setCurrentTime(clamped);
-      if (audioRef.current) {
-        audioRef.current.currentTime = clamped;
-        audioRef.current.playbackRate = currentSpeed;
+
+      // 1. Sync voiceover segment audio
+      const audio = audioRef.current;
+      if (audio) {
+        const activeVoice = voiceTimings.find(
+          (t) => clamped >= t.start && clamped < t.end,
+        );
+        if (activeVoice) {
+          const targetAudioTime =
+            activeVoice.segment.startOffset + (clamped - activeVoice.start);
+          audio.currentTime = targetAudioTime;
+          audio.playbackRate = currentSpeed;
+          audio.volume = isMuted ? 0 : voiceVolume;
+          if (isPlaying && audio.paused) {
+            audio.play().catch(() => {});
+          }
+        } else if (!audio.paused) {
+          audio.pause();
+        }
       }
+
+      // 2. Sync video media element
+      const activeClipTiming = clipTimings.find(
+        (t) => clamped >= t.start && clamped < t.end,
+      );
+      if (activeClipTiming) {
+        const media = getClipMedia(activeClipTiming.clip);
+        if (media.type === "video" && media.url) {
+          const vid = videoCacheRef.current.get(media.url);
+          if (vid && vid.readyState >= 1) {
+            const clipSpeed = activeClipTiming.clip.speed || 1;
+            const targetVidTime = Math.max(
+              0,
+              (clamped - activeClipTiming.start) * clipSpeed,
+            );
+            vid.currentTime = Math.min(vid.duration || targetVidTime, targetVidTime);
+            vid.volume = isMuted ? 0 : (activeClipTiming.clip.videoVolume ?? 0);
+            vid.playbackRate = currentSpeed * clipSpeed;
+            if (isPlaying && vid.paused) {
+              vid.play().catch(() => {});
+            }
+          }
+        }
+      }
+
       if (bgmRef.current) {
-        bgmRef.current.currentTime = clamped % (bgmRef.current.duration || totalDuration);
+        bgmRef.current.currentTime =
+          clamped % (bgmRef.current.duration || totalDuration);
       }
     },
-    [totalDuration, currentSpeed],
+    [
+      totalDuration,
+      currentSpeed,
+      voiceTimings,
+      clipTimings,
+      isPlaying,
+      isMuted,
+      voiceVolume,
+    ],
   );
 
   // Native fullscreen preview (CapCut-style "expand monitor")
@@ -404,7 +698,7 @@ export function VideoEditor({
     }
   }, [notify]);
 
-  // Editing shortcuts: Space play/pause, ←/→ seek, M mute
+  // Editing shortcuts: Space play/pause, S split selected, Ctrl+Shift+S split all, Ctrl+Z undo, Ctrl+Y redo
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -422,13 +716,39 @@ export function VideoEditor({
         event.preventDefault();
         setIsPlaying((playing) => !playing);
       } else if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        (event.key === "s" || event.key === "S")
+      ) {
+        // Ctrl+Shift+S / Cmd+Shift+S: Split All tracks at playhead
+        event.preventDefault();
+        handleSplitAllAtPlayhead();
+      } else if (
         (event.key === "s" || event.key === "S") &&
         !event.ctrlKey &&
         !event.metaKey &&
         !event.altKey
       ) {
+        // S: Split Selected track at playhead
         event.preventDefault();
-        handleSplitAtPlayhead();
+        handleSplitSelected();
+      } else if (
+        (event.ctrlKey || event.metaKey) &&
+        (event.key === "z" || event.key === "Z") &&
+        !event.shiftKey
+      ) {
+        // Ctrl+Z: Undo
+        event.preventDefault();
+        handleUndo();
+      } else if (
+        (event.ctrlKey || event.metaKey) &&
+        (event.key === "y" ||
+          event.key === "Y" ||
+          (event.shiftKey && (event.key === "z" || event.key === "Z")))
+      ) {
+        // Ctrl+Y / Ctrl+Shift+Z: Redo
+        event.preventDefault();
+        handleRedo();
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         seekTo(currentTime - (event.shiftKey ? 5 : 1));
@@ -442,7 +762,14 @@ export function VideoEditor({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [currentTime, seekTo, handleSplitAtPlayhead]);
+  }, [
+    currentTime,
+    seekTo,
+    handleSplitSelected,
+    handleSplitAllAtPlayhead,
+    handleUndo,
+    handleRedo,
+  ]);
 
   // Keep the playhead visible inside the timeline while playing
   React.useEffect(() => {
@@ -459,33 +786,70 @@ export function VideoEditor({
     }
   }, [currentTime, isPlaying, pxPerSec]);
 
-  // Playback animation loop: Uses audio hardware clock as master clock when audio is present
+  // Playback animation loop: syncs canvas, audio and video media
   React.useEffect(() => {
     let lastStamp = performance.now();
 
     const loop = (stamp: number) => {
       if (isPlaying) {
-        const audio = audioRef.current;
-        // When voiceover audio is loaded and playing, sync canvas time directly to audio clock
-        if (audio && !audio.paused && !audio.ended && Number.isFinite(audio.currentTime)) {
-          setCurrentTime(audio.currentTime);
-          if (audio.currentTime >= totalDuration) {
+        const delta = (stamp - lastStamp) / 1000;
+        setCurrentTime((prev) => {
+          const next = prev + delta * currentSpeed;
+          if (next >= totalDuration) {
             setIsPlaying(false);
             seekTo(0);
-            return;
+            return 0;
           }
-        } else {
-          // Fallback animation clock when audio is not yet attached
-          const delta = (stamp - lastStamp) / 1000;
-          setCurrentTime((prev) => {
-            const next = prev + delta * currentSpeed;
-            if (next >= totalDuration) {
-              setIsPlaying(false);
-              seekTo(0);
-              return 0;
+          return next;
+        });
+
+        // Sync voice segment audio
+        const audio = audioRef.current;
+        if (audio) {
+          const activeVoice = voiceTimings.find(
+            (t) => currentTime >= t.start && currentTime < t.end,
+          );
+          if (activeVoice) {
+            const targetAudioTime =
+              activeVoice.segment.startOffset + (currentTime - activeVoice.start);
+            if (audio.paused) {
+              audio.currentTime = targetAudioTime;
+              audio.playbackRate = currentSpeed;
+              audio.volume = isMuted ? 0 : voiceVolume;
+              audio.play().catch(() => {});
+            } else if (Math.abs(audio.currentTime - targetAudioTime) > 0.3) {
+              audio.currentTime = targetAudioTime;
             }
-            return next;
-          });
+          } else if (!audio.paused) {
+            audio.pause();
+          }
+        }
+
+        // Sync active video clip
+        if (activeTiming) {
+          const media = getClipMedia(activeTiming.clip);
+          if (media.type === "video" && media.url) {
+            const vid = videoCacheRef.current.get(media.url);
+            if (vid && vid.readyState >= 1) {
+              const clipSpeed = activeTiming.clip.speed || 1;
+              const targetVidTime = Math.max(
+                0,
+                (currentTime - activeTiming.start) * clipSpeed,
+              );
+              const clampedVidTime = Math.min(
+                vid.duration || targetVidTime,
+                targetVidTime,
+              );
+              vid.volume = isMuted ? 0 : (activeTiming.clip.videoVolume ?? 0);
+              vid.playbackRate = currentSpeed * clipSpeed;
+              if (vid.paused) {
+                vid.currentTime = clampedVidTime;
+                vid.play().catch(() => {});
+              } else if (Math.abs(vid.currentTime - clampedVidTime) > 0.3) {
+                vid.currentTime = clampedVidTime;
+              }
+            }
+          }
         }
       }
       lastStamp = stamp;
@@ -496,7 +860,17 @@ export function VideoEditor({
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [isPlaying, totalDuration, currentSpeed, seekTo]);
+  }, [
+    isPlaying,
+    totalDuration,
+    currentSpeed,
+    seekTo,
+    currentTime,
+    voiceTimings,
+    activeTiming,
+    isMuted,
+    voiceVolume,
+  ]);
 
   const timelineWidth = React.useMemo(() => {
     return Math.max(640, Math.ceil(totalDuration * pxPerSec) + 32);
@@ -644,10 +1018,22 @@ export function VideoEditor({
     [project.clips, pxPerSec, onUpdateClip],
   );
 
-  // Draw an individual image with Ken Burns motion onto canvas
-  const drawSingleImage = React.useCallback(
+  const getMediaElement = React.useCallback(
+    (clip: StudioClip): HTMLImageElement | HTMLVideoElement | null => {
+      const media = getClipMedia(clip);
+      if (!media.url) return null;
+      if (media.type === "video") {
+        return videoCacheRef.current.get(media.url) || null;
+      }
+      return imageCacheRef.current.get(media.url) || null;
+    },
+    [],
+  );
+
+  // Draw an individual media (image or video frame) with Ken Burns motion onto canvas
+  const drawSingleMedia = React.useCallback(
     (
-      cachedImg: HTMLImageElement | null,
+      media: HTMLImageElement | HTMLVideoElement | null,
       motion: ClipMotion,
       progress: number,
       ctx: CanvasRenderingContext2D,
@@ -655,7 +1041,13 @@ export function VideoEditor({
       height: number,
       flipped = false,
     ) => {
-      if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+      const isImg = media instanceof HTMLImageElement;
+      const isVid = media instanceof HTMLVideoElement;
+      const isReady =
+        (isImg && media.complete && media.naturalWidth > 0) ||
+        (isVid && media.readyState >= 1 && media.videoWidth > 0);
+
+      if (isReady && media) {
         ctx.save();
 
         if (saturation !== 100) {
@@ -681,20 +1073,22 @@ export function VideoEditor({
         ctx.translate(width / 2 + offsetX, height / 2 + offsetY);
         ctx.scale(scale * (flipped ? -1 : 1), scale);
 
-        const imgRatio = cachedImg.naturalWidth / cachedImg.naturalHeight;
+        const naturalW = isImg ? media.naturalWidth : media.videoWidth;
+        const naturalH = isImg ? media.naturalHeight : media.videoHeight;
+        const mediaRatio = naturalW / naturalH;
         const canvasRatio = width / height;
         let renderW = width;
         let renderH = height;
 
-        if (imgRatio > canvasRatio) {
+        if (mediaRatio > canvasRatio) {
           renderH = height;
-          renderW = height * imgRatio;
+          renderW = height * mediaRatio;
         } else {
           renderW = width;
-          renderH = width / imgRatio;
+          renderH = width / mediaRatio;
         }
 
-        ctx.drawImage(cachedImg, -renderW / 2, -renderH / 2, renderW, renderH);
+        ctx.drawImage(media, -renderW / 2, -renderH / 2, renderW, renderH);
         ctx.restore();
       } else {
         ctx.fillStyle = "#1e293b";
@@ -731,60 +1125,60 @@ export function VideoEditor({
             const transProgress = Math.max(0, Math.min(1, (time - transStart) / transDur));
             activeNarration = transProgress < 0.5 ? timingA.clip.narration : timingB.clip.narration;
 
-            const imgA = timingA.clip.imageUrl ? imageCacheRef.current.get(timingA.clip.imageUrl) || null : null;
-            const imgB = timingB.clip.imageUrl ? imageCacheRef.current.get(timingB.clip.imageUrl) || null : null;
+            const mediaA = getMediaElement(timingA.clip);
+            const mediaB = getMediaElement(timingB.clip);
             const motionA: ClipMotion = timingA.clip.motion || "zoom-in";
             const motionB: ClipMotion = timingB.clip.motion || "zoom-in";
 
             if (transition.type === "dissolve") {
               ctx.save();
               ctx.globalAlpha = 1 - transProgress;
-              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              drawSingleMedia(mediaA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
               ctx.restore();
 
               ctx.save();
               ctx.globalAlpha = transProgress;
-              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              drawSingleMedia(mediaB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
               ctx.restore();
             } else if (transition.type === "white-flash") {
               if (transProgress < 0.5) {
-                drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+                drawSingleMedia(mediaA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
                 ctx.fillStyle = `rgba(255, 255, 255, ${transProgress * 2})`;
                 ctx.fillRect(0, 0, width, height);
               } else {
-                drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+                drawSingleMedia(mediaB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
                 ctx.fillStyle = `rgba(255, 255, 255, ${(1 - transProgress) * 2})`;
                 ctx.fillRect(0, 0, width, height);
               }
             } else if (transition.type === "black-dip") {
               if (transProgress < 0.5) {
-                drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+                drawSingleMedia(mediaA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
                 ctx.fillStyle = `rgba(0, 0, 0, ${transProgress * 2})`;
                 ctx.fillRect(0, 0, width, height);
               } else {
-                drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+                drawSingleMedia(mediaB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
                 ctx.fillStyle = `rgba(0, 0, 0, ${(1 - transProgress) * 2})`;
                 ctx.fillRect(0, 0, width, height);
               }
             } else if (transition.type === "slide-left") {
               ctx.save();
               ctx.translate(-transProgress * width, 0);
-              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              drawSingleMedia(mediaA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
               ctx.restore();
 
               ctx.save();
               ctx.translate((1 - transProgress) * width, 0);
-              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              drawSingleMedia(mediaB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
               ctx.restore();
             } else if (transition.type === "slide-right") {
               ctx.save();
               ctx.translate(transProgress * width, 0);
-              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              drawSingleMedia(mediaA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
               ctx.restore();
 
               ctx.save();
               ctx.translate((-1 + transProgress) * width, 0);
-              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              drawSingleMedia(mediaB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
               ctx.restore();
             } else if (transition.type === "zoom-push") {
               ctx.save();
@@ -792,7 +1186,7 @@ export function VideoEditor({
               ctx.translate(width / 2, height / 2);
               ctx.scale(1.0 + transProgress * 0.35, 1.0 + transProgress * 0.35);
               ctx.translate(-width / 2, -height / 2);
-              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              drawSingleMedia(mediaA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
               ctx.restore();
 
               ctx.save();
@@ -801,7 +1195,7 @@ export function VideoEditor({
               ctx.translate(width / 2, height / 2);
               ctx.scale(inScale, inScale);
               ctx.translate(-width / 2, -height / 2);
-              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              drawSingleMedia(mediaB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
               ctx.restore();
             }
             break;
@@ -820,10 +1214,10 @@ export function VideoEditor({
           activeNarration = clip.narration;
           const clipDur = Math.max(0.1, end - start);
           const progress = Math.max(0, Math.min(1, (time - start) / clipDur));
-          const cachedImg = clip.imageUrl ? imageCacheRef.current.get(clip.imageUrl) || null : null;
+          const cachedMedia = getMediaElement(clip);
 
-          drawSingleImage(
-            cachedImg,
+          drawSingleMedia(
+            cachedMedia,
             clip.motion || "zoom-in",
             progress,
             ctx,
@@ -832,13 +1226,30 @@ export function VideoEditor({
             Boolean(clip.flipped),
           );
 
-          if (!cachedImg || !cachedImg.complete || cachedImg.naturalWidth === 0) {
+          const isVid = clip.mediaType === "video" || Boolean(clip.videoUrl);
+          const isImg = cachedMedia instanceof HTMLImageElement;
+          const isReady =
+            cachedMedia &&
+            ((isImg && cachedMedia.complete && cachedMedia.naturalWidth > 0) ||
+              (cachedMedia instanceof HTMLVideoElement && cachedMedia.readyState >= 1));
+
+          if (!isReady) {
             ctx.fillStyle = "#94a3b8";
             ctx.font = "bold 32px sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText(`Image #${clip.index}`, width / 2, height / 2 - 20);
+            ctx.fillText(
+              `Clip #${clip.index} (${isVid ? "Video" : "Image"})`,
+              width / 2,
+              height / 2 - 20,
+            );
             ctx.font = "20px sans-serif";
-            ctx.fillText("Attach or import image to view", width / 2, height / 2 + 25);
+            ctx.fillText(
+              isVid
+                ? "Attach or import video to view"
+                : "Attach or import image to view",
+              width / 2,
+              height / 2 + 25,
+            );
           }
         }
       }
@@ -900,7 +1311,14 @@ export function VideoEditor({
         ctx.restore();
       }
     },
-    [clipTimings, totalDuration, drawSingleImage, showSubtitles, project.aspectRatio],
+    [
+      clipTimings,
+      totalDuration,
+      drawSingleMedia,
+      getMediaElement,
+      showSubtitles,
+      project.aspectRatio,
+    ],
   );
 
   // Canvas Real-Time Render (Draws Active Frame in live editor preview)
@@ -1212,8 +1630,20 @@ export function VideoEditor({
     notify(`Voiceover audio speed set to ${spd}x!`, "info");
   };
 
-  // Delete the selected clip (falls back to the playhead clip)
-  const handleDeleteActiveClip = () => {
+  // Delete the selected clip or voice segment
+  const handleDeleteActive = () => {
+    if (selectedTrack === "voice" && selectedVoiceSegmentId) {
+      if (voiceSegments.length <= 1) {
+        notify("Cannot delete the only voice segment (replace voiceover audio instead).", "info");
+        return;
+      }
+      const newSegments = voiceSegments.filter((s) => s.id !== selectedVoiceSegmentId);
+      commitProjectUpdate({ voiceSegments: newSegments });
+      setSelectedVoiceSegmentId(null);
+      notify("Deleted voice segment.", "info");
+      return;
+    }
+
     if (!editingTiming) return;
     if (project.clips.length <= 1) {
       notify("Cannot delete the only remaining clip.", "info");
@@ -1225,7 +1655,7 @@ export function VideoEditor({
       .map((c, i) => ({ ...c, index: i + 1 }));
 
     setSelectedClipId(null);
-    onUpdateProject({ clips: newClips });
+    commitProjectUpdate({ clips: newClips });
     notify(`Deleted Clip #${clipIndex}.`, "info");
   };
 
@@ -1245,7 +1675,7 @@ export function VideoEditor({
     const reindexed = newClips.map((c, i) => ({ ...c, index: i + 1 }));
 
     setSelectedClipId(clone.id);
-    onUpdateProject({ clips: reindexed });
+    commitProjectUpdate({ clips: reindexed });
     notify(`Duplicated Clip #${editingTiming.clip.index}!`, "success");
   };
 
@@ -1293,7 +1723,7 @@ export function VideoEditor({
 
       if (res.clips?.length) {
         const combined = [...project.clips, ...res.clips];
-        onUpdateProject({ clips: combined });
+        commitProjectUpdate({ clips: combined });
         notify(`Added ${res.clips.length} new scenes! Images now match voiceover.`, "success");
       }
     } catch (err) {
@@ -1321,7 +1751,7 @@ export function VideoEditor({
       });
     }
 
-    onUpdateProject({ clips: [...project.clips, ...newClips] });
+    commitProjectUpdate({ clips: [...project.clips, ...newClips] });
     notify(`Auto-filled ${count} clips to match voiceover duration!`, "success");
   };
 
@@ -1340,32 +1770,56 @@ export function VideoEditor({
       motion: "zoom-in",
     };
 
-    onUpdateProject({ clips: [...project.clips, newClip] });
+    commitProjectUpdate({ clips: [...project.clips, newClip] });
     notify(`Added Clip #${newClip.index} to timeline!`, "success");
   };
 
-  // Single clip image replacement inside timeline
+  // Single clip media (image or video) replacement inside timeline
   const handleSingleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     const clipId = targetClipForImageRef.current;
     if (!file || !clipId) return;
 
+    const isVideo =
+      file.type.startsWith("video/") ||
+      /\.(mp4|webm|mov|m4v)$/i.test(file.name);
+    const mediaType = isVideo ? ("video" as const) : ("image" as const);
     const localUrl = URL.createObjectURL(file);
-    onUpdateClip(clipId, { imageUrl: localUrl });
+
+    commitClipUpdate(clipId, {
+      imageUrl: localUrl,
+      videoUrl: isVideo ? localUrl : null,
+      mediaUrl: localUrl,
+      mediaType,
+      videoVolume: 0,
+    });
 
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await api<{ success: boolean; files: { url: string }[] }>("/api/studio/upload", {
+      const res = await api<{
+        success: boolean;
+        files: { url: string; kind?: string }[];
+      }>("/api/studio/upload", {
         method: "POST",
         body: formData,
       });
       if (res.files?.[0]?.url) {
-        onUpdateClip(clipId, { imageUrl: res.files[0].url });
+        commitClipUpdate(clipId, {
+          imageUrl: res.files[0].url,
+          videoUrl: isVideo ? res.files[0].url : null,
+          mediaUrl: res.files[0].url,
+          mediaType,
+        });
       }
-      notify("Clip image updated and saved!", "success");
+      notify(
+        isVideo
+          ? "Clip video updated and saved!"
+          : "Clip media updated and saved!",
+        "success",
+      );
     } catch {
-      notify("Clip image updated locally.", "info");
+      notify("Clip media updated locally.", "info");
     } finally {
       if (singleImageInputRef.current) singleImageInputRef.current.value = "";
     }
@@ -1375,7 +1829,7 @@ export function VideoEditor({
   const handleAdjustDuration = (clip: StudioClip, delta: number) => {
     const next = Math.max(0.5, Math.min(30, Number(((clip.duration || 3) + delta).toFixed(1))));
     const speed = clip.speed ?? 1.0;
-    onUpdateClip(clip.id, {
+    commitClipUpdate(clip.id, {
       duration: next,
       baseDuration: Number((next * speed).toFixed(1)),
     });
@@ -1383,7 +1837,7 @@ export function VideoEditor({
 
   // CapCut Flip / Mirror horizontal tool
   const handleToggleFlip = (clip: StudioClip) => {
-    onUpdateClip(clip.id, { flipped: !clip.flipped });
+    commitClipUpdate(clip.id, { flipped: !clip.flipped });
     notify(`Flipped Clip #${clip.index} horizontally!`, "info");
   };
 
@@ -1416,8 +1870,41 @@ export function VideoEditor({
       const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const dest = audioCtx.createMediaStreamDestination();
 
+      const voiceSourceList: {
+        source: AudioBufferSourceNode;
+        startAt: number;
+        offset: number;
+        duration: number;
+      }[] = [];
       let voiceSource: AudioBufferSourceNode | null = null;
-      if (project.audioUrl) {
+
+      if (voiceTimings.length > 0 && voiceTimings[0].segment.audioUrl) {
+        try {
+          const audioFetch = await fetch(voiceTimings[0].segment.audioUrl);
+          const arrayBuf = await audioFetch.arrayBuffer();
+          const decodedAudio = await audioCtx.decodeAudioData(arrayBuf);
+
+          for (const timing of voiceTimings) {
+            const bufSource = audioCtx.createBufferSource();
+            bufSource.buffer = decodedAudio;
+            bufSource.playbackRate.value = currentSpeed;
+
+            const voiceGain = audioCtx.createGain();
+            voiceGain.gain.setValueAtTime(voiceVolume, 0);
+            bufSource.connect(voiceGain);
+            voiceGain.connect(dest);
+
+            voiceSourceList.push({
+              source: bufSource,
+              startAt: Math.max(0, timing.start / currentSpeed),
+              offset: Math.max(0, timing.segment.startOffset),
+              duration: Math.max(0.1, timing.segment.duration / currentSpeed),
+            });
+          }
+        } catch (e) {
+          console.warn("[editor] Could not mix voice audio for export:", e);
+        }
+      } else if (project.audioUrl) {
         try {
           const audioFetch = await fetch(project.audioUrl);
           const arrayBuf = await audioFetch.arrayBuffer();
@@ -1498,18 +1985,42 @@ export function VideoEditor({
         drawFrame(0, exportCtx, width, height);
       }
 
-      // Preload every SFX used in this project before the recorder starts.
-      // Without this, the first export trigger could miss its timing window
-      // while the browser fetches and decodes a newly selected preset.
+      // Preload every SFX & video element used in this project before the recorder starts.
       const presetSfxTypes = new Set<SfxType>();
       const customSfxUrls = new Set<string>();
+      const videoPreloadPromises: Promise<void>[] = [];
+
       for (const timing of clipTimings) {
         const cfg = getClipSfxConfig(timing.clip);
-        if (!cfg || cfg.type === "none") continue;
-        if (cfg.type === "custom") {
-          if (cfg.customUrl) customSfxUrls.add(cfg.customUrl);
-        } else {
-          presetSfxTypes.add(cfg.type);
+        if (cfg && cfg.type !== "none") {
+          if (cfg.type === "custom") {
+            if (cfg.customUrl) customSfxUrls.add(cfg.customUrl);
+          } else {
+            presetSfxTypes.add(cfg.type);
+          }
+        }
+
+        const media = getClipMedia(timing.clip);
+        if (media.type === "video" && media.url) {
+          let vid = videoCacheRef.current.get(media.url);
+          if (!vid) {
+            vid = document.createElement("video");
+            vid.src = media.url;
+            vid.crossOrigin = "anonymous";
+            vid.playsInline = true;
+            vid.muted = true;
+            vid.preload = "auto";
+            videoCacheRef.current.set(media.url, vid);
+          }
+          if (vid.readyState < 2) {
+            videoPreloadPromises.push(
+              new Promise((res) => {
+                vid!.onloadeddata = () => res();
+                vid!.onerror = () => res();
+                setTimeout(res, 3000);
+              }),
+            );
+          }
         }
       }
       await Promise.all([
@@ -1517,12 +2028,23 @@ export function VideoEditor({
           loadPresetSfxBuffer(audioCtx, type),
         ),
         ...[...customSfxUrls].map((url) => loadAudioBuffer(audioCtx, url)),
+        ...videoPreloadPromises,
       ]);
 
       const sfxTriggeredDuringExport = new Set<string>();
       recorder.start();
       const exportStartAudioTime = audioCtx.currentTime;
-      if (voiceSource) voiceSource.start(0);
+      if (voiceSourceList.length > 0) {
+        for (const item of voiceSourceList) {
+          item.source.start(
+            exportStartAudioTime + item.startAt,
+            item.offset,
+            item.duration,
+          );
+        }
+      } else if (voiceSource) {
+        voiceSource.start(0);
+      }
       if (bgmSource) bgmSource.start(0);
 
       // Render frames continuously locked to AudioContext master clock with exact custom clip timings
@@ -1558,6 +2080,23 @@ export function VideoEditor({
           });
 
           if (exportCtx) {
+            // Sync active video frame if current clip is a video
+            const activeClipTiming = clipTimings.find(
+              (t) => simTime >= t.start && simTime < t.end,
+            );
+            if (activeClipTiming) {
+              const media = getClipMedia(activeClipTiming.clip);
+              if (media.type === "video" && media.url) {
+                const vid = videoCacheRef.current.get(media.url);
+                if (vid && vid.readyState >= 1) {
+                  const clipSpeed = activeClipTiming.clip.speed || 1;
+                  vid.currentTime = Math.max(
+                    0,
+                    (simTime - activeClipTiming.start) * clipSpeed,
+                  );
+                }
+              }
+            }
             drawFrame(simTime, exportCtx, width, height);
           }
 
@@ -1711,7 +2250,7 @@ export function VideoEditor({
       <input
         ref={singleImageInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/mp4,video/webm,video/quicktime"
         className="sr-only"
         onChange={handleSingleImageFile}
       />
@@ -1787,19 +2326,19 @@ export function VideoEditor({
                   isEditingSelected={isEditingSelected}
                   onStepClip={handleStepClip}
                   onAdjustDuration={handleAdjustDuration}
-                  onUpdateClip={onUpdateClip}
+                  onUpdateClip={commitClipUpdate}
                   targetClipForImageRef={targetClipForImageRef}
                   singleImageInputRef={singleImageInputRef}
                   onToggleFlip={handleToggleFlip}
-                  onSplit={handleSplitAtPlayhead}
+                  onSplit={handleSplitSelected}
                   onDuplicate={handleDuplicateActiveClip}
-                  onDelete={handleDeleteActiveClip}
+                  onDelete={handleDeleteActive}
                   onOpenSfx={handleOpenSfxFromPanel}
                 />
               ) : inspectorTab === "audio" ? (
                 <AudioMixer
                   project={project}
-                  onUpdateProject={onUpdateProject}
+                  onUpdateProject={commitProjectUpdate}
                   effectiveAudioDuration={effectiveAudioDuration}
                   currentSpeed={currentSpeed}
                   voiceVolume={voiceVolume}
@@ -1840,12 +2379,16 @@ export function VideoEditor({
         isMuted={isMuted}
         onToggleMute={() => setIsMuted((muted) => !muted)}
         onToggleFullscreen={toggleFullscreen}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
 
       {/* ── Timeline dock ───────────────────────────────────────── */}
       <TimelineDock
         project={project}
-        onUpdateProject={onUpdateProject}
+        onUpdateProject={commitProjectUpdate}
         editingClip={editingClip}
         clipTimings={clipTimings}
         totalDuration={totalDuration}
@@ -1856,6 +2399,11 @@ export function VideoEditor({
         currentTime={currentTime}
         activeClipIndex={activeClipIndex}
         selectedClipId={selectedClipId}
+        selectedTrack={selectedTrack}
+        setSelectedTrack={setSelectedTrack}
+        selectedVoiceSegmentId={selectedVoiceSegmentId}
+        setSelectedVoiceSegmentId={setSelectedVoiceSegmentId}
+        voiceTimings={voiceTimings}
         sfxCount={sfxCount}
         bgmLabel={bgmLabel}
         bgmVolume={bgmVolume}
@@ -1885,9 +2433,11 @@ export function VideoEditor({
         handleAutoSyncAudio={handleAutoSyncAudio}
         handleSetAllClipsDuration={handleSetAllClipsDuration}
         handleFitTimeline={handleFitTimeline}
-        handleSplitAtPlayhead={handleSplitAtPlayhead}
+        handleSplitAtPlayhead={handleSplitSelected}
+        handleSplitSelected={handleSplitSelected}
+        handleSplitAllAtPlayhead={handleSplitAllAtPlayhead}
         handleDuplicateActiveClip={handleDuplicateActiveClip}
-        handleDeleteActiveClip={handleDeleteActiveClip}
+        handleDeleteActiveClip={handleDeleteActive}
         handleToggleFlip={handleToggleFlip}
         handleAddNewEmptyClip={handleAddNewEmptyClip}
         handleOpenSfxModal={handleOpenSfxModal}
@@ -1912,19 +2462,19 @@ export function VideoEditor({
               isEditingSelected={isEditingSelected}
               onStepClip={handleStepClip}
               onAdjustDuration={handleAdjustDuration}
-              onUpdateClip={onUpdateClip}
+              onUpdateClip={commitClipUpdate}
               targetClipForImageRef={targetClipForImageRef}
               singleImageInputRef={singleImageInputRef}
               onToggleFlip={handleToggleFlip}
-              onSplit={handleSplitAtPlayhead}
+              onSplit={handleSplitSelected}
               onDuplicate={handleDuplicateActiveClip}
-              onDelete={handleDeleteActiveClip}
+              onDelete={handleDeleteActive}
               onOpenSfx={handleOpenSfxFromPanel}
             />
           ) : mobileTool === "audio" ? (
             <AudioMixer
               project={project}
-              onUpdateProject={onUpdateProject}
+              onUpdateProject={commitProjectUpdate}
               effectiveAudioDuration={effectiveAudioDuration}
               currentSpeed={currentSpeed}
               voiceVolume={voiceVolume}

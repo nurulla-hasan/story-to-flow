@@ -124,10 +124,10 @@ export function CommandBar({
             variant="ghost"
             onClick={onImportImagesClick}
             className="h-7 gap-1.5 px-2 text-2xs font-semibold"
-            title="Import all clip images"
+            title="Import Media (Images/Video clips)"
           >
             <ImagePlus className="size-3.5 text-primary" />
-            <span>Images</span>
+            <span>Import Media (Images/Video)</span>
           </Button>
 
           <Button

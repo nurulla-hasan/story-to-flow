@@ -4,8 +4,76 @@ import type {
   ClipMotion,
   ClipSfxConfig,
   StudioClip,
+  StudioProject,
+  StudioVoiceSegment,
   TransitionType,
 } from "../types";
+
+export function isVideoMedia(url?: string | null, mediaType?: string): boolean {
+  if (mediaType === "video") return true;
+  if (!url) return false;
+  return (
+    /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i.test(url) ||
+    url.startsWith("data:video/") ||
+    url.startsWith("blob:")
+  );
+}
+
+export function getClipMedia(clip: StudioClip): {
+  type: "image" | "video";
+  url: string | null;
+} {
+  const url = clip.videoUrl || clip.mediaUrl || clip.imageUrl || null;
+  const isVid =
+    clip.mediaType === "video" ||
+    Boolean(clip.videoUrl) ||
+    (clip.mediaType !== "image" && isVideoMedia(url));
+  return {
+    type: isVid ? "video" : "image",
+    url,
+  };
+}
+
+export function getProjectVoiceSegments(
+  project: Pick<StudioProject, "voiceSegments" | "audioUrl" | "audioDuration">,
+): StudioVoiceSegment[] {
+  if (project.voiceSegments && project.voiceSegments.length > 0) {
+    return project.voiceSegments;
+  }
+  if (project.audioUrl) {
+    return [
+      {
+        id: "voice-seg-main",
+        audioUrl: project.audioUrl,
+        startOffset: 0,
+        duration: project.audioDuration || 0,
+        name: "Voiceover",
+      },
+    ];
+  }
+  return [];
+}
+
+export interface VoiceSegmentTiming {
+  segment: StudioVoiceSegment;
+  start: number;
+  end: number;
+}
+
+export function computeVoiceSegmentTimings(
+  segments: StudioVoiceSegment[],
+): VoiceSegmentTiming[] {
+  let cur = 0;
+  const timings: VoiceSegmentTiming[] = [];
+  for (const segment of segments) {
+    const dur = Math.max(0.1, segment.duration || 0);
+    const start = cur;
+    const end = cur + dur;
+    cur = end;
+    timings.push({ segment, start, end });
+  }
+  return timings;
+}
 
 export function getClipSfxConfig(clip: StudioClip): ClipSfxConfig | null {
   if (clip.sfxConfig && clip.sfxConfig.type !== "none") {

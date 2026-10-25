@@ -5,9 +5,11 @@ import {
   Maximize,
   Pause,
   Play,
+  Redo2,
   RotateCcw,
   StepBack,
   StepForward,
+  Undo2,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -25,6 +27,10 @@ interface TransportBarProps {
   isMuted: boolean;
   onToggleMute: () => void;
   onToggleFullscreen: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 export function TransportBar({
@@ -38,6 +44,10 @@ export function TransportBar({
   isMuted,
   onToggleMute,
   onToggleFullscreen,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }: TransportBarProps) {
   return (
     <div className="flex h-12 shrink-0 items-center gap-1.5 border-t border-border bg-editor-chrome px-2 sm:gap-2 sm:px-3">
@@ -50,6 +60,28 @@ export function TransportBar({
       >
         {isPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5 fill-current" />}
       </Button>
+
+      {/* Undo & Redo (Ctrl+Z / Ctrl+Y) */}
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={!canUndo}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          title="Undo (Ctrl+Z)"
+        >
+          <Undo2 className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onRedo}
+          disabled={!canRedo}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          title="Redo (Ctrl+Y / Ctrl+Shift+Z)"
+        >
+          <Redo2 className="size-3.5" />
+        </button>
+      </div>
 
       <div className="hidden items-center gap-0.5 sm:flex">
         <button

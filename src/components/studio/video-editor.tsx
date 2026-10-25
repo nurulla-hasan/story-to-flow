@@ -18,6 +18,18 @@ import { ClipInspector } from "./editor/clip-inspector";
 import { CommandBar } from "./editor/command-bar";
 import { EditorModals } from "./editor/editor-modals";
 import {
+  EditorToolPanel,
+  EditorToolPanelContent,
+  EditorToolRail,
+  InspectorRail,
+  MobileEditorToolbar,
+  MobileToolSheet,
+  ProjectInspectorPanel,
+  type EditorTool,
+  type InspectorTab,
+  type MobileEditorTab,
+} from "./editor/editor-sidebar";
+import {
   formatSec,
   generateClipId,
   getClipSfxConfig,
@@ -32,6 +44,7 @@ interface VideoEditorProps {
   onUpdateClip: (clipId: string, patch: Partial<StudioClip>) => void;
   notify: (message: string, kind?: "info" | "error" | "success") => void;
   onImportImagesClick: () => void;
+  saveStatus: "idle" | "saving" | "saved" | "error";
 }
 
 export function VideoEditor({
@@ -40,6 +53,7 @@ export function VideoEditor({
   onUpdateClip,
   notify,
   onImportImagesClick,
+  saveStatus,
 }: VideoEditorProps) {
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -47,6 +61,9 @@ export function VideoEditor({
   const [showSubtitles, setShowSubtitles] = React.useState(true);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [activeTool, setActiveTool] = React.useState<EditorTool | null>("media");
+  const [inspectorTab, setInspectorTab] = React.useState<InspectorTab>("clip");
+  const [mobileTool, setMobileTool] = React.useState<MobileEditorTab | null>(null);
 
   // Timeline scale & waveform
   const [pxPerSec, setPxPerSec] = React.useState(50);
@@ -1530,10 +1547,61 @@ export function VideoEditor({
   const aspectLabel =
     project.aspectRatio === "9:16" ? "9:16 Shorts / Reels" : "16:9 YouTube";
 
+  const mobileToolTitles: Record<MobileEditorTab, string> = {
+    media: "Media",
+    audio: "Audio",
+    text: "Text",
+    transitions: "Transitions",
+    effects: "Effects",
+    clip: "Clip properties",
+  };
+
+  const handleSelectClip = (clip: StudioClip) => {
+    const timing = clipTimings.find((item) => item.clip.id === clip.id);
+    setSelectedClipId(clip.id);
+    setInspectorTab("clip");
+    setMobileTool(null);
+    if (timing) seekTo(timing.start);
+  };
+
+  const handleOpenTransitionAll = () => {
+    setMobileTool(null);
+    setActiveTransitionModal({
+      clipIndex: null,
+      type: "white-flash",
+      duration: 0.4,
+    });
+  };
+
+  const handleOpenTransitionAtPlayhead = () => {
+    if (clipTimings.length < 2) return;
+    const targetIndex =
+      activeClipIndex >= clipTimings.length - 1
+        ? clipTimings.length - 2
+        : activeClipIndex;
+    const targetClip = clipTimings[targetIndex]?.clip;
+    setMobileTool(null);
+    setActiveTransitionModal({
+      clipIndex: targetIndex,
+      type: targetClip?.transition?.type ?? "dissolve",
+      duration: targetClip?.transition?.duration ?? 0.4,
+    });
+  };
+
+  const handleOpenSfxFromPanel = (clip: StudioClip) => {
+    setMobileTool(null);
+    handleOpenSfxModal(clip);
+  };
+
+  const handleImportImagesFromPanel = () => {
+    setMobileTool(null);
+    onImportImagesClick();
+  };
+
   return (
     <section
       aria-label="CapCut-style video studio and exporter"
-      className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-editor-chrome text-foreground"
     >
       {/* Hidden inputs */}
       <input
@@ -1572,6 +1640,7 @@ export function VideoEditor({
         totalDuration={totalDuration}
         effectiveAudioDuration={effectiveAudioDuration}
         showSubtitles={showSubtitles}
+        saveStatus={saveStatus}
         onToggleSubtitles={() => setShowSubtitles((value) => !value)}
         onImportImagesClick={onImportImagesClick}
         onReplaceVoice={() => audioInputRef.current?.click()}
@@ -1582,17 +1651,42 @@ export function VideoEditor({
         onExport={handleExportVideo}
       />
 
-      {/* ── Monitor + inspector ─────────────────────────────────── */}
-      <div className="flex flex-col gap-4 border-b border-border p-3 sm:p-4 xl:flex-row">
-        <div className="min-w-0 flex-1 space-y-3 xl:flex xl:flex-col">
-          {/* Preview stage */}
+      {/* ── Library + monitor + properties ──────────────────────── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <EditorToolRail
+          activeTool={activeTool}
+          onSelectTool={(tool) =>
+            setActiveTool((current) => (current === tool ? null : tool))
+          }
+        />
+
+        {activeTool ? (
+          <EditorToolPanel
+            activeTool={activeTool}
+            project={project}
+            selectedClip={editingClip}
+            selectedTiming={editingTiming}
+            showSubtitles={showSubtitles}
+            saturation={saturation}
+            onClose={() => setActiveTool(null)}
+            onToggleSubtitles={() => setShowSubtitles((value) => !value)}
+            onImportImages={handleImportImagesFromPanel}
+            onAddClip={handleAddNewEmptyClip}
+            onSelectClip={handleSelectClip}
+            onUpdateProject={onUpdateProject}
+            onUpdateClip={onUpdateClip}
+            onOpenTransitionAll={handleOpenTransitionAll}
+            onOpenTransitionAtPlayhead={handleOpenTransitionAtPlayhead}
+            onOpenSfx={handleOpenSfxFromPanel}
+          />
+        ) : null}
+
+        <div className="flex min-w-0 flex-1">
           <PreviewStage
             project={project}
             stageRef={stageRef}
             canvasRef={canvasRef}
-            aspectLabel={aspectLabel}
             isFullscreen={isFullscreen}
-            isPlaying={isPlaying}
             isExporting={isExporting}
             exportProgress={exportProgress}
             showSubtitles={showSubtitles}
@@ -1601,63 +1695,69 @@ export function VideoEditor({
             onUpdateProject={onUpdateProject}
           />
 
-          {/* Transport + color grade */}
-          <TransportBar
-            project={project}
-            isPlaying={isPlaying}
-            onTogglePlay={() => setIsPlaying((playing) => !playing)}
-            onSeek={seekTo}
-            onStop={() => {
-              setIsPlaying(false);
-              seekTo(0);
-            }}
-            currentTime={currentTime}
-            totalDuration={totalDuration}
-            isMuted={isMuted}
-            onToggleMute={() => setIsMuted((muted) => !muted)}
-            onToggleFullscreen={toggleFullscreen}
-            saturation={saturation}
-            onUpdateProject={onUpdateProject}
-          />
+          <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-surface-subtle xl:flex">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {inspectorTab === "clip" ? (
+                <ClipInspector
+                  editingClip={editingClip}
+                  editingTiming={editingTiming}
+                  isEditingSelected={isEditingSelected}
+                  onStepClip={handleStepClip}
+                  onAdjustDuration={handleAdjustDuration}
+                  onUpdateClip={onUpdateClip}
+                  targetClipForImageRef={targetClipForImageRef}
+                  singleImageInputRef={singleImageInputRef}
+                  onToggleFlip={handleToggleFlip}
+                  onSplit={handleSplitAtPlayhead}
+                  onDuplicate={handleDuplicateActiveClip}
+                  onDelete={handleDeleteActiveClip}
+                  onOpenSfx={handleOpenSfxFromPanel}
+                />
+              ) : inspectorTab === "audio" ? (
+                <AudioMixer
+                  project={project}
+                  onUpdateProject={onUpdateProject}
+                  effectiveAudioDuration={effectiveAudioDuration}
+                  currentSpeed={currentSpeed}
+                  voiceVolume={voiceVolume}
+                  bgmVolume={bgmVolume}
+                  bgmLabel={bgmLabel}
+                  enableDucking={enableDucking}
+                  generatingBgm={generatingBgm}
+                  audioInputRef={audioInputRef}
+                  bgmInputRef={bgmInputRef}
+                  onUpdateSpeed={handleUpdateSpeed}
+                  onGenerateBgm={handleGenerateBgm}
+                />
+              ) : (
+                <ProjectInspectorPanel
+                  project={project}
+                  onUpdateProject={onUpdateProject}
+                />
+              )}
+            </div>
+          </aside>
+
+          <InspectorRail activeTab={inspectorTab} onSelectTab={setInspectorTab} />
         </div>
-
-        {/* Inspector column */}
-        <aside className="w-full shrink-0 space-y-3 xl:w-84">
-          {/* Clip inspector */}
-          <ClipInspector
-            editingClip={editingClip}
-            editingTiming={editingTiming}
-            isEditingSelected={isEditingSelected}
-            onStepClip={handleStepClip}
-            onAdjustDuration={handleAdjustDuration}
-            onUpdateClip={onUpdateClip}
-            targetClipForImageRef={targetClipForImageRef}
-            singleImageInputRef={singleImageInputRef}
-            onToggleFlip={handleToggleFlip}
-            onSplit={handleSplitAtPlayhead}
-            onDuplicate={handleDuplicateActiveClip}
-            onDelete={handleDeleteActiveClip}
-            onOpenSfx={handleOpenSfxModal}
-          />
-
-          {/* Audio mixer */}
-          <AudioMixer
-            project={project}
-            onUpdateProject={onUpdateProject}
-            effectiveAudioDuration={effectiveAudioDuration}
-            currentSpeed={currentSpeed}
-            voiceVolume={voiceVolume}
-            bgmVolume={bgmVolume}
-            bgmLabel={bgmLabel}
-            enableDucking={enableDucking}
-            generatingBgm={generatingBgm}
-            audioInputRef={audioInputRef}
-            bgmInputRef={bgmInputRef}
-            onUpdateSpeed={handleUpdateSpeed}
-            onGenerateBgm={handleGenerateBgm}
-          />
-        </aside>
       </div>
+
+      {/* ── Transport ───────────────────────────────────────────── */}
+      <TransportBar
+        project={project}
+        isPlaying={isPlaying}
+        onTogglePlay={() => setIsPlaying((playing) => !playing)}
+        onSeek={seekTo}
+        onStop={() => {
+          setIsPlaying(false);
+          seekTo(0);
+        }}
+        currentTime={currentTime}
+        totalDuration={totalDuration}
+        isMuted={isMuted}
+        onToggleMute={() => setIsMuted((muted) => !muted)}
+        onToggleFullscreen={toggleFullscreen}
+      />
 
       {/* ── Timeline dock ───────────────────────────────────────── */}
       <TimelineDock
@@ -1709,6 +1809,72 @@ export function VideoEditor({
         handleAddNewEmptyClip={handleAddNewEmptyClip}
         handleOpenSfxModal={handleOpenSfxModal}
       />
+
+      <MobileEditorToolbar
+        activeTab={mobileTool}
+        onSelectTab={(tab) =>
+          setMobileTool((current) => (current === tab ? null : tab))
+        }
+      />
+
+      {mobileTool ? (
+        <MobileToolSheet
+          title={mobileToolTitles[mobileTool]}
+          onClose={() => setMobileTool(null)}
+        >
+          {mobileTool === "clip" ? (
+            <ClipInspector
+              editingClip={editingClip}
+              editingTiming={editingTiming}
+              isEditingSelected={isEditingSelected}
+              onStepClip={handleStepClip}
+              onAdjustDuration={handleAdjustDuration}
+              onUpdateClip={onUpdateClip}
+              targetClipForImageRef={targetClipForImageRef}
+              singleImageInputRef={singleImageInputRef}
+              onToggleFlip={handleToggleFlip}
+              onSplit={handleSplitAtPlayhead}
+              onDuplicate={handleDuplicateActiveClip}
+              onDelete={handleDeleteActiveClip}
+              onOpenSfx={handleOpenSfxFromPanel}
+            />
+          ) : mobileTool === "audio" ? (
+            <AudioMixer
+              project={project}
+              onUpdateProject={onUpdateProject}
+              effectiveAudioDuration={effectiveAudioDuration}
+              currentSpeed={currentSpeed}
+              voiceVolume={voiceVolume}
+              bgmVolume={bgmVolume}
+              bgmLabel={bgmLabel}
+              enableDucking={enableDucking}
+              generatingBgm={generatingBgm}
+              audioInputRef={audioInputRef}
+              bgmInputRef={bgmInputRef}
+              onUpdateSpeed={handleUpdateSpeed}
+              onGenerateBgm={handleGenerateBgm}
+            />
+          ) : (
+            <EditorToolPanelContent
+              activeTool={mobileTool}
+              project={project}
+              selectedClip={editingClip}
+              selectedTiming={editingTiming}
+              showSubtitles={showSubtitles}
+              saturation={saturation}
+              onToggleSubtitles={() => setShowSubtitles((value) => !value)}
+              onImportImages={handleImportImagesFromPanel}
+              onAddClip={handleAddNewEmptyClip}
+              onSelectClip={handleSelectClip}
+              onUpdateProject={onUpdateProject}
+              onUpdateClip={onUpdateClip}
+              onOpenTransitionAll={handleOpenTransitionAll}
+              onOpenTransitionAtPlayhead={handleOpenTransitionAtPlayhead}
+              onOpenSfx={handleOpenSfxFromPanel}
+            />
+          )}
+        </MobileToolSheet>
+      ) : null}
 
       {/* Hidden media elements for live playback */}
       {project.audioUrl ? (

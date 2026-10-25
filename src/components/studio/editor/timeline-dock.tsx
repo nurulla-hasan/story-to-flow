@@ -137,7 +137,7 @@ export function TimelineDock({
   handleOpenSfxModal,
 }: TimelineDockProps) {
   return (
-    <div className="bg-editor-chrome">
+    <div className="shrink-0 border-t border-border bg-editor-chrome">
       {durationDeficit >= 2.5 ? (
         <div className="m-3 mb-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning-subtle p-2.5">
           <div className="flex min-w-0 items-center gap-2">
@@ -195,52 +195,54 @@ export function TimelineDock({
       ) : null}
     
       {/* Timeline toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="flex items-center gap-1 text-3xs font-bold uppercase tracking-wider text-muted-foreground">
-            <Clock className="size-3 text-primary" />
-            Clip length
-          </span>
-          {DURATION_PRESETS.map((seconds) => (
-            <button
-              key={seconds}
-              type="button"
-              onClick={() => handleSetAllClipsDuration(seconds)}
-              className={cn(
-                "rounded-md px-2 py-1 font-mono text-3xs transition-colors",
-                isAllSameDuration(seconds)
-                  ? "bg-primary font-bold text-primary-foreground shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:text-foreground",
-              )}
-              title={`Set every clip to ${seconds}s`}
-            >
-              {seconds.toFixed(1)}s
-            </button>
-          ))}
-    
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={0.5}
-              max={30}
-              step={0.5}
-              value={customDuration}
-              onChange={(event) => setCustomDuration(event.target.value)}
-              className="h-7 w-14 rounded-md border border-border bg-background px-1.5 text-center font-mono text-3xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-              aria-label="Custom duration for every clip"
-            />
-            <button
-              type="button"
-              onClick={() => handleSetAllClipsDuration(parseFloat(customDuration) || 5.0)}
-              className="h-7 rounded-md border border-border bg-card px-2 text-3xs font-semibold text-foreground transition-colors hover:bg-muted"
-            >
-              Apply
-            </button>
+      <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <div className="hidden shrink-0 items-center gap-1 sm:flex">
+            <span className="flex items-center gap-1 text-3xs font-bold tracking-wider text-muted-foreground uppercase">
+              <Clock className="size-3 text-primary" />
+              Length
+            </span>
+            {DURATION_PRESETS.map((seconds) => (
+              <button
+                key={seconds}
+                type="button"
+                onClick={() => handleSetAllClipsDuration(seconds)}
+                className={cn(
+                  "rounded-md px-1.5 py-1 font-mono text-3xs transition-colors",
+                  isAllSameDuration(seconds)
+                    ? "bg-primary font-bold text-primary-foreground shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:text-foreground",
+                )}
+                title={`Set every clip to ${seconds}s`}
+              >
+                {seconds.toFixed(1)}s
+              </button>
+            ))}
+
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0.5}
+                max={30}
+                step={0.5}
+                value={customDuration}
+                onChange={(event) => setCustomDuration(event.target.value)}
+                className="h-7 w-14 rounded-md border border-border bg-background px-1.5 text-center font-mono text-3xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+                aria-label="Custom duration for every clip"
+              />
+              <button
+                type="button"
+                onClick={() => handleSetAllClipsDuration(parseFloat(customDuration) || 5.0)}
+                className="h-7 rounded-md border border-border bg-card px-2 text-3xs font-semibold text-foreground transition-colors hover:bg-muted"
+              >
+                Apply
+              </button>
+            </div>
           </div>
-        </div>
-    
-        <div className="flex flex-wrap items-center gap-1">
-          <div className="flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5">
+
+          <div className="mx-0.5 hidden h-5 w-px shrink-0 bg-border lg:block" />
+
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5">
             <button
               type="button"
               onClick={() => setPxPerSec((zoom) => Math.max(20, zoom - 5))}
@@ -271,19 +273,19 @@ export function TimelineDock({
               {pxPerSec}px/s
             </span>
           </div>
-    
+
           <Button
             type="button"
             size="sm"
             variant="outline"
             onClick={handleFitTimeline}
-            className="h-7 gap-1 px-2 text-2xs"
+            className="hidden h-7 shrink-0 gap-1 px-2 text-2xs sm:flex"
             title="Fit the whole timeline on screen"
           >
             <Maximize2 className="size-3 text-primary" />
-            <span className="hidden sm:inline">Fit</span>
+            <span className="hidden lg:inline">Fit</span>
           </Button>
-    
+
           <Button
             type="button"
             size="sm"
@@ -295,15 +297,15 @@ export function TimelineDock({
                 duration: 0.4,
               })
             }
-            className="h-7 gap-1 px-2 text-2xs font-semibold"
+            className="hidden h-7 shrink-0 gap-1 px-2 text-2xs font-semibold sm:flex"
             title="Apply a transition across every split"
           >
             <Zap className="size-3 text-primary" />
-            <span className="hidden sm:inline">Transitions</span>
+            <span className="hidden lg:inline">Transitions</span>
           </Button>
-    
-          <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
-    
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={handleSplitAtPlayhead}
@@ -334,7 +336,7 @@ export function TimelineDock({
       {/* Tracks */}
       <div className="flex items-stretch overflow-hidden border-t border-border bg-editor-chrome">
         {/* Sticky track headers */}
-        <div className="w-26 shrink-0 border-r border-border bg-surface-subtle select-none sm:w-28">
+        <div className="w-20 shrink-0 border-r border-border bg-surface-subtle select-none sm:w-26">
           <div
             className="flex items-center justify-between gap-1 border-b border-border/60 px-2"
             style={{ height: RULER_HEIGHT }}
@@ -401,7 +403,7 @@ export function TimelineDock({
           </div>
     
           <div
-            className="flex items-center justify-between gap-1 border-b border-border/60 bg-track-sfx-soft px-2"
+            className="hidden items-center justify-between gap-1 border-b border-border/60 bg-track-sfx-soft px-2 sm:flex"
             style={{ height: TRACK_HEIGHT.sfx }}
           >
             <span className="flex min-w-0 items-center gap-1 text-3xs font-semibold text-track-sfx">
@@ -424,7 +426,7 @@ export function TimelineDock({
           </div>
     
           <div
-            className="flex items-center justify-between gap-1 border-b border-border/60 bg-track-music-soft px-2"
+            className="hidden items-center justify-between gap-1 border-b border-border/60 bg-track-music-soft px-2 sm:flex"
             style={{ height: TRACK_HEIGHT.music }}
           >
             <span className="flex min-w-0 items-center gap-1 text-3xs font-semibold text-track-music">
@@ -451,7 +453,7 @@ export function TimelineDock({
           ref={timelineScrollRef}
           className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
         >
-          <div className="relative" style={{ width: `${timelineWidth}px` }}>
+          <div className="relative min-w-full" style={{ width: `${timelineWidth}px` }}>
             {/* Ruler */}
             <div
               className="relative cursor-pointer border-b border-border/60 bg-surface-muted/50"
@@ -701,7 +703,7 @@ export function TimelineDock({
     
             {/* SFX track */}
             <div
-              className="relative border-b border-border/60 bg-track-sfx-soft/40"
+              className="relative hidden border-b border-border/60 bg-track-sfx-soft/40 sm:block"
               style={{ height: TRACK_HEIGHT.sfx }}
               onPointerDown={beginScrub}
             >
@@ -745,7 +747,7 @@ export function TimelineDock({
     
             {/* Music track */}
             <div
-              className="relative border-b border-border/60 bg-track-music-soft/40"
+              className="relative hidden border-b border-border/60 bg-track-music-soft/40 sm:block"
               style={{ height: TRACK_HEIGHT.music }}
               onPointerDown={beginScrub}
             >

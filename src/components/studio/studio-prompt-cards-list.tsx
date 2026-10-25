@@ -224,7 +224,7 @@ export function StudioPromptCardsList({
 
       {showTextView ? (
         <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-          <pre className="max-h-128 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground select-all">
+          <pre className="max-h-128 overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed text-foreground select-all">
             {allPromptsFormatted}
           </pre>
         </div>

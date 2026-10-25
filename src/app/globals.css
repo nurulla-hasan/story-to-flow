@@ -58,6 +58,8 @@
   --color-editor-stage: var(--editor-stage);
   --color-editor-screen: var(--editor-screen);
   --color-editor-line: var(--editor-line);
+  --color-editor-on-dark: var(--editor-on-dark);
+  --color-editor-on-dark-muted: var(--editor-on-dark-muted);
   --color-track-video: var(--track-video);
   --color-track-video-soft: var(--track-video-soft);
   --color-track-voice: var(--track-voice);
@@ -113,6 +115,8 @@
   --editor-stage: #101a22;
   --editor-screen: #0a1118;
   --editor-line: oklch(1 0 0 / 0.14);
+  --editor-on-dark: #e2e8f0;
+  --editor-on-dark-muted: #94a3b8;
   --track-video: #0f766e;
   --track-video-soft: color-mix(in oklab, var(--track-video) 12%, var(--card));
   --track-voice: #0e7490;
@@ -171,6 +175,8 @@
   --editor-stage: oklch(0.145 0.014 255);
   --editor-screen: oklch(0.105 0.01 255);
   --editor-line: oklch(1 0 0 / 0.12);
+  --editor-on-dark: oklch(0.93 0.008 250);
+  --editor-on-dark-muted: oklch(0.72 0.015 250);
   --track-video: oklch(0.76 0.12 180);
   --track-video-soft: color-mix(in oklab, var(--track-video) 16%, transparent);
   --track-voice: oklch(0.78 0.11 215);

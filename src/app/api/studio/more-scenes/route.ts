@@ -2,7 +2,7 @@ import { z } from "zod";
 import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
 import { newId } from "@/lib/types";
-import { sanitizeDetachedProps } from "@/lib/studio";
+import { detectSfxFromAction, sanitizeDetachedProps } from "@/lib/studio";
 
 const moreScenesRequestSchema = z.object({
   story: z.string().optional(),
@@ -25,6 +25,19 @@ const moreClipsResponseSchema = z.object({
         motion: z
           .enum(["zoom-in", "zoom-out", "pan-left", "pan-right", "static"])
           .default("zoom-in"),
+        sfx: z
+          .enum([
+            "none",
+            "cartoon-pop",
+            "heavy-thud",
+            "whoosh",
+            "magic-chime",
+            "glass-shatter",
+            "boing",
+            "crow-caw",
+            "clock-tick",
+          ])
+          .default("none"),
       }),
     )
     .min(1)
@@ -109,6 +122,11 @@ Return JSON conforming to schema now.`;
         promptText = `${promptText}${aspectSuffix}`;
       }
 
+      const sfx =
+        clip.sfx && clip.sfx !== "none"
+          ? clip.sfx
+          : detectSfxFromAction(clip.narration, promptText);
+
       return {
         id: newId(),
         index: parsed.existingCount + idx + 1,
@@ -117,6 +135,7 @@ Return JSON conforming to schema now.`;
         imagePrompt: promptText,
         imageUrl: null,
         motion,
+        sfx,
       };
     });
 

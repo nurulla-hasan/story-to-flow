@@ -2,7 +2,11 @@ import { z } from "zod";
 import { chatJSON } from "@/lib/llm";
 import { errorResponse } from "@/lib/http";
 import { newId } from "@/lib/types";
-import { saveStudioProject, sanitizeDetachedProps } from "@/lib/studio";
+import {
+  detectSfxFromAction,
+  sanitizeDetachedProps,
+  saveStudioProject,
+} from "@/lib/studio";
 
 const studioPlanRequestSchema = z.object({
   story: z.string().min(10).max(10000),
@@ -20,6 +24,19 @@ const studioClipResponseSchema = z.object({
   motion: z
     .enum(["zoom-in", "zoom-out", "pan-left", "pan-right", "static"])
     .default("zoom-in"),
+  sfx: z
+    .enum([
+      "none",
+      "cartoon-pop",
+      "heavy-thud",
+      "whoosh",
+      "magic-chime",
+      "glass-shatter",
+      "boing",
+      "crow-caw",
+      "clock-tick",
+    ])
+    .default("none"),
 });
 
 const studioPlanResponseSchema = z.object({
@@ -64,7 +81,24 @@ Image diffusion models (Google Flow, Midjourney, Flux) drift and change characte
    - Keep the 'image_prompt' field focused purely on static visual details (composition, characters, environment, action, lighting) without video camera motion words, since prompts are used for static image generation.
 6. STORY BGM MOOD DETECTION:
    - Identify the primary emotional mood of the story and output "recommended_bgm_mood" ('suspense-mystery', 'emotional-piano', 'lofi-chill', 'dark-thriller', 'inspirational-epic').
-7. Each prompt must follow this structure: "[Visual style]. [Character visual lock with any detached item cleanly overridden], [Environment lock]. In this shot: [specific framing, action, detached prop location, emotion]. [Aspect ratio directive]."
+7. CARTESIA AI SONIC MODEL PROSODIC & PHONETIC ACTING RULES (MANDATORY):
+   The voiceover will be synthesized with Cartesia AI (Sonic Model). To ensure high-energy vocal acting, gasps, and dramatic punch rather than flat robotic reading:
+   - Whenever action beats, bursts, impacts, or shock words occur, use phonetic stretching and em-dashes:
+     * Burst / Pop: Write "— ফটা-আ-স্!!" (never plain "ফটাস")
+     * Impact / Crash / Fall: Write "— ধপা-আ-স্!!" (never plain "ধপাস")
+     * Speed / Flight: Write "— হু-উ-শ!!" (never plain "হুশ")
+     * Shock / Sudden realization: Use an em-dash ("—") immediately before the exclamation to trigger Cartesia's natural breath-gasp, followed by double exclamation marks ("!!") for pitch modulation (e.g. "হঠাৎ — আর সাথে সাথে সময় পুরোপুরি থমকে গেল!!").
+8. AUTOMATIC SFX (FOLEY) TAGGING: For each clip, tag "sfx" based on the acoustic event:
+   - Bubble burst / snap -> 'cartoon-pop'
+   - Falling down / mattress / crash / impact -> 'heavy-thud'
+   - Flying / swooping / speed -> 'whoosh'
+   - Magical sparkle / lever pull / time freeze -> 'magic-chime'
+   - Cup falling / glass shattering -> 'glass-shatter'
+   - Spring bounce -> 'boing'
+   - Crow / bird cawing -> 'crow-caw'
+   - Clock ticking -> 'clock-tick'
+   - If none -> 'none'.
+9. Each prompt must follow this structure: "[Visual style]. [Character visual lock with any detached item cleanly overridden], [Environment lock]. In this shot: [specific framing, action, detached prop location, emotion]. [Aspect ratio directive]."
 
 Return JSON only conforming to the schema. No markdown, no conversation.`;
 
@@ -93,12 +127,13 @@ PACING & TIMING CALCULATION:
 - Aspect Ratio: ${parsed.aspectRatio}
 
 CRITICAL RULES:
-1. Write the full "continuous_voiceover" covering the complete story in natural Bengali.
+1. Write the full "continuous_voiceover" covering the complete story in natural Bengali with Cartesia Sonic phonetic stretching (e.g. "— ফটা-আ-স্!!", "— ধপা-আ-স্!!", "— হু-উ-শ!!").
 2. Distribute the voiceover across ~${estimatedClips} sequential image clips (each clip pacing at exactly ${clipDur}s with ~${wordsPerClip} words of narration) so images never run out while audio is playing.
 3. Establish a strict "character_visual_lock" and "environment_visual_lock" to ensure 100% visual consistency.
 4. If a locked accessory or prop is removed, damaged, or transferred in the scene action (e.g. spectacles snatched by a bird, hat flying, cup dropped), do NOT describe the character wearing it in the character lock block for that specific frame! Temporarily override it (e.g. with spectacles missing / bare eyes) and describe the detached prop only in the action.
 5. CAMERA MOVEMENT METADATA: Alternate camera motions ('zoom-in', 'pan-left', 'zoom-out', 'pan-right', 'static') across clips in the 'motion' field. NEVER use 'zoom-in' for all clips! Keep the 'image_prompt' focused purely on visual image content without video camera movement phrases.
-6. In every clip's "image_prompt", anchor the locked character appearance and clothing without variation.
+6. Tag each clip's "sfx" accurately ('cartoon-pop', 'heavy-thud', 'whoosh', 'magic-chime', 'glass-shatter', 'boing', 'crow-caw', 'clock-tick', or 'none').
+7. In every clip's "image_prompt", anchor the locked character appearance and clothing without variation.
 
 Return the JSON result now.`;
 
@@ -153,6 +188,11 @@ Return the JSON result now.`;
         promptText = `${promptText}${aspectSuffix}`;
       }
 
+      const sfx =
+        clip.sfx && clip.sfx !== "none"
+          ? clip.sfx
+          : detectSfxFromAction(clip.narration, promptText);
+
       return {
         id: newId(),
         index: clip.index || idx + 1,
@@ -161,6 +201,7 @@ Return the JSON result now.`;
         imagePrompt: promptText,
         imageUrl: null,
         motion,
+        sfx,
       };
     });
 

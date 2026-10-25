@@ -53,6 +53,23 @@
   --color-surface-muted: var(--surface-muted);
   --color-brand-subtle: var(--brand-subtle);
   --color-brand-border: var(--brand-border);
+  --color-overlay: var(--overlay);
+  --color-editor-chrome: var(--editor-chrome);
+  --color-editor-stage: var(--editor-stage);
+  --color-editor-screen: var(--editor-screen);
+  --color-editor-line: var(--editor-line);
+  --color-track-video: var(--track-video);
+  --color-track-video-soft: var(--track-video-soft);
+  --color-track-voice: var(--track-voice);
+  --color-track-voice-soft: var(--track-voice-soft);
+  --color-track-sfx: var(--track-sfx);
+  --color-track-sfx-soft: var(--track-sfx-soft);
+  --color-track-music: var(--track-music);
+  --color-track-music-soft: var(--track-music-soft);
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: 0.875rem;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -91,6 +108,19 @@
   --surface-muted: #f8fafb;
   --brand-subtle: #f0faf7;
   --brand-border: #a7d7cd;
+  --overlay: oklch(0.12 0.01 250 / 0.72);
+  --editor-chrome: #f7f9fa;
+  --editor-stage: #101a22;
+  --editor-screen: #0a1118;
+  --editor-line: oklch(1 0 0 / 0.14);
+  --track-video: #0f766e;
+  --track-video-soft: color-mix(in oklab, var(--track-video) 12%, var(--card));
+  --track-voice: #0e7490;
+  --track-voice-soft: color-mix(in oklab, var(--track-voice) 12%, var(--card));
+  --track-sfx: #b45309;
+  --track-sfx-soft: color-mix(in oklab, var(--track-sfx) 12%, var(--card));
+  --track-music: #7c3aed;
+  --track-music-soft: color-mix(in oklab, var(--track-music) 12%, var(--card));
   --chart-1: #0f766e;
   --chart-2: #2f9e8f;
   --chart-3: #7cc4ba;
@@ -114,8 +144,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.74 0.12 178);
+  --primary-foreground: oklch(0.16 0.02 180);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -125,17 +155,30 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.6 0.09 180);
   --success: oklch(0.627 0.194 149.214);
   --success-foreground: oklch(0.985 0 0);
   --success-subtle: oklch(0.269 0.05 149.214);
   --warning: oklch(0.769 0.188 70.08);
   --warning-foreground: oklch(0.145 0 0);
   --warning-subtle: oklch(0.269 0.05 70.08);
-  --surface-subtle: oklch(0.22 0 0);
-  --surface-muted: oklch(0.24 0 0);
+  --surface-subtle: oklch(0.19 0.006 250);
+  --surface-muted: oklch(0.225 0.006 250);
   --brand-subtle: oklch(0.25 0.05 180);
   --brand-border: oklch(0.35 0.08 180);
+  --overlay: oklch(0.08 0.01 250 / 0.78);
+  --editor-chrome: oklch(0.17 0.008 250);
+  --editor-stage: oklch(0.145 0.014 255);
+  --editor-screen: oklch(0.105 0.01 255);
+  --editor-line: oklch(1 0 0 / 0.12);
+  --track-video: oklch(0.76 0.12 180);
+  --track-video-soft: color-mix(in oklab, var(--track-video) 16%, transparent);
+  --track-voice: oklch(0.78 0.11 215);
+  --track-voice-soft: color-mix(in oklab, var(--track-voice) 16%, transparent);
+  --track-sfx: oklch(0.82 0.13 75);
+  --track-sfx-soft: color-mix(in oklab, var(--track-sfx) 16%, transparent);
+  --track-music: oklch(0.77 0.13 300);
+  --track-music-soft: color-mix(in oklab, var(--track-music) 16%, transparent);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -143,12 +186,12 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.74 0.12 178);
+  --sidebar-primary-foreground: oklch(0.16 0.02 180);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: oklch(0.6 0.09 180);
 }
 
 @layer base {
@@ -199,4 +242,13 @@
 
 @utility max-h-modal {
   max-height: 85vh;
+}
+
+/* Subtle dot grid behind the video preview stage */
+@utility stage-grid {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 14%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
 }

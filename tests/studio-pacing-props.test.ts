@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatTimeRange, sanitizeDetachedProps } from "../src/lib/studio";
+import {
+  detectSfxFromAction,
+  formatTimeRange,
+  sanitizeDetachedProps,
+} from "../src/lib/studio";
 
 describe("Studio Pacing Synchronization and Math", () => {
   it("calculates exact 96s runtime and 4.0s intervals for 24 images at 4s pacing", () => {
@@ -116,5 +120,50 @@ describe("Camera Motion Variety for Video Editor", () => {
     expect(cleanedPrompt).toBe(
       "3D Pixar Animation. Shamsur inspecting gears, vertical 9:16 aspect ratio",
     );
+  });
+});
+
+describe("Automatic SFX (Foley) Detection from Story & Action", () => {
+  it("detects glass-shatter when teacup drops or spills", () => {
+    expect(detectSfxFromAction("হঠাৎ শামসুর কনুই লেগে চায়ের কাপটি নিচে পড়ে গেল!")).toBe("glass-shatter");
+  });
+
+  it("detects magic-chime when lever is pulled or time freezes", () => {
+    expect(
+      detectSfxFromAction("শামসু পেছনের দেয়ালের বড় লাল লিভারটা টেনে দিল—আর সাথে সাথে সময় পুরোপুরি থমকে গেল!"),
+    ).toBe("magic-chime");
+  });
+
+  it("detects crow-caw when crow or bird appears in action", () => {
+    expect(detectSfxFromAction("কাকটা ঠোঁটে চশমাটি নিয়ে উড়াল দিল!")).toBe("crow-caw");
+  });
+
+  it("detects heavy-thud when falling onto mattress or crashing", () => {
+    expect(detectSfxFromAction("তোশকের ওপর সে ধপাস করে পড়ল!")).toBe("heavy-thud");
+  });
+
+  it("detects cartoon-pop when bubble bursts or pops", () => {
+    expect(detectSfxFromAction("বিশাল বুদবুদটা ফটাস করে ফেটে গেল!")).toBe("cartoon-pop");
+  });
+
+  it("detects whoosh when rapid flight or swoop occurs", () => {
+    expect(detectSfxFromAction("দ্রুত গতিতে বাতাসে হুশ করে উড়ে গেল")).toBe("whoosh");
+  });
+
+  it("returns none when no acoustic event is mentioned", () => {
+    expect(detectSfxFromAction("বৃদ্ধ কারিগর শান্তভাবে টেবিলে বসে রইল।")).toBe("none");
+  });
+
+  it("handles custom transformed SFX configuration with offset, volume, and speed", () => {
+    const sfxConfig = {
+      type: "cartoon-pop" as const,
+      offset: 0.85,
+      volume: 1.5,
+      speed: 1.25,
+    };
+
+    expect(sfxConfig.offset).toBe(0.85);
+    expect(sfxConfig.volume).toBe(1.5);
+    expect(sfxConfig.speed).toBe(1.25);
   });
 });

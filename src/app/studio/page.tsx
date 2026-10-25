@@ -3,12 +3,12 @@
 import * as React from "react";
 import { Upload } from "lucide-react";
 import { ToastNotification, type ToastState } from "@/components/toast-notification";
-import { VideoEditor } from "@/components/studio/video-editor";
 import { StudioHeader } from "@/components/studio/studio-header";
 import { StudioSidebar } from "@/components/studio/studio-sidebar";
 import { StudioVoiceoverCard } from "@/components/studio/studio-voiceover-card";
 import { StudioVisualLockBanner } from "@/components/studio/studio-visual-lock-banner";
 import { StudioPromptsCard } from "@/components/studio/studio-prompts-card";
+import { StudioEditorCta } from "@/components/studio/studio-editor-cta";
 import { StudioPromptCardsList } from "@/components/studio/studio-prompt-cards-list";
 import { StudioEmptyState } from "@/components/studio/studio-empty-state";
 import { useStudioBatchImages } from "@/components/studio/use-studio-batch-images";
@@ -406,15 +406,9 @@ export default function StudioPage() {
             </div>
           ) : null}
 
-          {/* CapCut-Style Video Editor & Exporter */}
+          {/* CapCut-Style Video Editor entry point (dedicated full-width page) */}
           {project.clips.length > 0 ? (
-            <VideoEditor
-              project={project}
-              onUpdateProject={handleUpdateProject}
-              onUpdateClip={handleUpdateClip}
-              notify={notify}
-              onImportImagesClick={openBatchFileDialog}
-            />
+            <StudioEditorCta project={project} totalDuration={totalDuration} />
           ) : null}
 
           {/* Optional Detailed Prompt Cards View */}

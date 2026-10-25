@@ -1,43 +1,30 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import {
-  AlertTriangle,
-  Clock,
-  Copy,
-  Download,
-  FastForward,
-  Film,
-  Headphones,
-  ImagePlus,
-  Loader2,
-  Music,
-  Palette,
-  Pause,
-  Play,
-  Plus,
-  RotateCcw,
-  Scissors,
-  Sparkles,
-  Subtitles,
-  Trash2,
-  Upload,
-  Volume2,
-  VolumeX,
-  Wand2,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "cn";
-import type { BgmMood, ClipMotion, StudioClip, StudioProject } from "./types";
+  type BgmMood,
+  type ClipMotion,
+  type ClipSfxConfig,
+  type ClipTransition,
+  type StudioClip,
+  type StudioProject,
+  type TransitionType,
+} from "./types";
 import { api } from "@/lib/apiClient";
 import { BGM_MOOD_PRESETS, generateCinematicBgm } from "@/lib/bgm";
-
-function generateClipId(): string {
-  return `clip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-}
+import { playUniversalSfx } from "@/lib/sfx";
+import { AudioMixer } from "./editor/audio-mixer";
+import { ClipInspector } from "./editor/clip-inspector";
+import { CommandBar } from "./editor/command-bar";
+import { EditorModals } from "./editor/editor-modals";
+import {
+  formatSec,
+  generateClipId,
+  getClipSfxConfig,
+} from "./editor/editor-shared";
+import { PreviewStage } from "./editor/preview-stage";
+import { TimelineDock } from "./editor/timeline-dock";
+import { TransportBar } from "./editor/transport-bar";
 
 interface VideoEditorProps {
   project: StudioProject;
@@ -59,12 +46,26 @@ export function VideoEditor({
   const [isMuted, setIsMuted] = React.useState(false);
   const [showSubtitles, setShowSubtitles] = React.useState(true);
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
 
   // Timeline scale & waveform
   const [pxPerSec, setPxPerSec] = React.useState(50);
   const [audioPeaks, setAudioPeaks] = React.useState<number[] | null>(null);
   const [resizingClip, setResizingClip] = React.useState<{ id: string; duration: number } | null>(null);
   const resizingRef = React.useRef<{ clipId: string; edge: "left" | "right"; startX: number; initialDur: number } | null>(null);
+  const [activeTransitionModal, setActiveTransitionModal] = React.useState<{
+    clipIndex: number | null;
+    type: TransitionType;
+    duration: number;
+  } | null>(null);
+
+  // SFX Transform Modal & Upload state
+  const [activeSfxModal, setActiveSfxModal] = React.useState<{
+    clipId: string;
+    config: ClipSfxConfig;
+  } | null>(null);
+  const customSfxInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingSfx, setUploadingSfx] = React.useState(false);
 
   // Audio & Export state
   const [uploadingAudio, setUploadingAudio] = React.useState(false);
@@ -83,9 +84,13 @@ export function VideoEditor({
   const waveformCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const animFrameRef = React.useRef<number | null>(null);
   const timelineScrollRef = React.useRef<HTMLDivElement>(null);
+  const stageRef = React.useRef<HTMLDivElement>(null);
+  const lastPlayedSfxClipRef = React.useRef<string | null>(null);
+  const sfxAudioCtxRef = React.useRef<AudioContext | null>(null);
 
   // Preloaded image elements cache for smooth real-time rendering
   const imageCacheRef = React.useRef<Map<string, HTMLImageElement>>(new Map());
+  const [imageVersion, setImageVersion] = React.useState(0);
 
   const totalDuration = React.useMemo(() => {
     return Math.max(
@@ -141,16 +146,27 @@ export function VideoEditor({
 
   const activeTiming = clipTimings[activeClipIndex] || null;
 
-  // Preload attached images
+  // The inspector edits the explicitly selected clip, falling back to whatever is under the playhead.
+  const selectedTiming = React.useMemo(
+    () => clipTimings.find((t) => t.clip.id === selectedClipId) ?? null,
+    [clipTimings, selectedClipId],
+  );
+  const editingTiming = selectedTiming ?? activeTiming;
+  const editingClip = editingTiming?.clip ?? null;
+  const isEditingSelected = Boolean(selectedTiming);
+
+  // Preload attached images and repaint the canvas as soon as each one is ready
   React.useEffect(() => {
     project.clips.forEach((clip) => {
       if (clip.imageUrl && !imageCacheRef.current.has(clip.imageUrl)) {
         const img = new window.Image();
         img.crossOrigin = "anonymous";
-        img.src = clip.imageUrl;
+        const url = clip.imageUrl;
         img.onload = () => {
-          imageCacheRef.current.set(clip.imageUrl!, img);
+          imageCacheRef.current.set(url, img);
+          setImageVersion((version) => version + 1);
         };
+        img.src = url;
       }
     });
   }, [project.clips]);
@@ -196,12 +212,72 @@ export function VideoEditor({
     }
   }, [voiceVolume, isMuted]);
 
+  const enableDucking = project.enableAudioDucking ?? true;
+
+  // Trigger sound effects when playhead reaches clip offset
+  React.useEffect(() => {
+    if (!isPlaying) {
+      lastPlayedSfxClipRef.current = null;
+      return;
+    }
+
+    if (activeTiming) {
+      const cfg = getClipSfxConfig(activeTiming.clip);
+      if (cfg && cfg.type !== "none") {
+        const triggerTime = activeTiming.start + (cfg.offset || 0);
+        const diff = currentTime - triggerTime;
+
+        if (diff >= 0 && diff <= 0.25) {
+          if (lastPlayedSfxClipRef.current !== activeTiming.clip.id) {
+            lastPlayedSfxClipRef.current = activeTiming.clip.id;
+            try {
+              if (!sfxAudioCtxRef.current || sfxAudioCtxRef.current.state === "closed") {
+                const AudioCtx =
+                  window.AudioContext ||
+                  (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+                sfxAudioCtxRef.current = new AudioCtx();
+              }
+              if (sfxAudioCtxRef.current.state === "suspended") {
+                sfxAudioCtxRef.current.resume();
+              }
+              void playUniversalSfx(sfxAudioCtxRef.current, cfg);
+            } catch (e) {
+              console.warn("[sfx] Live playback failed:", e);
+            }
+          }
+        }
+      }
+    }
+  }, [isPlaying, currentTime, activeTiming]);
+
+  // Smart Audio Ducking: lowers BGM volume to 15% during voiceover playback, and smooth ramp up to 35% on pause/finish
+  React.useEffect(() => {
+    if (!bgmRef.current || isMuted) return;
+
+    if (enableDucking && project.audioUrl) {
+      const isVoiceSpeaking =
+        audioRef.current &&
+        !audioRef.current.paused &&
+        !audioRef.current.ended &&
+        isPlaying &&
+        currentTime < (project.audioDuration / currentSpeed);
+
+      const targetBgmVol = isVoiceSpeaking
+        ? Math.min(bgmVolume, 0.15)
+        : Math.min(1.0, Math.max(bgmVolume, 0.35));
+
+      bgmRef.current.volume = targetBgmVol;
+    } else {
+      bgmRef.current.volume = bgmVolume;
+    }
+  }, [currentTime, isPlaying, bgmVolume, isMuted, enableDucking, project.audioUrl, project.audioDuration, currentSpeed]);
+
   // Update BGM volume/mute dynamically without restarting audio
   React.useEffect(() => {
-    if (bgmRef.current) {
+    if (bgmRef.current && !enableDucking) {
       bgmRef.current.volume = isMuted ? 0 : bgmVolume;
     }
-  }, [bgmVolume, isMuted]);
+  }, [bgmVolume, isMuted, enableDucking]);
 
   // Sync audio time ONLY when user manually seeks (dragging playhead / clicking timeline)
   const seekTo = React.useCallback(
@@ -218,6 +294,73 @@ export function VideoEditor({
     },
     [totalDuration, currentSpeed],
   );
+
+  // Native fullscreen preview (CapCut-style "expand monitor")
+  React.useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = React.useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.();
+      return;
+    }
+    const el = stageRef.current;
+    if (el?.requestFullscreen) {
+      void el.requestFullscreen().catch(() => {
+        notify("Fullscreen preview is not available in this browser.", "info");
+      });
+    }
+  }, [notify]);
+
+  // Editing shortcuts: Space play/pause, ←/→ seek, M mute
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (event.code === "Space" || event.key === " ") {
+        event.preventDefault();
+        setIsPlaying((playing) => !playing);
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        seekTo(currentTime - (event.shiftKey ? 5 : 1));
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        seekTo(currentTime + (event.shiftKey ? 5 : 1));
+      } else if (event.key.toLowerCase() === "m") {
+        setIsMuted((muted) => !muted);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [currentTime, seekTo]);
+
+  // Keep the playhead visible inside the timeline while playing
+  React.useEffect(() => {
+    if (!isPlaying) return;
+    const scroller = timelineScrollRef.current;
+    if (!scroller) return;
+
+    const playheadX = currentTime * pxPerSec;
+    const padding = 72;
+    if (playheadX < scroller.scrollLeft + padding) {
+      scroller.scrollLeft = Math.max(0, playheadX - padding);
+    } else if (playheadX > scroller.scrollLeft + scroller.clientWidth - padding) {
+      scroller.scrollLeft = playheadX - scroller.clientWidth + padding;
+    }
+  }, [currentTime, isPlaying, pxPerSec]);
 
   // Playback animation loop: Uses audio hardware clock as master clock when audio is present
   React.useEffect(() => {
@@ -259,13 +402,17 @@ export function VideoEditor({
   }, [isPlaying, totalDuration, currentSpeed, seekTo]);
 
   const timelineWidth = React.useMemo(() => {
-    return Math.max(800, totalDuration * pxPerSec);
+    return Math.max(640, Math.ceil(totalDuration * pxPerSec) + 32);
   }, [totalDuration, pxPerSec]);
+
+  const voiceoverWidth = React.useMemo(() => {
+    if (!project.audioDuration) return 0;
+    return Math.max(40, (project.audioDuration / currentSpeed) * pxPerSec);
+  }, [project.audioDuration, currentSpeed, pxPerSec]);
 
   // Decode Voiceover Audio Waveform Peaks
   React.useEffect(() => {
     if (!project.audioUrl) {
-      setAudioPeaks(null);
       return;
     }
 
@@ -314,8 +461,8 @@ export function VideoEditor({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const width = Math.ceil(timelineWidth);
-    const height = 54;
+    const width = Math.max(1, Math.ceil(voiceoverWidth));
+    const height = 52;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -327,22 +474,24 @@ export function VideoEditor({
       return;
     }
 
-    const audioPixels = (project.audioDuration / currentSpeed) * pxPerSec;
     const barWidth = 2;
     const gap = 1;
-    const totalBars = Math.floor(audioPixels / (barWidth + gap));
+    const totalBars = Math.max(1, Math.floor(width / (barWidth + gap)));
 
-    ctx.fillStyle = "#06b6d4"; // CapCut cyan waveform
+    // Track-voice token keeps the waveform readable in both themes.
+    const styles = getComputedStyle(canvas);
+    ctx.fillStyle =
+      styles.getPropertyValue("--track-voice").trim() || "currentColor";
 
     for (let i = 0; i < totalBars; i++) {
       const peakIdx = Math.floor((i / totalBars) * audioPeaks.length);
       const amp = audioPeaks[peakIdx] || 0;
-      const barH = Math.max(2, Math.min(height - 6, amp * (height - 8)));
+      const barH = Math.max(2, Math.min(height - 8, amp * (height - 10)));
       const x = i * (barWidth + gap);
       const y = (height - barH) / 2;
       ctx.fillRect(x, y, barWidth, barH);
     }
-  }, [audioPeaks, timelineWidth, pxPerSec, project.audioDuration, currentSpeed]);
+  }, [audioPeaks, voiceoverWidth, project.audioDuration]);
 
   // CapCut-style drag handles to stretch / shrink images
   const startResizing = React.useCallback(
@@ -384,27 +533,17 @@ export function VideoEditor({
     [project.clips, pxPerSec, onUpdateClip],
   );
 
-  // Draw a single frame at the given timestamp with frame-accurate custom clip durations
-  const drawFrame = React.useCallback(
-    (time: number, ctx: CanvasRenderingContext2D, width: number, height: number) => {
-      // 1. Fill background
-      ctx.fillStyle = "#0c131a";
-      ctx.fillRect(0, 0, width, height);
-
-      // 2. Find exact clip active at this timestamp in clipTimings
-      let timing = clipTimings.find((t) => time >= t.start && time < t.end);
-      if (!timing && clipTimings.length > 0) {
-        timing = time >= totalDuration ? clipTimings[clipTimings.length - 1] : clipTimings[0];
-      }
-      if (!timing) return;
-
-      const { clip, start, end } = timing;
-      const clipDur = Math.max(0.1, end - start);
-      const progress = Math.max(0, Math.min(1, (time - start) / clipDur));
-
-      // 3. Draw Image with Ken Burns Motion and Saturation
-      const cachedImg = clip.imageUrl ? imageCacheRef.current.get(clip.imageUrl) : null;
-
+  // Draw an individual image with Ken Burns motion onto canvas
+  const drawSingleImage = React.useCallback(
+    (
+      cachedImg: HTMLImageElement | null,
+      motion: ClipMotion,
+      progress: number,
+      ctx: CanvasRenderingContext2D,
+      width: number,
+      height: number,
+      flipped = false,
+    ) => {
       if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
         ctx.save();
 
@@ -416,7 +555,6 @@ export function VideoEditor({
         let offsetX = 0;
         const offsetY = 0;
 
-        const motion: ClipMotion = clip.motion || "zoom-in";
         if (motion === "zoom-in") {
           scale = 1.0 + progress * 0.12;
         } else if (motion === "zoom-out") {
@@ -430,9 +568,8 @@ export function VideoEditor({
         }
 
         ctx.translate(width / 2 + offsetX, height / 2 + offsetY);
-        ctx.scale(scale, scale);
+        ctx.scale(scale * (flipped ? -1 : 1), scale);
 
-        // Fit aspect cover
         const imgRatio = cachedImg.naturalWidth / cachedImg.naturalHeight;
         const canvasRatio = width / height;
         let renderW = width;
@@ -449,20 +586,155 @@ export function VideoEditor({
         ctx.drawImage(cachedImg, -renderW / 2, -renderH / 2, renderW, renderH);
         ctx.restore();
       } else {
-        // Placeholder when no image is attached yet
         ctx.fillStyle = "#1e293b";
         ctx.fillRect(0, 0, width, height);
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "bold 32px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(`Image #${clip.index}`, width / 2, height / 2 - 20);
-        ctx.font = "20px sans-serif";
-        ctx.fillText("Attach or import image to view", width / 2, height / 2 + 25);
+      }
+    },
+    [saturation],
+  );
+
+  // Draw a single frame at the given timestamp with CapCut transition blending & frame-accurate clip durations
+  const drawFrame = React.useCallback(
+    (time: number, ctx: CanvasRenderingContext2D, width: number, height: number) => {
+      // 1. Fill background
+      ctx.fillStyle = "#0c131a";
+      ctx.fillRect(0, 0, width, height);
+
+      // 2. Check for active transition between clip i and clip i+1
+      let inTransition = false;
+      let activeNarration = "";
+
+      for (let i = 0; i < clipTimings.length - 1; i++) {
+        const timingA = clipTimings[i];
+        const timingB = clipTimings[i + 1];
+        const transition = timingA.clip.transition;
+
+        if (transition && transition.type && transition.type !== "none") {
+          const transDur = Math.max(0.1, Math.min(1.5, transition.duration || 0.4));
+          const splitTime = timingA.end;
+          const transStart = splitTime - transDur / 2;
+          const transEnd = splitTime + transDur / 2;
+
+          if (time >= transStart && time < transEnd) {
+            inTransition = true;
+            const transProgress = Math.max(0, Math.min(1, (time - transStart) / transDur));
+            activeNarration = transProgress < 0.5 ? timingA.clip.narration : timingB.clip.narration;
+
+            const imgA = timingA.clip.imageUrl ? imageCacheRef.current.get(timingA.clip.imageUrl) || null : null;
+            const imgB = timingB.clip.imageUrl ? imageCacheRef.current.get(timingB.clip.imageUrl) || null : null;
+            const motionA: ClipMotion = timingA.clip.motion || "zoom-in";
+            const motionB: ClipMotion = timingB.clip.motion || "zoom-in";
+
+            if (transition.type === "dissolve") {
+              ctx.save();
+              ctx.globalAlpha = 1 - transProgress;
+              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              ctx.restore();
+
+              ctx.save();
+              ctx.globalAlpha = transProgress;
+              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              ctx.restore();
+            } else if (transition.type === "white-flash") {
+              if (transProgress < 0.5) {
+                drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+                ctx.fillStyle = `rgba(255, 255, 255, ${transProgress * 2})`;
+                ctx.fillRect(0, 0, width, height);
+              } else {
+                drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+                ctx.fillStyle = `rgba(255, 255, 255, ${(1 - transProgress) * 2})`;
+                ctx.fillRect(0, 0, width, height);
+              }
+            } else if (transition.type === "black-dip") {
+              if (transProgress < 0.5) {
+                drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+                ctx.fillStyle = `rgba(0, 0, 0, ${transProgress * 2})`;
+                ctx.fillRect(0, 0, width, height);
+              } else {
+                drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+                ctx.fillStyle = `rgba(0, 0, 0, ${(1 - transProgress) * 2})`;
+                ctx.fillRect(0, 0, width, height);
+              }
+            } else if (transition.type === "slide-left") {
+              ctx.save();
+              ctx.translate(-transProgress * width, 0);
+              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              ctx.restore();
+
+              ctx.save();
+              ctx.translate((1 - transProgress) * width, 0);
+              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              ctx.restore();
+            } else if (transition.type === "slide-right") {
+              ctx.save();
+              ctx.translate(transProgress * width, 0);
+              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              ctx.restore();
+
+              ctx.save();
+              ctx.translate((-1 + transProgress) * width, 0);
+              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              ctx.restore();
+            } else if (transition.type === "zoom-push") {
+              ctx.save();
+              ctx.globalAlpha = Math.max(0, 1 - transProgress);
+              ctx.translate(width / 2, height / 2);
+              ctx.scale(1.0 + transProgress * 0.35, 1.0 + transProgress * 0.35);
+              ctx.translate(-width / 2, -height / 2);
+              drawSingleImage(imgA, motionA, 1.0, ctx, width, height, Boolean(timingA.clip.flipped));
+              ctx.restore();
+
+              ctx.save();
+              ctx.globalAlpha = transProgress;
+              const inScale = 1.3 - transProgress * 0.3;
+              ctx.translate(width / 2, height / 2);
+              ctx.scale(inScale, inScale);
+              ctx.translate(-width / 2, -height / 2);
+              drawSingleImage(imgB, motionB, 0.0, ctx, width, height, Boolean(timingB.clip.flipped));
+              ctx.restore();
+            }
+            break;
+          }
+        }
+      }
+
+      // 3. Normal rendering if not in active transition
+      if (!inTransition) {
+        let timing = clipTimings.find((t) => time >= t.start && time < t.end);
+        if (!timing && clipTimings.length > 0) {
+          timing = time >= totalDuration ? clipTimings[clipTimings.length - 1] : clipTimings[0];
+        }
+        if (timing) {
+          const { clip, start, end } = timing;
+          activeNarration = clip.narration;
+          const clipDur = Math.max(0.1, end - start);
+          const progress = Math.max(0, Math.min(1, (time - start) / clipDur));
+          const cachedImg = clip.imageUrl ? imageCacheRef.current.get(clip.imageUrl) || null : null;
+
+          drawSingleImage(
+            cachedImg,
+            clip.motion || "zoom-in",
+            progress,
+            ctx,
+            width,
+            height,
+            Boolean(clip.flipped),
+          );
+
+          if (!cachedImg || !cachedImg.complete || cachedImg.naturalWidth === 0) {
+            ctx.fillStyle = "#94a3b8";
+            ctx.font = "bold 32px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(`Image #${clip.index}`, width / 2, height / 2 - 20);
+            ctx.font = "20px sans-serif";
+            ctx.fillText("Attach or import image to view", width / 2, height / 2 + 25);
+          }
+        }
       }
 
       // 4. Draw Subtitles Overlay (Bengali Narration)
-      if (showSubtitles && clip.narration) {
-        const text = clip.narration;
+      if (showSubtitles && activeNarration) {
+        const text = activeNarration;
         const fontSize = project.aspectRatio === "9:16" ? 34 : 38;
         ctx.font = `600 ${fontSize}px sans-serif`;
         ctx.textAlign = "center";
@@ -517,7 +789,7 @@ export function VideoEditor({
         ctx.restore();
       }
     },
-    [clipTimings, totalDuration, saturation, showSubtitles, project.aspectRatio],
+    [clipTimings, totalDuration, drawSingleImage, showSubtitles, project.aspectRatio],
   );
 
   // Canvas Real-Time Render (Draws Active Frame in live editor preview)
@@ -535,7 +807,7 @@ export function VideoEditor({
     }
 
     drawFrame(currentTime, ctx, width, height);
-  }, [currentTime, drawFrame, project.aspectRatio]);
+  }, [currentTime, drawFrame, project.aspectRatio, imageVersion]);
 
   // Audio Upload Handler
   const handleAudioFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -642,6 +914,138 @@ export function VideoEditor({
     }
   };
 
+  // Custom SFX Upload Handler
+  const handleCustomSfxUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeSfxModal) return;
+
+    setUploadingSfx(true);
+    notify("Uploading custom sound effect audio…", "info");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await api<{
+        success: boolean;
+        files: { name: string; url: string; kind: string }[];
+      }>("/api/studio/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const uploaded = res.files?.[0];
+      if (uploaded?.url) {
+        setActiveSfxModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                config: {
+                  ...prev.config,
+                  type: "custom",
+                  customUrl: uploaded.url,
+                  customName: file.name.replace(/\.[^/.]+$/, ""),
+                },
+              }
+            : null,
+        );
+        notify("Custom sound effect uploaded! Ready to transform.", "success");
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Failed to upload SFX", "error");
+    } finally {
+      setUploadingSfx(false);
+      if (customSfxInputRef.current) customSfxInputRef.current.value = "";
+    }
+  };
+
+  const handleOpenSfxModal = (clip: StudioClip) => {
+    const existing = getClipSfxConfig(clip);
+    setActiveSfxModal({
+      clipId: clip.id,
+      config: existing || {
+        type: "cartoon-pop",
+        offset: 0,
+        volume: 1.0,
+        speed: 1.0,
+      },
+    });
+  };
+
+  const handleSaveSfxModal = (config: ClipSfxConfig | null) => {
+    if (!activeSfxModal) return;
+    const clipId = activeSfxModal.clipId;
+    if (!config || config.type === "none") {
+      onUpdateClip(clipId, { sfx: "none", sfxConfig: undefined });
+      notify("Removed sound effect from clip.", "info");
+    } else {
+      onUpdateClip(clipId, {
+        sfx: config.type !== "custom" ? config.type : "none",
+        sfxConfig: config,
+      });
+      notify("Saved sound effect transforms!", "success");
+    }
+    setActiveSfxModal(null);
+  };
+
+  const handleTestSfx = (cfg: ClipSfxConfig) => {
+    try {
+      if (!sfxAudioCtxRef.current || sfxAudioCtxRef.current.state === "closed") {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        sfxAudioCtxRef.current = new AudioCtx();
+      }
+      if (sfxAudioCtxRef.current.state === "suspended") {
+        sfxAudioCtxRef.current.resume();
+      }
+      void playUniversalSfx(sfxAudioCtxRef.current, cfg);
+    } catch (e) {
+      console.warn("[sfx] Test play failed:", e);
+    }
+  };
+
+  // Apply CapCut Transition to single split or all splits
+  const handleApplyTransition = (
+    type: TransitionType,
+    duration: number,
+    applyToAll: boolean,
+  ) => {
+    if (applyToAll) {
+      const updatedClips = project.clips.map((c, idx) => ({
+        ...c,
+        transition:
+          idx < project.clips.length - 1
+            ? ({ type, duration } as ClipTransition)
+            : undefined,
+      }));
+      onUpdateProject({ clips: updatedClips });
+      notify(
+        type === "none"
+          ? "Removed transitions from all splits."
+          : `Applied ${type} transition (${duration.toFixed(1)}s) across all splits!`,
+        "success",
+      );
+    } else if (
+      activeTransitionModal?.clipIndex !== null &&
+      activeTransitionModal?.clipIndex !== undefined
+    ) {
+      const targetIdx = activeTransitionModal.clipIndex;
+      const targetClip = project.clips[targetIdx];
+      if (targetClip) {
+        onUpdateClip(targetClip.id, {
+          transition: type === "none" ? undefined : { type, duration },
+        });
+        notify(
+          type === "none"
+            ? `Removed transition from Clip #${targetClip.index}.`
+            : `Applied ${type} transition (${duration.toFixed(1)}s) to Clip #${targetClip.index}!`,
+          "success",
+        );
+      }
+    }
+    setActiveTransitionModal(null);
+  };
+
   // Auto-sync clips duration with audio length and speed
   const handleAutoSyncAudio = () => {
     if (!project.audioDuration || project.audioDuration <= 0) {
@@ -733,29 +1137,31 @@ export function VideoEditor({
     notify(`Split Clip #${clip.index} into two at ${formatSec(currentTime)}!`, "success");
   };
 
-  // Delete Active Clip
+  // Delete the selected clip (falls back to the playhead clip)
   const handleDeleteActiveClip = () => {
-    if (!activeTiming || project.clips.length <= 1) {
+    if (!editingTiming) return;
+    if (project.clips.length <= 1) {
       notify("Cannot delete the only remaining clip.", "info");
       return;
     }
-    const clipIndex = activeTiming.clip.index;
+    const clipIndex = editingTiming.clip.index;
     const newClips = project.clips
-      .filter((c) => c.id !== activeTiming.clip.id)
+      .filter((c) => c.id !== editingTiming.clip.id)
       .map((c, i) => ({ ...c, index: i + 1 }));
 
+    setSelectedClipId(null);
     onUpdateProject({ clips: newClips });
     notify(`Deleted Clip #${clipIndex}.`, "info");
   };
 
-  // Duplicate Active Clip
+  // Duplicate the selected clip (falls back to the playhead clip)
   const handleDuplicateActiveClip = () => {
-    if (!activeTiming) return;
-    const targetIdx = project.clips.findIndex((c) => c.id === activeTiming.clip.id);
+    if (!editingTiming) return;
+    const targetIdx = project.clips.findIndex((c) => c.id === editingTiming.clip.id);
     if (targetIdx === -1) return;
 
     const clone: StudioClip = {
-      ...activeTiming.clip,
+      ...editingTiming.clip,
       id: `clip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     };
 
@@ -763,8 +1169,24 @@ export function VideoEditor({
     newClips.splice(targetIdx + 1, 0, clone);
     const reindexed = newClips.map((c, i) => ({ ...c, index: i + 1 }));
 
+    setSelectedClipId(clone.id);
     onUpdateProject({ clips: reindexed });
-    notify(`Duplicated Clip #${activeTiming.clip.index}!`, "success");
+    notify(`Duplicated Clip #${editingTiming.clip.index}!`, "success");
+  };
+
+  const handleStepClip = (direction: -1 | 1) => {
+    if (clipTimings.length === 0) return;
+    const currentIdx = editingTiming
+      ? clipTimings.findIndex((t) => t.clip.id === editingTiming.clip.id)
+      : 0;
+    const nextIdx = Math.min(
+      clipTimings.length - 1,
+      Math.max(0, currentIdx + direction),
+    );
+    const next = clipTimings[nextIdx];
+    if (!next) return;
+    setSelectedClipId(next.clip.id);
+    seekTo(next.start);
   };
 
   // Generate More Scenes to fill audio gap (AI)
@@ -873,20 +1295,26 @@ export function VideoEditor({
     }
   };
 
-  // Change motion preset for a clip
-  const handleCycleMotion = (clip: StudioClip) => {
-    const motions: ClipMotion[] = ["zoom-in", "pan-left", "zoom-out", "pan-right", "static"];
-    const curIdx = motions.indexOf(clip.motion || "zoom-in");
-    const nextMotion = motions[(curIdx + 1) % motions.length];
-
-    onUpdateClip(clip.id, { motion: nextMotion });
-    notify(`Clip #${clip.index} camera motion set to ${nextMotion}!`, "info");
-  };
-
   // Adjust duration for a clip
   const handleAdjustDuration = (clip: StudioClip, delta: number) => {
     const next = Math.max(1, Math.min(15, Number(((clip.duration || 3) + delta).toFixed(1))));
     onUpdateClip(clip.id, { duration: next });
+  };
+
+  // CapCut Flip / Mirror horizontal tool
+  const handleToggleFlip = (clip: StudioClip) => {
+    onUpdateClip(clip.id, { flipped: !clip.flipped });
+    notify(`Flipped Clip #${clip.index} horizontally!`, "info");
+  };
+
+  // CapCut Fit Timeline to visible screen
+  const handleFitTimeline = () => {
+    if (timelineScrollRef.current) {
+      const containerW = timelineScrollRef.current.clientWidth - 40;
+      const fitPx = Math.max(20, Math.min(100, Math.floor(containerW / totalDuration)));
+      setPxPerSec(fitPx);
+      notify(`Fitted timeline to screen (${fitPx}px/s)!`, "info");
+    }
   };
 
   // MP4 Video Render & Direct Export Engine
@@ -928,6 +1356,7 @@ export function VideoEditor({
         }
       }
 
+      let bgmGain: GainNode | null = null;
       let bgmSource: AudioBufferSourceNode | null = null;
       if (project.bgmUrl) {
         try {
@@ -937,7 +1366,7 @@ export function VideoEditor({
           const bSource = audioCtx.createBufferSource();
           bSource.buffer = decodedBgm;
 
-          const bgmGain = audioCtx.createGain();
+          bgmGain = audioCtx.createGain();
           bgmGain.gain.setValueAtTime(bgmVolume, 0);
           bSource.connect(bgmGain);
           bgmGain.connect(dest);
@@ -989,6 +1418,7 @@ export function VideoEditor({
         drawFrame(0, exportCtx, width, height);
       }
 
+      const sfxTriggeredDuringExport = new Set<string>();
       recorder.start();
       const exportStartAudioTime = audioCtx.currentTime;
       if (voiceSource) voiceSource.start(0);
@@ -1000,6 +1430,31 @@ export function VideoEditor({
         const exportLoop = () => {
           const elapsed = audioCtx.currentTime - exportStartAudioTime;
           const simTime = Math.min(totalDuration, elapsed);
+
+          // Smart Audio Ducking during export
+          if (bgmGain && enableDucking && project.audioUrl) {
+            const isSpeaking = simTime < project.audioDuration / currentSpeed;
+            const duckTarget = isSpeaking
+              ? Math.min(bgmVolume, 0.15)
+              : Math.min(1.0, Math.max(bgmVolume, 0.35));
+            bgmGain.gain.setValueAtTime(duckTarget, audioCtx.currentTime);
+          }
+
+          // Trigger procedural or custom SFX into export audio stream
+          clipTimings.forEach((timing) => {
+            const cfg = getClipSfxConfig(timing.clip);
+            if (
+              cfg &&
+              cfg.type !== "none" &&
+              !sfxTriggeredDuringExport.has(timing.clip.id)
+            ) {
+              const triggerTime = timing.start + (cfg.offset || 0);
+              if (simTime >= triggerTime && simTime <= triggerTime + 0.15) {
+                sfxTriggeredDuringExport.add(timing.clip.id);
+                void playUniversalSfx(audioCtx, cfg, dest);
+              }
+            }
+          });
 
           if (exportCtx) {
             drawFrame(simTime, exportCtx, width, height);
@@ -1044,14 +1499,41 @@ export function VideoEditor({
     }
   };
 
-  const formatSec = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  // Click-or-drag scrubbing that works on any timeline track
+  const beginScrub = (event: React.PointerEvent<HTMLDivElement>) => {
+    const track = event.currentTarget;
+    const update = (clientX: number) => {
+      const rect = track.getBoundingClientRect();
+      seekTo(Math.max(0, (clientX - rect.left) / pxPerSec));
+    };
+
+    update(event.clientX);
+
+    const handleMove = (moveEvent: PointerEvent) => update(moveEvent.clientX);
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
   };
 
+  const tickStep = pxPerSec >= 60 ? 1 : pxPerSec >= 32 ? 2 : 5;
+  // Label spacing must be a multiple of tick spacing so every label lands on a tick.
+  const labelStep = pxPerSec >= 60 ? 5 : 10;
+  const sfxCount = project.clips.filter((clip) => Boolean(getClipSfxConfig(clip))).length;
+  const bgmLabel =
+    BGM_MOOD_PRESETS.find((preset) => preset.id === project.bgmMood)?.label ||
+    "Custom music";
+  const aspectLabel =
+    project.aspectRatio === "9:16" ? "9:16 Shorts / Reels" : "16:9 YouTube";
+
   return (
-    <div className="space-y-4 rounded-xl border border-brand-border bg-card p-4 shadow-sm">
+    <section
+      aria-label="CapCut-style video studio and exporter"
+      className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+    >
       {/* Hidden inputs */}
       <input
         ref={audioInputRef}
@@ -1068,6 +1550,13 @@ export function VideoEditor({
         onChange={handleCustomBgmUpload}
       />
       <input
+        ref={customSfxInputRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.m4a,.ogg"
+        className="sr-only"
+        onChange={handleCustomSfxUpload}
+      />
+      <input
         ref={singleImageInputRef}
         type="file"
         accept="image/*"
@@ -1075,893 +1564,152 @@ export function VideoEditor({
         onChange={handleSingleImageFile}
       />
 
-      {/* Editor Header & Primary Export Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-3">
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Film className="size-4" />
-          </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">
-                CapCut-Style Video Studio &amp; Exporter
-              </h2>
-              <span className="rounded bg-muted px-2 py-0.5 font-mono text-2xs font-semibold text-muted-foreground">
-                {project.aspectRatio === "9:16" ? "9:16 (Shorts / Reels)" : "16:9 (YouTube)"}
-              </span>
-            </div>
-            <p className="text-2xs text-muted-foreground">
-              Review visual motion, sync voiceover audio, auto-render captions &amp; export video
-            </p>
-          </div>
-        </div>
+      {/* ── Command bar ─────────────────────────────────────────── */}
+      <CommandBar
+        project={project}
+        aspectLabel={aspectLabel}
+        totalDuration={totalDuration}
+        effectiveAudioDuration={effectiveAudioDuration}
+        showSubtitles={showSubtitles}
+        onToggleSubtitles={() => setShowSubtitles((value) => !value)}
+        onImportImagesClick={onImportImagesClick}
+        onReplaceVoice={() => audioInputRef.current?.click()}
+        onAutoSync={handleAutoSyncAudio}
+        uploadingAudio={uploadingAudio}
+        isExporting={isExporting}
+        exportProgress={exportProgress}
+        onExport={handleExportVideo}
+      />
 
-        {/* Action Buttons Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Import Images button */}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={onImportImagesClick}
-            className="h-8 gap-1.5 text-xs font-semibold"
-            title="Import all images for clips"
-          >
-            <Upload className="size-3.5" />
-            <span>Import Images</span>
-          </Button>
+      {/* ── Monitor + inspector ─────────────────────────────────── */}
+      <div className="flex flex-col gap-4 border-b border-border p-3 sm:p-4 xl:flex-row">
+        <div className="min-w-0 flex-1 space-y-3 xl:flex xl:flex-col">
+          {/* Preview stage */}
+          <PreviewStage
+            project={project}
+            stageRef={stageRef}
+            canvasRef={canvasRef}
+            aspectLabel={aspectLabel}
+            isFullscreen={isFullscreen}
+            isPlaying={isPlaying}
+            isExporting={isExporting}
+            exportProgress={exportProgress}
+            showSubtitles={showSubtitles}
+            onToggleSubtitles={() => setShowSubtitles((value) => !value)}
+            onToggleFullscreen={toggleFullscreen}
+            onUpdateProject={onUpdateProject}
+          />
 
-          {/* Import Audio button */}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={uploadingAudio}
-            onClick={() => audioInputRef.current?.click()}
-            className="h-8 gap-1.5 text-xs font-semibold"
-            title="Upload CapCut TTS or recorded voiceover MP3/WAV"
-          >
-            {uploadingAudio ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Music className="size-3.5" />
-            )}
-            <span>{project.audioUrl ? "Replace Audio" : "Import Voiceover"}</span>
-          </Button>
-
-          {/* Auto-Sync with Audio */}
-          {project.audioDuration > 0 ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleAutoSyncAudio}
-              className="h-8 gap-1 text-xs text-primary hover:text-foreground"
-              title="Automatically distribute audio duration across clips"
-            >
-              <Wand2 className="size-3.5" />
-              <span>Auto-Sync</span>
-            </Button>
-          ) : null}
-
-          {/* Subtitles Toggle */}
-          <Button
-            type="button"
-            size="sm"
-            variant={showSubtitles ? "secondary" : "outline"}
-            onClick={() => setShowSubtitles((s) => !s)}
-            className="h-8 gap-1 text-xs"
-            title="Toggle Bangla captions overlay"
-          >
-            <Subtitles className="size-3.5" />
-            <span>Captions: {showSubtitles ? "ON" : "OFF"}</span>
-          </Button>
-
-          {/* Export Video Hero Button */}
-          <Button
-            type="button"
-            size="sm"
-            disabled={isExporting || project.clips.length === 0}
-            onClick={handleExportVideo}
-            className="h-8 gap-1.5 px-3 text-xs font-bold shadow-sm"
-          >
-            {isExporting ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Download className="size-3.5" />
-            )}
-            <span>{isExporting ? `Exporting ${exportProgress}%` : "Export Video (MP4)"}</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Player & Monitor Row */}
-      <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-start">
-        {/* Left Monitor / Canvas Screen */}
-        <div className="flex w-full flex-col items-center rounded-xl border border-border bg-surface-muted/50 p-4 lg:w-96 lg:shrink-0">
-          <div
-            className={cn(
-              "relative overflow-hidden rounded-lg border border-border bg-card shadow-md",
-              project.aspectRatio === "9:16"
-                ? "aspect-9/16 w-56 max-w-full"
-                : "aspect-video w-full",
-            )}
-          >
-            <canvas ref={canvasRef} className="size-full object-contain" />
-          </div>
-
-          {/* Transport Controls below screen */}
-          <div className="mt-3 flex w-full items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="size-8 rounded-full"
-                onClick={() => setIsPlaying((p) => !p)}
-                title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-              >
-                {isPlaying ? <Pause className="size-4" /> : <Play className="size-4 fill-current" />}
-              </Button>
-
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-8 text-muted-foreground hover:text-foreground"
-                onClick={() => seekTo(0)}
-                title="Rewind to start"
-              >
-                <RotateCcw className="size-3.5" />
-              </Button>
-
-              {project.audioUrl ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="size-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsMuted((m) => !m)}
-                  title={isMuted ? "Unmute" : "Mute"}
-                >
-                  {isMuted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
-                </Button>
-              ) : null}
-            </div>
-
-            {/* Timecode display */}
-            <div className="font-mono text-xs font-semibold text-foreground">
-              <span>{formatSec(currentTime)}</span>
-              <span className="text-muted-foreground"> / </span>
-              <span className="text-muted-foreground">{formatSec(totalDuration)}</span>
-            </div>
-          </div>
-
-          {/* Color Saturation Control Pill */}
-          <div className="mt-2.5 flex w-full items-center justify-between gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-2xs">
-            <div className="flex items-center gap-1.5">
-              <Palette className="size-3 text-primary shrink-0" />
-              <span className="font-semibold text-muted-foreground uppercase text-3xs">Saturation:</span>
-              <input
-                type="range"
-                min="0"
-                max="200"
-                step="5"
-                value={saturation}
-                onChange={(e) => onUpdateProject({ saturation: parseInt(e.target.value, 10) })}
-                className="h-1.5 w-16 cursor-pointer accent-primary"
-                title="Color Saturation (0% B&W to 200% Vibrant)"
-              />
-              <span className="font-mono text-3xs font-bold text-foreground w-8">
-                {saturation}%
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              {[
-                { label: "B&W", val: 0 },
-                { label: "100%", val: 100 },
-                { label: "Vibrant", val: 135 },
-              ].map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => onUpdateProject({ saturation: item.val })}
-                  className={cn(
-                    "rounded px-1.5 py-0.5 font-mono text-3xs transition-colors",
-                    saturation === item.val
-                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                      : "bg-muted text-muted-foreground hover:text-foreground",
-                  )}
-                  title={`Set saturation to ${item.val}%`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Details / Active Clip Quick Controls */}
-        <div className="min-w-0 flex-1 space-y-3">
-          {activeTiming ? (
-            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-bold text-primary">
-                  CLIP #{String(activeTiming.clip.index).padStart(2, "0")} (
-                  {activeTiming.clip.duration.toFixed(1)}s)
-                </span>
-                <span className="text-2xs text-muted-foreground">
-                  Time: {formatSec(activeTiming.start)} - {formatSec(activeTiming.end)}
-                </span>
-              </div>
-
-              {/* Clip narration */}
-              <p className="font-bangla text-xs leading-5 text-foreground bg-muted/40 p-2 rounded">
-                &ldquo;{activeTiming.clip.narration}&rdquo;
-              </p>
-
-              {/* Quick actions for active clip */}
-              <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                <span className="text-2xs font-semibold text-muted-foreground uppercase">
-                  Duration:
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleAdjustDuration(activeTiming.clip, -0.5)}
-                    className="size-6 rounded bg-muted text-xs font-bold hover:bg-border"
-                    title="Decrease duration"
-                  >
-                    -
-                  </button>
-                  <span className="font-mono text-2xs font-bold px-1.5">
-                    {activeTiming.clip.duration.toFixed(1)}s
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleAdjustDuration(activeTiming.clip, 0.5)}
-                    className="size-6 rounded bg-muted text-xs font-bold hover:bg-border"
-                    title="Increase duration"
-                  >
-                    +
-                  </button>
-                </div>
-
-                <span className="text-2xs font-semibold text-muted-foreground uppercase ml-2">
-                  Motion:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleCycleMotion(activeTiming.clip)}
-                  className="rounded bg-muted px-2 py-0.5 text-2xs font-medium capitalize hover:bg-border"
-                  title="Click to cycle motion preset"
-                >
-                  {activeTiming.clip.motion || "zoom-in"} ↻
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    targetClipForImageRef.current = activeTiming.clip.id;
-                    singleImageInputRef.current?.click();
-                  }}
-                  className="rounded bg-muted px-2 py-0.5 text-2xs font-medium hover:bg-border"
-                >
-                  {activeTiming.clip.imageUrl ? "Replace Image" : "Attach Image"}
-                </button>
-
-                <div className="flex items-center gap-1 border-l border-border/80 pl-2">
-                  <button
-                    type="button"
-                    onClick={handleSplitAtPlayhead}
-                    className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-2xs font-semibold text-primary hover:bg-border"
-                    title="Split active clip at playhead"
-                  >
-                    <Scissors className="size-3" />
-                    <span>Split</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleDuplicateActiveClip}
-                    className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-border hover:text-foreground"
-                    title="Duplicate active clip"
-                  >
-                    <Copy className="size-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleDeleteActiveClip}
-                    className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    title="Delete active clip"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Audio Track Info Banner with Speed & Volume Control */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/30 px-3 py-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <Music className="size-3.5 text-primary shrink-0" />
-              <span className="text-2xs font-medium">
-                {project.audioUrl
-                  ? `Voiceover Audio: ${project.audioDuration}s` +
-                    (currentSpeed !== 1.0
-                      ? ` (${(project.audioDuration / currentSpeed).toFixed(1)}s @ ${currentSpeed}x)`
-                      : "")
-                  : "No voiceover audio attached yet. Import MP3/WAV to sync."}
-              </span>
-
-              {/* Voiceover Volume Slider (0% to 100%) */}
-              {project.audioUrl ? (
-                <div className="flex items-center gap-1 rounded-md border border-border/70 bg-card/60 px-2 py-0.5 ml-1">
-                  <Volume2 className="size-3 text-muted-foreground" />
-                  <span className="text-3xs font-bold uppercase text-muted-foreground">Vol:</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={voiceVolume}
-                    onChange={(e) => onUpdateProject({ voiceVolume: parseFloat(e.target.value) })}
-                    className="h-1.5 w-16 cursor-pointer accent-primary"
-                    title="Voiceover Volume (0% - 100%)"
-                  />
-                  <span className="font-mono text-3xs text-muted-foreground w-7">
-                    {Math.round(voiceVolume * 100)}%
-                  </span>
-                </div>
-              ) : null}
-
-              {/* Audio Speed Controls */}
-              <div className="flex items-center gap-1 rounded-md border border-border/70 bg-card/60 px-1.5 py-0.5">
-                <span className="flex items-center gap-0.5 text-3xs font-bold uppercase tracking-wider text-muted-foreground">
-                  <FastForward className="size-2.5 text-primary" />
-                  Speed:
-                </span>
-                {[0.8, 1.0, 1.1, 1.2, 1.25, 1.5].map((spd) => (
-                  <button
-                    key={spd}
-                    type="button"
-                    onClick={() => handleUpdateSpeed(spd)}
-                    className={cn(
-                      "rounded px-1.5 py-0.5 font-mono text-3xs transition-colors",
-                      currentSpeed === spd
-                        ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                        : "bg-muted text-muted-foreground hover:bg-border hover:text-foreground",
-                    )}
-                    title={`Set voiceover speed to ${spd}x`}
-                  >
-                    {spd}x
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {project.audioUrl ? (
-                <button
-                  type="button"
-                  onClick={() => onUpdateProject({ audioUrl: null, audioDuration: 0 })}
-                  className="text-2xs text-muted-foreground hover:text-destructive"
-                  title="Remove attached audio track"
-                >
-                  Remove
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => audioInputRef.current?.click()}
-                  className="text-2xs font-semibold text-primary hover:underline"
-                >
-                  Import Audio
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Background Music (BGM) Track Banner with Synthesizer & Story Mood Presets */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/30 px-3 py-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <Headphones className="size-3.5 text-primary shrink-0" />
-              <span className="text-2xs font-medium">
-                {project.bgmUrl
-                  ? `BGM: ${BGM_MOOD_PRESETS.find((p) => p.id === project.bgmMood)?.label || "Custom Music"}`
-                  : "No background music attached yet."}
-              </span>
-
-              {/* BGM Volume Slider (0% to 100%) */}
-              {project.bgmUrl ? (
-                <div className="flex items-center gap-1.5 rounded-md border border-border/70 bg-card/60 px-2 py-0.5 ml-1">
-                  <Volume2 className="size-3 text-muted-foreground" />
-                  <span className="text-3xs font-bold uppercase text-muted-foreground">Vol:</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={bgmVolume}
-                    onChange={(e) => onUpdateProject({ bgmVolume: parseFloat(e.target.value) })}
-                    className="h-1.5 w-16 cursor-pointer accent-primary"
-                    title="Background Music Volume (0% - 100%)"
-                  />
-                  <span className="font-mono text-3xs text-muted-foreground w-7">
-                    {Math.round(bgmVolume * 100)}%
-                  </span>
-                </div>
-              ) : null}
-
-              {/* Story-Matched BGM Recommendation */}
-              {project.recommendedBgmMood ? (
-                <button
-                  type="button"
-                  disabled={generatingBgm}
-                  onClick={() => handleGenerateBgm(project.recommendedBgmMood!)}
-                  className={cn(
-                    "rounded border px-2 py-0.5 text-2xs font-semibold transition-colors flex items-center gap-1 shadow-2xs",
-                    project.bgmMood === project.recommendedBgmMood
-                      ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
-                      : "border-primary/50 bg-primary/10 text-primary hover:bg-primary/20",
-                  )}
-                  title="Generate background music automatically matching the emotional mood of your story"
-                >
-                  <Sparkles className="size-3" />
-                  <span>Story Match: {BGM_MOOD_PRESETS.find((p) => p.id === project.recommendedBgmMood)?.label}</span>
-                </button>
-              ) : null}
-
-              {/* BGM Mood Presets */}
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-3xs font-bold uppercase text-muted-foreground">
-                  {project.bgmUrl ? "Mood:" : "Presets:"}
-                </span>
-                {BGM_MOOD_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    disabled={generatingBgm}
-                    onClick={() => handleGenerateBgm(preset.id)}
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-3xs font-medium transition-colors flex items-center gap-1",
-                      project.bgmMood === preset.id
-                        ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                        : "bg-card border border-border/70 hover:bg-muted text-foreground",
-                    )}
-                    title={preset.description}
-                  >
-                    <span>{preset.emoji}</span>
-                    <span className="hidden sm:inline">{preset.label.split(" ")[0]}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {project.bgmUrl ? (
-                <button
-                  type="button"
-                  onClick={() => onUpdateProject({ bgmUrl: null, bgmMood: null })}
-                  className="text-2xs text-muted-foreground hover:text-destructive"
-                  title="Remove background music"
-                >
-                  Remove
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => bgmInputRef.current?.click()}
-                  className="text-2xs font-semibold text-primary hover:underline"
-                  title="Upload MP3 or WAV music file"
-                >
-                  📁 Upload BGM
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* CapCut-Style Multi-Track Timeline */}
-      <div className="space-y-2.5 rounded-xl border border-border bg-surface-muted/40 p-3">
-        {/* Audio Duration Deficit Warning & Auto-Fix Banner */}
-        {durationDeficit >= 2.5 ? (
-          <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-lg border border-warning/40 bg-warning-subtle p-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/20 text-warning">
-                <AlertTriangle className="size-4" />
-              </span>
-              <div>
-                <p className="font-bold text-foreground">
-                  Voiceover is longer than your images ({effectiveAudioDuration.toFixed(0)}s audio vs {totalDuration.toFixed(0)}s images)!
-                </p>
-                <p className="text-2xs text-muted-foreground">
-                  Images will end {durationDeficit.toFixed(0)}s early. Generate ~{clipsNeeded} more scenes or auto-fill to match the voiceover.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                disabled={isGeneratingMore}
-                onClick={handleGenerateMoreScenes}
-                className="h-8 gap-1.5 text-xs font-semibold shadow-xs"
-              >
-                {isGeneratingMore ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="size-3.5" />
-                )}
-                <span>Generate {clipsNeeded} More Scenes (AI)</span>
-              </Button>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleAutoFillClips}
-                className="h-8 gap-1 text-xs"
-                title="Duplicate existing frames with alternative camera motion"
-              >
-                <span>⚡ Auto-Fill Clips</span>
-              </Button>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={handleAutoSyncAudio}
-                className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
-                title="Stretch image duration to match audio length"
-              >
-                <span>Adjust Pacing</span>
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Timeline Header Toolbar: Bulk Duration, Split, Duplicate, Delete */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-lg border border-border/80 bg-card p-2 text-xs">
-          {/* Global Duration Selector for All Clips */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="flex items-center gap-1 text-2xs font-bold uppercase tracking-wider text-muted-foreground">
-              <Clock className="size-3 text-primary" />
-              All Images Duration:
-            </span>
-            {[2.0, 2.5, 3.0, 4.0, 5.0, 6.0].map((sec) => (
-              <button
-                key={sec}
-                type="button"
-                onClick={() => handleSetAllClipsDuration(sec)}
-                className={cn(
-                  "rounded px-2 py-1 font-mono text-xs transition-colors",
-                  isAllSameDuration(sec)
-                    ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                    : "bg-muted text-muted-foreground hover:bg-border hover:text-foreground",
-                )}
-                title={`Set all image clips to ${sec}s each`}
-              >
-                {sec}s
-              </button>
-            ))}
-
-            <div className="flex items-center gap-1 ml-1">
-              <input
-                type="number"
-                min="0.5"
-                max="30"
-                step="0.5"
-                value={customDuration}
-                onChange={(e) => setCustomDuration(e.target.value)}
-                className="h-7 w-14 rounded border border-border bg-background px-1.5 font-mono text-xs text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                placeholder="5.0"
-                title="Type any seconds for all clips"
-              />
-              <button
-                type="button"
-                onClick={() => handleSetAllClipsDuration(parseFloat(customDuration) || 5.0)}
-                className="h-7 rounded border border-border bg-muted/80 px-2 font-mono text-2xs font-semibold text-foreground hover:bg-muted"
-                title="Apply custom duration to all clips"
-              >
-                Apply All
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Clip Actions & Zoom */}
-          <div className="flex items-center gap-1.5">
-            {/* Timeline Zoom Scale */}
-            <div className="flex items-center gap-1 rounded-md border border-border/70 bg-card px-1.5 py-0.5">
-              <button
-                type="button"
-                onClick={() => setPxPerSec((z) => Math.max(25, z - 10))}
-                className="size-5 rounded hover:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground hover:text-foreground"
-                title="Zoom out timeline"
-              >
-                <ZoomOut className="size-3" />
-              </button>
-              <span className="font-mono text-3xs font-semibold px-1 text-muted-foreground">
-                {pxPerSec}px/s
-              </span>
-              <button
-                type="button"
-                onClick={() => setPxPerSec((z) => Math.min(100, z + 10))}
-                className="size-5 rounded hover:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground hover:text-foreground"
-                title="Zoom in timeline"
-              >
-                <ZoomIn className="size-3" />
-              </button>
-            </div>
-
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleSplitAtPlayhead}
-              className="h-7 gap-1 px-2.5 text-xs font-semibold"
-              title="Split active clip at playhead position"
-            >
-              <Scissors className="size-3 text-primary" />
-              <span>Split</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleDuplicateActiveClip}
-              className="h-7 gap-1 px-2 text-xs"
-              title="Duplicate selected clip"
-            >
-              <Copy className="size-3" />
-              <span>Duplicate</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleDeleteActiveClip}
-              className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              title="Delete selected clip"
-            >
-              <Trash2 className="size-3" />
-              <span>Delete</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* Global Progress scrubber bar */}
-        <div
-          className="relative h-1.5 w-full cursor-pointer rounded-full bg-muted overflow-hidden"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const pos = (e.clientX - rect.left) / rect.width;
-            seekTo(pos * totalDuration);
-          }}
-        >
-          <div
-            className="h-full bg-primary transition-all duration-75"
-            style={{ width: `${(currentTime / totalDuration) * 100}%` }}
+          {/* Transport + color grade */}
+          <TransportBar
+            project={project}
+            isPlaying={isPlaying}
+            onTogglePlay={() => setIsPlaying((playing) => !playing)}
+            onSeek={seekTo}
+            onStop={() => {
+              setIsPlaying(false);
+              seekTo(0);
+            }}
+            currentTime={currentTime}
+            totalDuration={totalDuration}
+            isMuted={isMuted}
+            onToggleMute={() => setIsMuted((muted) => !muted)}
+            onToggleFullscreen={toggleFullscreen}
+            saturation={saturation}
+            onUpdateProject={onUpdateProject}
           />
         </div>
 
-        {/* CapCut-Style Multi-Track Horizontal Scroll Area */}
-        <div
-          ref={timelineScrollRef}
-          className="relative w-full overflow-x-auto rounded-lg border border-border/80 bg-background/80 p-2 scrollbar-thin select-none"
-        >
-          <div
-            className="relative flex flex-col gap-2 min-w-full pb-2"
-            style={{ width: `${timelineWidth}px` }}
-          >
-            {/* Time Ruler */}
-            <div
-              className="relative h-5 border-b border-border/70 select-none cursor-pointer"
-              style={{ width: `${timelineWidth}px` }}
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                seekTo(clickX / pxPerSec);
-              }}
-            >
-              {Array.from({ length: Math.ceil(totalDuration) + 1 }, (_, s) => {
-                if (s % 5 === 0) {
-                  return (
-                    <div
-                      key={s}
-                      className="absolute top-0 flex flex-col items-start -translate-x-1/2"
-                      style={{ left: `${s * pxPerSec}px` }}
-                    >
-                      <span className="font-mono text-3xs text-muted-foreground pl-0.5">
-                        {formatSec(s)}
-                      </span>
-                      <div className="h-2 w-px bg-border" />
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={s}
-                    className="absolute bottom-0 h-1 w-px bg-border/60 -translate-x-1/2"
-                    style={{ left: `${s * pxPerSec}px` }}
-                  />
-                );
-              })}
-            </div>
+        {/* Inspector column */}
+        <aside className="w-full shrink-0 space-y-3 xl:w-84">
+          {/* Clip inspector */}
+          <ClipInspector
+            editingClip={editingClip}
+            editingTiming={editingTiming}
+            isEditingSelected={isEditingSelected}
+            onStepClip={handleStepClip}
+            onAdjustDuration={handleAdjustDuration}
+            onUpdateClip={onUpdateClip}
+            targetClipForImageRef={targetClipForImageRef}
+            singleImageInputRef={singleImageInputRef}
+            onToggleFlip={handleToggleFlip}
+            onSplit={handleSplitAtPlayhead}
+            onDuplicate={handleDuplicateActiveClip}
+            onDelete={handleDeleteActiveClip}
+            onOpenSfx={handleOpenSfxModal}
+          />
 
-            {/* Track 1: CapCut Filmstrip Image Clips Track (Width Proportional to Clip Duration!) */}
-            <div className="relative h-20 flex items-center overflow-visible">
-              <div className="flex items-center h-full">
-                {clipTimings.map(({ clip, start }, idx) => {
-                  const isActive = idx === activeClipIndex || clip.id === selectedClipId;
-                  const clipDur = clip.duration || 3;
-                  const clipWidth = Math.max(48, clipDur * pxPerSec);
-                  const isBeingResized = resizingClip?.id === clip.id;
-
-                  return (
-                    <div
-                      key={clip.id}
-                      onClick={() => {
-                        setSelectedClipId(clip.id);
-                        seekTo(start);
-                      }}
-                      style={{ width: `${clipWidth}px` }}
-                      className={cn(
-                        "group relative h-full shrink-0 cursor-pointer overflow-hidden border-y border-r transition-shadow rounded-sm",
-                        idx === 0 && "border-l",
-                        isActive
-                          ? "border-primary ring-2 ring-primary/40 bg-card z-10 shadow-md"
-                          : "border-border/80 bg-card/90 hover:border-muted-foreground/50",
-                      )}
-                    >
-                      {/* Filmstrip Thumbnail Background */}
-                      <div className="relative size-full overflow-hidden flex items-center justify-center">
-                        {clip.imageUrl ? (
-                          <div className="flex size-full overflow-hidden">
-                            <Image
-                              src={clip.imageUrl}
-                              alt=""
-                              fill
-                              unoptimized
-                              className="object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center p-1 text-center">
-                            <ImagePlus className="size-4 text-muted-foreground/60" />
-                            <span className="text-3xs text-muted-foreground">No image</span>
-                          </div>
-                        )}
-
-                        {/* Top-Left Duration Pill (CapCut Style: 3.6s) */}
-                        <span className="absolute top-1 left-1.5 rounded bg-card/90 px-1.5 py-0.5 font-mono text-3xs font-bold text-foreground border border-border/60 shadow-xs">
-                          {clipDur.toFixed(1)}s
-                        </span>
-
-                        {/* Bottom-Left Index Badge (#01) */}
-                        <span className="absolute bottom-1 left-1.5 rounded bg-card/90 px-1 py-0.5 font-mono text-3xs font-semibold text-foreground border border-border/60">
-                          #{clip.index}
-                        </span>
-
-                        {/* Bottom-Right Motion Badge */}
-                        <span className="absolute bottom-1 right-1.5 rounded bg-primary/20 px-1.5 py-0.5 font-mono text-3xs font-medium text-primary capitalize hidden sm:inline">
-                          {clip.motion || "zoom-in"}
-                        </span>
-                      </div>
-
-                      {/* CapCut Drag Handles on Selected Clip */}
-                      {isActive ? (
-                        <>
-                          {/* Left Handle */}
-                          <div
-                            onMouseDown={(e) => startResizing(e, clip.id, "left")}
-                            className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-center bg-primary/30 hover:bg-primary/60 text-primary-foreground select-none z-20"
-                            title="Drag to trim start of image"
-                          >
-                            <div className="w-1 h-7 rounded-full bg-primary" />
-                          </div>
-
-                          {/* Right Handle (Stretch / Shrink duration to match voice!) */}
-                          <div
-                            onMouseDown={(e) => startResizing(e, clip.id, "right")}
-                            className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-center bg-primary/30 hover:bg-primary/60 text-primary-foreground select-none z-20"
-                            title="Drag right to stretch image to voice end, or drag left to shrink"
-                          >
-                            <div className="w-1 h-7 rounded-full bg-primary" />
-                          </div>
-                        </>
-                      ) : null}
-
-                      {/* Floating duration tooltip while resizing */}
-                      {isBeingResized ? (
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-primary px-2 py-0.5 font-mono text-xs font-bold text-primary-foreground shadow-md z-30 pointer-events-none">
-                          {clipDur.toFixed(1)}s
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-
-                {/* Add New Empty Clip Button */}
-                <button
-                  type="button"
-                  onClick={handleAddNewEmptyClip}
-                  className="flex h-full w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-sm border-2 border-dashed border-border bg-card/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors select-none ml-1"
-                  title="Add a new image clip"
-                >
-                  <Plus className="size-4" />
-                  <span className="font-mono text-3xs font-semibold">+ Add</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Track 2: CapCut Audio Waveform Track (1:1 Vertically Aligned with Image Clips!) */}
-            <div className="relative h-14 rounded-lg bg-cyan-950/20 border border-cyan-800/30 overflow-hidden select-none">
-              <div
-                className="relative h-full"
-                style={{ width: `${timelineWidth}px` }}
-              >
-                {project.audioUrl ? (
-                  <>
-                    <canvas
-                      ref={waveformCanvasRef}
-                      className="size-full pointer-events-none"
-                    />
-                    <span className="absolute top-1 left-2 font-mono text-3xs font-semibold text-cyan-400/90 pointer-events-none flex items-center gap-1 bg-cyan-950/70 px-1.5 py-0.5 rounded">
-                      <Music className="size-2.5" />
-                      Voiceover Waveform ({project.audioDuration}s)
-                    </span>
-                  </>
-                ) : (
-                  <div
-                    onClick={() => audioInputRef.current?.click()}
-                    className="flex size-full items-center justify-center gap-2 cursor-pointer text-muted-foreground hover:text-primary transition-colors text-xs"
-                  >
-                    <Music className="size-4" />
-                    <span>Drop or Import Voiceover Audio to see speech waveform and dialogue pauses</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Track 3: Background Music Track (if BGM attached) */}
-            {project.bgmUrl ? (
-              <div className="relative h-8 rounded-lg bg-purple-950/20 border border-purple-800/30 overflow-hidden select-none">
-                <div
-                  className="relative h-full flex items-center px-3"
-                  style={{ width: `${timelineWidth}px` }}
-                >
-                  <span className="font-mono text-3xs font-semibold text-purple-400 flex items-center gap-1">
-                    <Headphones className="size-2.5" />
-                    BGM: {BGM_MOOD_PRESETS.find((p) => p.id === project.bgmMood)?.label || "Custom Music"}
-                  </span>
-                </div>
-              </div>
-            ) : null}
-
-            {/* CapCut Vertical Playhead Line & Needle */}
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-primary z-30 pointer-events-none transition-all duration-75"
-              style={{
-                left: `${currentTime * pxPerSec}px`,
-              }}
-            >
-              <div className="absolute -top-3 -translate-x-1/2 rounded bg-primary px-1.5 py-0.5 font-mono text-3xs font-bold text-primary-foreground shadow-sm">
-                {formatSec(currentTime)}
-              </div>
-            </div>
-          </div>
-        </div>
+          {/* Audio mixer */}
+          <AudioMixer
+            project={project}
+            onUpdateProject={onUpdateProject}
+            effectiveAudioDuration={effectiveAudioDuration}
+            currentSpeed={currentSpeed}
+            voiceVolume={voiceVolume}
+            bgmVolume={bgmVolume}
+            bgmLabel={bgmLabel}
+            enableDucking={enableDucking}
+            generatingBgm={generatingBgm}
+            audioInputRef={audioInputRef}
+            bgmInputRef={bgmInputRef}
+            onUpdateSpeed={handleUpdateSpeed}
+            onGenerateBgm={handleGenerateBgm}
+          />
+        </aside>
       </div>
 
-      {/* Hidden Audio Element for playback */}
+      {/* ── Timeline dock ───────────────────────────────────────── */}
+      <TimelineDock
+        project={project}
+        onUpdateProject={onUpdateProject}
+        editingClip={editingClip}
+        clipTimings={clipTimings}
+        totalDuration={totalDuration}
+        effectiveAudioDuration={effectiveAudioDuration}
+        durationDeficit={durationDeficit}
+        clipsNeeded={clipsNeeded}
+        isGeneratingMore={isGeneratingMore}
+        currentTime={currentTime}
+        activeClipIndex={activeClipIndex}
+        selectedClipId={selectedClipId}
+        sfxCount={sfxCount}
+        bgmLabel={bgmLabel}
+        bgmVolume={bgmVolume}
+        isMuted={isMuted}
+        pxPerSec={pxPerSec}
+        tickStep={tickStep}
+        labelStep={labelStep}
+        timelineWidth={timelineWidth}
+        voiceoverWidth={voiceoverWidth}
+        customDuration={customDuration}
+        resizingClip={resizingClip}
+        timelineScrollRef={timelineScrollRef}
+        waveformCanvasRef={waveformCanvasRef}
+        audioInputRef={audioInputRef}
+        bgmInputRef={bgmInputRef}
+        setIsMuted={setIsMuted}
+        setSelectedClipId={setSelectedClipId}
+        setPxPerSec={setPxPerSec}
+        setCustomDuration={setCustomDuration}
+        setActiveTransitionModal={setActiveTransitionModal}
+        seekTo={seekTo}
+        beginScrub={beginScrub}
+        startResizing={startResizing}
+        isAllSameDuration={isAllSameDuration}
+        handleGenerateMoreScenes={handleGenerateMoreScenes}
+        handleAutoFillClips={handleAutoFillClips}
+        handleAutoSyncAudio={handleAutoSyncAudio}
+        handleSetAllClipsDuration={handleSetAllClipsDuration}
+        handleFitTimeline={handleFitTimeline}
+        handleSplitAtPlayhead={handleSplitAtPlayhead}
+        handleDuplicateActiveClip={handleDuplicateActiveClip}
+        handleDeleteActiveClip={handleDeleteActiveClip}
+        handleToggleFlip={handleToggleFlip}
+        handleAddNewEmptyClip={handleAddNewEmptyClip}
+        handleOpenSfxModal={handleOpenSfxModal}
+      />
+
+      {/* Hidden media elements for live playback */}
       {project.audioUrl ? (
         <audio
           ref={audioRef}
@@ -1974,15 +1722,26 @@ export function VideoEditor({
         />
       ) : null}
 
-      {/* Hidden Background Music Element for playback */}
       {project.bgmUrl ? (
-        <audio
-          ref={bgmRef}
-          src={project.bgmUrl}
-          loop
-          muted={isMuted}
-        />
+        <audio ref={bgmRef} src={project.bgmUrl} loop muted={isMuted} />
       ) : null}
-    </div>
+
+      {/* Transition + SFX modals */}
+      <EditorModals
+        project={project}
+        clipTimings={clipTimings}
+        currentTime={currentTime}
+        activeTransitionModal={activeTransitionModal}
+        setActiveTransitionModal={setActiveTransitionModal}
+        handleApplyTransition={handleApplyTransition}
+        activeSfxModal={activeSfxModal}
+        setActiveSfxModal={setActiveSfxModal}
+        handleSaveSfxModal={handleSaveSfxModal}
+        handleTestSfx={handleTestSfx}
+        customSfxInputRef={customSfxInputRef}
+        uploadingSfx={uploadingSfx}
+        notify={notify}
+      />
+    </section>
   );
 }

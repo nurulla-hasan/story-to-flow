@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { TimelineProjectState, TimelineClip } from "@/types/timeline";
+import type { TimelineProjectState, TimelineClip, TimelineTransition } from "@/types/timeline";
 
 export const TIMELINE_STORAGE_KEY = "story_forge_timeline_state_v1";
 export const TIMELINE_STORAGE_VERSION = 1;
@@ -11,9 +11,11 @@ export const DEFAULT_TIMELINE_STATE: TimelineProjectState = {
   version: TIMELINE_STORAGE_VERSION,
   projectTitle: "Untitled Story Video",
   clips: [],
+  transitions: [],
   playhead: 0,
   zoom: 100,
   selectedClipId: null,
+  selectedTransitionId: null,
   updatedAt: 0,
 };
 
@@ -38,9 +40,11 @@ export function getStoredTimelineState(): TimelineProjectState {
         version: TIMELINE_STORAGE_VERSION,
         projectTitle: typeof parsed.projectTitle === "string" ? parsed.projectTitle : "Untitled Story Video",
         clips: Array.isArray(parsed.clips) ? (parsed.clips as TimelineClip[]) : [],
+        transitions: Array.isArray(parsed.transitions) ? (parsed.transitions as TimelineTransition[]) : [],
         playhead: typeof parsed.playhead === "number" ? Math.max(0, parsed.playhead) : 0,
         zoom: typeof parsed.zoom === "number" ? Math.min(200, Math.max(50, parsed.zoom)) : 100,
         selectedClipId: typeof parsed.selectedClipId === "string" ? parsed.selectedClipId : null,
+        selectedTransitionId: typeof parsed.selectedTransitionId === "string" ? parsed.selectedTransitionId : null,
         updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
       };
     }

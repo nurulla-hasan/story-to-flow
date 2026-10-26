@@ -1,7 +1,17 @@
 "use client";
 
 import * as React from "react";
-import type { TimelineClip, TrackId } from "@/types/timeline";
+import type {
+  TimelineClip,
+  TimelineTransition,
+  TransitionType,
+  TrackId,
+} from "@/types/timeline";
+import {
+  isVisualTrack,
+  areClipsOnSameTrack,
+  normalizeVisualTrackId,
+} from "@/types/timeline";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
   DEFAULT_TIMELINE_STATE,
@@ -9,12 +19,19 @@ import {
   useTimelineStorage,
 } from "@/lib/timeline-storage";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
+import {
+  validateTransitionDuration,
+  areClipsAdjacentForTransition,
+} from "@/lib/transition-helpers";
 
 export interface TimelineContextType {
   isHydrated: boolean;
   clips: TimelineClip[];
+  transitions: TimelineTransition[];
   selectedClipId: string | null;
   selectedClip: TimelineClip | null;
+  selectedTransitionId: string | null;
+  selectedTransition: TimelineTransition | null;
   playhead: number;
   isPlaying: boolean;
   zoom: number;
@@ -28,6 +45,7 @@ export interface TimelineContextType {
   togglePlay: () => void;
   setZoom: (zoom: number) => void;
   selectClip: (clipId: string | null) => void;
+  selectTransition: (transitionId: string | null) => void;
   addAssetToTimeline: (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, trackId?: TrackId, startTime?: number) => void;
   moveClip: (clipId: string, newStartTime: number) => void;
   trimClip: (clipId: string, newDuration: number) => void;
@@ -35,6 +53,9 @@ export interface TimelineContextType {
   splitClipAtPlayhead: (clipId?: string) => void;
   deleteClip: (clipId: string) => void;
   duplicateClip: (clipId: string) => void;
+  addTransition: (fromClipId: string, toClipId: string, type?: TransitionType, duration?: number) => void;
+  updateTransition: (transitionId: string, updates: Partial<TimelineTransition>) => void;
+  deleteTransition: (transitionId: string) => void;
   fitVisualsToVoiceover: () => { success: boolean; message: string };
   undo: () => void;
   redo: () => void;
@@ -45,6 +66,11 @@ const TimelineContext = React.createContext<TimelineContextType | null>(null);
 const MAX_HISTORY = 50;
 const MIN_CLIP_DURATION = 0.5; // minimum 500ms
 const emptySubscribe = () => () => {};
+
+interface HistorySnapshot {
+  clips: TimelineClip[];
+  transitions: TimelineTransition[];
+}
 
 export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const { assets } = useMediaLibrary();
@@ -62,7 +88,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   // Local overrides during active session (starts null so server and client first render use default)
   const [localTitle, setLocalTitle] = React.useState<string | null>(null);
   const [localClips, setLocalClips] = React.useState<TimelineClip[] | null>(null);
-  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  const [localTransitions, setLocalTransitions] = React.useState<TimelineTransition[] | null>(null);
+  const [localSelectedClipId, setLocalSelectedClipId] = React.useState<string | null>(null);
+  const [localSelectedTransitionId, setLocalSelectedTransitionId] = React.useState<string | null>(null);
   const [playhead, setPlayheadState] = React.useState<number>(0);
   const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
   const [localZoom, setLocalZoom] = React.useState<number | null>(null);
@@ -70,11 +98,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   // Derived active state: perfectly identical between server and client first render
   const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
   const clips = localClips ?? (isHydrated ? storedState.clips : DEFAULT_TIMELINE_STATE.clips);
+  const transitions = localTransitions ?? (isHydrated ? storedState.transitions : DEFAULT_TIMELINE_STATE.transitions);
   const zoom = localZoom ?? (isHydrated ? storedState.zoom : DEFAULT_TIMELINE_STATE.zoom);
+  const selectedClipId = localSelectedClipId ?? (isHydrated ? storedState.selectedClipId : null);
+  const selectedTransitionId = localSelectedTransitionId ?? (isHydrated ? storedState.selectedTransitionId : null);
 
-  // Undo / Redo Stacks & State Flags
-  const undoStackRef = React.useRef<TimelineClip[][]>([]);
-  const redoStackRef = React.useRef<TimelineClip[][]>([]);
+  // Undo / Redo Stacks storing both clips and transitions atomically
+  const undoStackRef = React.useRef<HistorySnapshot[]>([]);
+  const redoStackRef = React.useRef<HistorySnapshot[]>([]);
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
   const [canRedo, setCanRedo] = React.useState<boolean>(false);
 
@@ -93,64 +124,89 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Helper to sync canUndo / canRedo states outside of render
   const syncHistoryFlags = React.useCallback(() => {
     setCanUndo(undoStackRef.current.length > 0);
     setCanRedo(redoStackRef.current.length > 0);
   }, []);
 
   // Save changes to localStorage with hydration guard
-  const persistClips = React.useCallback((newClips: TimelineClip[], newSelectedId?: string | null) => {
-    if (!isHydrated) return;
-    saveStoredTimelineState({
-      clips: newClips,
-      selectedClipId: newSelectedId !== undefined ? newSelectedId : selectedClipId,
-    });
-  }, [isHydrated, selectedClipId]);
+  const persistTimeline = React.useCallback(
+    (
+      newClips: TimelineClip[],
+      newTransitions: TimelineTransition[],
+      newSelectedClipId?: string | null,
+      newSelectedTransitionId?: string | null
+    ) => {
+      if (!isHydrated) return;
+      saveStoredTimelineState({
+        clips: newClips,
+        transitions: newTransitions,
+        selectedClipId: newSelectedClipId !== undefined ? newSelectedClipId : selectedClipId,
+        selectedTransitionId:
+          newSelectedTransitionId !== undefined ? newSelectedTransitionId : selectedTransitionId,
+      });
+    },
+    [isHydrated, selectedClipId, selectedTransitionId]
+  );
 
   // Push current snapshot to undo stack before a mutation
-  const pushHistorySnapshot = React.useCallback((currentClips: TimelineClip[]) => {
-    undoStackRef.current.push(JSON.parse(JSON.stringify(currentClips)));
-    if (undoStackRef.current.length > MAX_HISTORY) {
-      undoStackRef.current.shift();
-    }
-    redoStackRef.current = [];
-    syncHistoryFlags();
-  }, [syncHistoryFlags]);
+  const pushHistorySnapshot = React.useCallback(
+    (currentClips: TimelineClip[], currentTransitions: TimelineTransition[]) => {
+      undoStackRef.current.push({
+        clips: JSON.parse(JSON.stringify(currentClips)),
+        transitions: JSON.parse(JSON.stringify(currentTransitions)),
+      });
+      if (undoStackRef.current.length > MAX_HISTORY) {
+        undoStackRef.current.shift();
+      }
+      redoStackRef.current = [];
+      syncHistoryFlags();
+    },
+    [syncHistoryFlags]
+  );
 
-  const setProjectTitle = React.useCallback((title: string) => {
-    setLocalTitle(title);
-    if (isHydrated) {
-      saveStoredTimelineState({ projectTitle: title });
-    }
-  }, [isHydrated]);
+  const setProjectTitle = React.useCallback(
+    (title: string) => {
+      setLocalTitle(title);
+      if (isHydrated) {
+        saveStoredTimelineState({ projectTitle: title });
+      }
+    },
+    [isHydrated]
+  );
 
-  const setZoom = React.useCallback((newZoom: number) => {
-    const clamped = Math.min(200, Math.max(50, newZoom));
-    setLocalZoom(clamped);
-    if (isHydrated) {
-      saveStoredTimelineState({ zoom: clamped });
-    }
-  }, [isHydrated]);
+  const setZoom = React.useCallback(
+    (newZoom: number) => {
+      const clamped = Math.min(200, Math.max(50, newZoom));
+      setLocalZoom(clamped);
+      if (isHydrated) {
+        saveStoredTimelineState({ zoom: clamped });
+      }
+    },
+    [isHydrated]
+  );
 
-  // Calculate total timeline duration (at least 10s or ends after the latest clip)
   const totalDuration = React.useMemo(() => {
-    if (clips.length === 0) return 10;
-    const maxEnd = Math.max(...clips.map((c) => c.startTime + c.duration));
-    return Math.max(10, Math.ceil(maxEnd + 2)); // Add 2s tail padding
-  }, [clips]);
+    const activeClips = isHydrated ? clips : DEFAULT_TIMELINE_STATE.clips;
+    if (activeClips.length === 0) return 10;
+    const maxEnd = Math.max(...activeClips.map((c) => c.startTime + c.duration));
+    return Math.max(10, Math.ceil(maxEnd + 2));
+  }, [isHydrated, clips]);
 
   const setPlayhead = React.useCallback((time: number) => {
     setPlayheadState(Math.max(0, time));
   }, []);
 
-  const seek = React.useCallback((time: number) => {
-    const clamped = Math.max(0, Math.min(totalDuration, time));
-    setPlayheadState(clamped);
-    if (isHydrated) {
-      saveStoredTimelineState({ playhead: clamped });
-    }
-  }, [isHydrated, totalDuration]);
+  const seek = React.useCallback(
+    (time: number) => {
+      const clamped = Math.max(0, Math.min(totalDuration, time));
+      setPlayheadState(clamped);
+      if (isHydrated) {
+        saveStoredTimelineState({ playhead: clamped });
+      }
+    },
+    [isHydrated, totalDuration]
+  );
 
   const togglePlay = React.useCallback(() => {
     setIsPlaying((prev) => !prev);
@@ -171,7 +227,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         const next = prev + dt;
         if (next >= totalDuration) {
           setIsPlaying(false);
-          return 0; // Stop and reset
+          return 0;
         }
         return next;
       });
@@ -216,28 +272,47 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // No active audio at playhead
     audio.pause();
   }, [playhead, isPlaying, clips, assets]);
 
-  const selectClip = React.useCallback((clipId: string | null) => {
-    setSelectedClipId(clipId);
-    if (isHydrated) {
-      saveStoredTimelineState({ selectedClipId: clipId });
-    }
-  }, [isHydrated]);
+  const selectClip = React.useCallback(
+    (clipId: string | null) => {
+      setLocalSelectedClipId(clipId);
+      if (clipId) setLocalSelectedTransitionId(null);
+      if (isHydrated) {
+        saveStoredTimelineState({ selectedClipId: clipId, selectedTransitionId: null });
+      }
+    },
+    [isHydrated]
+  );
+
+  const selectTransition = React.useCallback(
+    (transitionId: string | null) => {
+      setLocalSelectedTransitionId(transitionId);
+      if (transitionId) setLocalSelectedClipId(null);
+      if (isHydrated) {
+        saveStoredTimelineState({ selectedTransitionId: transitionId, selectedClipId: null });
+      }
+    },
+    [isHydrated]
+  );
 
   const selectedClip = React.useMemo(() => {
     if (!selectedClipId) return null;
     return clips.find((c) => c.id === selectedClipId) || null;
   }, [selectedClipId, clips]);
 
+  const selectedTransition = React.useMemo(() => {
+    if (!selectedTransitionId) return null;
+    return transitions.find((t) => t.id === selectedTransitionId) || null;
+  }, [selectedTransitionId, transitions]);
+
   // 1. ADD ASSET TO TIMELINE
   const addAssetToTimeline = React.useCallback(
     (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, targetTrack?: TrackId, customStartTime?: number) => {
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
-      const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual");
+      const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual-1");
       const trackClips = clips.filter((c) => c.trackId === trackId);
 
       let startTime = customStartTime !== undefined ? customStartTime : 0;
@@ -265,12 +340,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         volume: 1.0,
       };
 
-      const updated = [...clips, newClip];
-      setLocalClips(updated);
-      setSelectedClipId(newClip.id);
-      persistClips(updated, newClip.id);
+      const updatedClips = [...clips, newClip];
+      setLocalClips(updatedClips);
+      setLocalSelectedClipId(newClip.id);
+      setLocalSelectedTransitionId(null);
+      persistTimeline(updatedClips, transitions, newClip.id, null);
     },
-    [clips, pushHistorySnapshot, persistClips]
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 2. MOVE CLIP
@@ -279,17 +355,29 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
       const clampedStart = Math.max(0, newStartTime);
-      const updated = clips.map((c) =>
+      const updatedClips = clips.map((c) =>
         c.id === clipId ? { ...c, startTime: clampedStart } : c
       );
 
-      setLocalClips(updated);
-      persistClips(updated);
+      // Clean up transitions that are no longer valid because clips were moved apart
+      const validTransitions = transitions.filter((t) => {
+        if (t.fromClipId === clipId || t.toClipId === clipId) {
+          const from = updatedClips.find((c) => c.id === t.fromClipId);
+          const to = updatedClips.find((c) => c.id === t.toClipId);
+          if (!from || !to) return false;
+          return areClipsAdjacentForTransition(from, to);
+        }
+        return true;
+      });
+
+      setLocalClips(updatedClips);
+      setLocalTransitions(validTransitions);
+      persistTimeline(updatedClips, validTransitions);
     },
-    [clips, pushHistorySnapshot, persistClips]
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 3. TRIM CLIP / ADJUST DURATION
@@ -298,7 +386,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
       let clampedDuration = Math.max(MIN_CLIP_DURATION, newDuration);
       if (target.sourceDuration && target.sourceDuration > 0) {
@@ -306,7 +394,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         clampedDuration = Math.min(clampedDuration, remaining);
       }
 
-      const updated = clips.map((c) =>
+      const updatedClips = clips.map((c) =>
         c.id === clipId
           ? {
               ...c,
@@ -316,10 +404,22 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           : c
       );
 
-      setLocalClips(updated);
-      persistClips(updated);
+      // Validate transitions connected to this clip to ensure duration doesn't exceed bounds
+      const validTransitions = transitions.map((t) => {
+        if (t.fromClipId === clipId || t.toClipId === clipId) {
+          const from = updatedClips.find((c) => c.id === t.fromClipId);
+          const to = updatedClips.find((c) => c.id === t.toClipId);
+          const safeDur = validateTransitionDuration(t.duration, from, to);
+          return { ...t, duration: safeDur };
+        }
+        return t;
+      });
+
+      setLocalClips(updatedClips);
+      setLocalTransitions(validTransitions);
+      persistTimeline(updatedClips, validTransitions);
     },
-    [clips, pushHistorySnapshot, persistClips]
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 4. UPDATE CLIP GENERAL PROPERTIES
@@ -328,13 +428,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
-      const updated = clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c));
-      setLocalClips(updated);
-      persistClips(updated);
+      const updatedClips = clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c));
+      setLocalClips(updatedClips);
+      persistTimeline(updatedClips, transitions);
     },
-    [clips, pushHistorySnapshot, persistClips]
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 5. SPLIT SELECTED CLIP AT PLAYHEAD (Ctrl+B)
@@ -351,7 +451,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
       const splitOffset = playhead - clip.startTime;
       const part1Duration = splitOffset;
@@ -372,12 +472,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         outPoint: clip.outPoint,
       };
 
-      const updated = clips.flatMap((c) => (c.id === idToSplit ? [part1, part2] : [c]));
-      setLocalClips(updated);
-      setSelectedClipId(part2.id);
-      persistClips(updated, part2.id);
+      const updatedClips = clips.flatMap((c) => (c.id === idToSplit ? [part1, part2] : [c]));
+      setLocalClips(updatedClips);
+      setLocalSelectedClipId(part2.id);
+      setLocalSelectedTransitionId(null);
+      persistTimeline(updatedClips, transitions, part2.id, null);
     },
-    [clips, selectedClipId, playhead, pushHistorySnapshot, persistClips]
+    [clips, transitions, selectedClipId, playhead, pushHistorySnapshot, persistTimeline]
   );
 
   // 6. DELETE SELECTED CLIP (Delete/Backspace)
@@ -386,15 +487,22 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const exists = clips.some((c) => c.id === clipId);
       if (!exists) return;
 
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
-      const updated = clips.filter((c) => c.id !== clipId);
-      setLocalClips(updated);
+      const updatedClips = clips.filter((c) => c.id !== clipId);
+      // Clean up any transitions connected to this deleted clip
+      const updatedTransitions = transitions.filter(
+        (t) => t.fromClipId !== clipId && t.toClipId !== clipId
+      );
+
+      setLocalClips(updatedClips);
+      setLocalTransitions(updatedTransitions);
       const newSelected = selectedClipId === clipId ? null : selectedClipId;
-      setSelectedClipId(newSelected);
-      persistClips(updated, newSelected);
+      setLocalSelectedClipId(newSelected);
+      setLocalSelectedTransitionId(null);
+      persistTimeline(updatedClips, updatedTransitions, newSelected, null);
     },
-    [clips, selectedClipId, pushHistorySnapshot, persistClips]
+    [clips, transitions, selectedClipId, pushHistorySnapshot, persistTimeline]
   );
 
   // 7. DUPLICATE SELECTED CLIP (Ctrl+D)
@@ -403,7 +511,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const clip = clips.find((c) => c.id === clipId);
       if (!clip) return;
 
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
 
       const duplicate: TimelineClip = {
         ...clip,
@@ -412,47 +520,137 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         startTime: clip.startTime + clip.duration,
       };
 
-      const updated = [...clips, duplicate];
-      setLocalClips(updated);
-      setSelectedClipId(duplicate.id);
-      persistClips(updated, duplicate.id);
+      const updatedClips = [...clips, duplicate];
+      setLocalClips(updatedClips);
+      setLocalSelectedClipId(duplicate.id);
+      setLocalSelectedTransitionId(null);
+      persistTimeline(updatedClips, transitions, duplicate.id, null);
     },
-    [clips, pushHistorySnapshot, persistClips]
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
-  // 8. FIT VISUALS TO VOICEOVER ACTION
+  // 8. ADD VISUAL TRANSITION
+  const addTransition = React.useCallback(
+    (fromClipId: string, toClipId: string, type: TransitionType = "cross-dissolve", duration: number = 0.5) => {
+      const fromClip = clips.find((c) => c.id === fromClipId);
+      const toClip = clips.find((c) => c.id === toClipId);
+      if (!fromClip || !toClip) return;
+      if (!isVisualTrack(fromClip.trackId) || !areClipsOnSameTrack(fromClip.trackId, toClip.trackId)) return;
+
+      pushHistorySnapshot(clips, transitions);
+
+      const safeDur = validateTransitionDuration(duration, fromClip, toClip);
+      const newTransition: TimelineTransition = {
+        id: `trans_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        type,
+        duration: safeDur,
+        fromClipId,
+        toClipId,
+        trackId: normalizeVisualTrackId(fromClip.trackId),
+      };
+
+      // Filter out existing transition between these two clips and add the new one
+      const updatedTransitions = [
+        ...transitions.filter(
+          (t) =>
+            !(
+              (t.fromClipId === fromClipId && t.toClipId === toClipId) ||
+              (t.fromClipId === toClipId && t.toClipId === fromClipId)
+            )
+        ),
+        newTransition,
+      ];
+
+      setLocalTransitions(updatedTransitions);
+      setLocalSelectedTransitionId(newTransition.id);
+      setLocalSelectedClipId(null);
+      persistTimeline(clips, updatedTransitions, null, newTransition.id);
+    },
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 9. UPDATE TRANSITION
+  const updateTransition = React.useCallback(
+    (transitionId: string, updates: Partial<TimelineTransition>) => {
+      const target = transitions.find((t) => t.id === transitionId);
+      if (!target) return;
+
+      pushHistorySnapshot(clips, transitions);
+
+      const fromClip = clips.find((c) => c.id === target.fromClipId);
+      const toClip = clips.find((c) => c.id === target.toClipId);
+
+      let newDur = updates.duration !== undefined ? updates.duration : target.duration;
+      newDur = validateTransitionDuration(newDur, fromClip, toClip);
+
+      const updatedTransitions = transitions.map((t) =>
+        t.id === transitionId ? { ...t, ...updates, duration: newDur } : t
+      );
+
+      setLocalTransitions(updatedTransitions);
+      persistTimeline(clips, updatedTransitions);
+    },
+    [clips, transitions, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 10. DELETE TRANSITION
+  const deleteTransition = React.useCallback(
+    (transitionId: string) => {
+      const exists = transitions.some((t) => t.id === transitionId);
+      if (!exists) return;
+
+      pushHistorySnapshot(clips, transitions);
+
+      const updatedTransitions = transitions.filter((t) => t.id !== transitionId);
+      setLocalTransitions(updatedTransitions);
+      const newSelectedTrans = selectedTransitionId === transitionId ? null : selectedTransitionId;
+      setLocalSelectedTransitionId(newSelectedTrans);
+      persistTimeline(clips, updatedTransitions, selectedClipId, newSelectedTrans);
+    },
+    [clips, transitions, selectedTransitionId, selectedClipId, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 11. FIT VISUALS TO VOICEOVER ACTION
   const fitVisualsToVoiceover = React.useCallback(() => {
     const result = calculateFitVisualsToVoiceover(clips);
     if (result.success) {
-      pushHistorySnapshot(clips);
+      pushHistorySnapshot(clips, transitions);
       setLocalClips(result.updatedClips);
-      persistClips(result.updatedClips);
+      persistTimeline(result.updatedClips, transitions);
     }
     return { success: result.success, message: result.message };
-  }, [clips, pushHistorySnapshot, persistClips]);
+  }, [clips, transitions, pushHistorySnapshot, persistTimeline]);
 
-  // 9. UNDO & REDO
+  // 12. UNDO & REDO
   const undo = React.useCallback(() => {
     if (undoStackRef.current.length === 0) return;
 
-    const previousClips = undoStackRef.current.pop()!;
-    redoStackRef.current.push(JSON.parse(JSON.stringify(clips)));
+    const previous = undoStackRef.current.pop()!;
+    redoStackRef.current.push({
+      clips: JSON.parse(JSON.stringify(clips)),
+      transitions: JSON.parse(JSON.stringify(transitions)),
+    });
 
-    setLocalClips(previousClips);
-    persistClips(previousClips);
+    setLocalClips(previous.clips);
+    setLocalTransitions(previous.transitions);
+    persistTimeline(previous.clips, previous.transitions);
     syncHistoryFlags();
-  }, [clips, persistClips, syncHistoryFlags]);
+  }, [clips, transitions, persistTimeline, syncHistoryFlags]);
 
   const redo = React.useCallback(() => {
     if (redoStackRef.current.length === 0) return;
 
-    const nextClips = redoStackRef.current.pop()!;
-    undoStackRef.current.push(JSON.parse(JSON.stringify(clips)));
+    const next = redoStackRef.current.pop()!;
+    undoStackRef.current.push({
+      clips: JSON.parse(JSON.stringify(clips)),
+      transitions: JSON.parse(JSON.stringify(transitions)),
+    });
 
-    setLocalClips(nextClips);
-    persistClips(nextClips);
+    setLocalClips(next.clips);
+    setLocalTransitions(next.transitions);
+    persistTimeline(next.clips, next.transitions);
     syncHistoryFlags();
-  }, [clips, persistClips, syncHistoryFlags]);
+  }, [clips, transitions, persistTimeline, syncHistoryFlags]);
 
   // Keyboard Shortcuts Listener
   React.useEffect(() => {
@@ -487,6 +685,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         if (selectedClipId) {
           e.preventDefault();
           deleteClip(selectedClipId);
+        } else if (selectedTransitionId) {
+          e.preventDefault();
+          deleteTransition(selectedTransitionId);
         }
       } else if (e.key === " " || e.code === "Space") {
         e.preventDefault();
@@ -496,15 +697,28 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo, splitClipAtPlayhead, duplicateClip, deleteClip, togglePlay, selectedClipId]);
+  }, [
+    undo,
+    redo,
+    splitClipAtPlayhead,
+    duplicateClip,
+    deleteClip,
+    deleteTransition,
+    togglePlay,
+    selectedClipId,
+    selectedTransitionId,
+  ]);
 
   return (
     <TimelineContext.Provider
       value={{
         isHydrated,
         clips,
+        transitions,
         selectedClipId,
         selectedClip,
+        selectedTransitionId,
+        selectedTransition,
         playhead,
         isPlaying,
         zoom,
@@ -518,6 +732,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         togglePlay,
         setZoom,
         selectClip,
+        selectTransition,
         addAssetToTimeline,
         moveClip,
         trimClip,
@@ -525,6 +740,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         splitClipAtPlayhead,
         deleteClip,
         duplicateClip,
+        addTransition,
+        updateTransition,
+        deleteTransition,
         fitVisualsToVoiceover,
         undo,
         redo,

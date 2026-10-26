@@ -45,7 +45,7 @@ interface ExportDialogProps {
 type ResolutionPreset = "720p" | "1080p";
 
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
-  const { clips, projectTitle } = useTimeline();
+  const { clips, transitions, projectTitle } = useTimeline();
   const { assets } = useMediaLibrary();
 
   // Conservative default: 720p for memory safety on laptops and mobile devices
@@ -117,6 +117,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     try {
       const blob = await exportTimelineToMp4({
         clips,
+        transitions,
         assets,
         options: exportOptions,
         onProgress: (p) => setProgress(p),

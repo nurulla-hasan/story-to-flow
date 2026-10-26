@@ -8,9 +8,30 @@ export function isAudioTrack(trackId: TrackId): boolean {
   return trackId === "audio" || trackId === "audio-1";
 }
 
+export function normalizeVisualTrackId(trackId: TrackId): "visual-1" | "visual-2" | "audio" {
+  if (trackId === "visual-2") return "visual-2";
+  if (trackId === "visual" || trackId === "visual-1") return "visual-1";
+  return "audio";
+}
+
+export function areClipsOnSameTrack(trackA: TrackId, trackB: TrackId): boolean {
+  return normalizeVisualTrackId(trackA) === normalizeVisualTrackId(trackB);
+}
+
 export function getVisualTrackLayerIndex(trackId: TrackId): number {
   if (trackId === "visual-2") return 2;
   return 1;
+}
+
+export type TransitionType = "cross-dissolve" | "fade-black" | "slide-left" | "slide-right";
+
+export interface TimelineTransition {
+  id: string;
+  type: TransitionType;
+  duration: number; // in seconds (e.g. 0.5s)
+  fromClipId: string;
+  toClipId: string;
+  trackId: TrackId;
 }
 
 export interface TimelineClip {
@@ -41,8 +62,10 @@ export interface TimelineProjectState {
   version: number;
   projectTitle: string;
   clips: TimelineClip[];
+  transitions: TimelineTransition[];
   playhead: number;
   zoom: number; // 50 to 200, default 100
   selectedClipId: string | null;
+  selectedTransitionId: string | null;
   updatedAt: number;
 }

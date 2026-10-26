@@ -3,11 +3,13 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import {
   type TimelineClip,
+  type TimelineTransition,
   isVisualTrack,
   isAudioTrack,
   getVisualTrackLayerIndex,
 } from "../types/timeline";
 import type { MediaAssetItem } from "./media-storage";
+import { getTransitionProgress } from "./transition-helpers";
 
 export const MAX_SAFE_EXPORT_DURATION = 300; // 5 minutes max safe browser export duration
 export const MAX_VIDEO_QUEUE_SIZE = 5; // Conservative max pending frames in GPU/RAM encoder queue
@@ -269,12 +271,14 @@ function seekVideoElement(
  */
 export async function exportTimelineToMp4({
   clips,
+  transitions = [],
   assets,
   options,
   onProgress,
   signal,
 }: {
   clips: TimelineClip[];
+  transitions?: TimelineTransition[];
   assets: MediaAssetItem[];
   options: ExportOptions;
   onProgress: (progress: ExportProgress) => void;
@@ -415,45 +419,96 @@ export async function exportTimelineToMp4({
 
       const currentTime = i / fps;
 
-      // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
-      const activeVisuals = visualClips
-        .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
-        .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
-
       // Draw background
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
 
-      for (const activeClip of activeVisuals) {
-        const asset = assets.find((a) => a.id === activeClip.assetId);
-        if (asset) {
-          if (asset.category === "image") {
-            const img = imageElements.get(asset.id);
-            if (img) {
-              const imgW = img.naturalWidth || img.width;
-              const imgH = img.naturalHeight || img.height;
-              const scale = Math.max(width / imgW, height / imgH);
-              const dw = imgW * scale;
-              const dh = imgH * scale;
-              const dx = (width - dw) / 2;
-              const dy = (height - dh) / 2;
-              ctx.drawImage(img, dx, dy, dw, dh);
-            }
-          } else if (asset.category === "video") {
-            const vid = videoElements.get(asset.id);
-            if (vid) {
-              const videoTime = (currentTime - activeClip.startTime) + activeClip.inPoint;
-              await seekVideoElement(vid, videoTime, signal);
-              const vidW = vid.videoWidth || width;
-              const vidH = vid.videoHeight || height;
-              const scale = Math.max(width / vidW, height / vidH);
-              const dw = vidW * scale;
-              const dh = vidH * scale;
-              const dx = (width - dw) / 2;
-              const dy = (height - dh) / 2;
-              ctx.drawImage(vid, dx, dy, dw, dh);
-            }
+      const drawClip = async (clip: TimelineClip, alpha: number = 1.0, xOffset: number = 0) => {
+        const asset = assets.find((a) => a.id === clip.assetId);
+        if (!asset) return;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+
+        if (asset.category === "image") {
+          const img = imageElements.get(asset.id);
+          if (img) {
+            const imgW = img.naturalWidth || img.width;
+            const imgH = img.naturalHeight || img.height;
+            const scale = Math.max(width / imgW, height / imgH);
+            const dw = imgW * scale;
+            const dh = imgH * scale;
+            const dx = (width - dw) / 2 + xOffset;
+            const dy = (height - dh) / 2;
+            ctx.drawImage(img, dx, dy, dw, dh);
           }
+        } else if (asset.category === "video") {
+          const vid = videoElements.get(asset.id);
+          if (vid) {
+            const videoTime = (currentTime - clip.startTime) + clip.inPoint;
+            await seekVideoElement(vid, videoTime, signal);
+            const vidW = vid.videoWidth || width;
+            const vidH = vid.videoHeight || height;
+            const scale = Math.max(width / vidW, height / vidH);
+            const dw = vidW * scale;
+            const dh = vidH * scale;
+            const dx = (width - dw) / 2 + xOffset;
+            const dy = (height - dh) / 2;
+            ctx.drawImage(vid, dx, dy, dw, dh);
+          }
+        }
+
+        ctx.restore();
+      };
+
+      // Check if an active transition is currently taking effect at currentTime
+      let activeTransitionData: {
+        transition: TimelineTransition;
+        fromClip: TimelineClip;
+        toClip: TimelineClip;
+        progress: number;
+      } | null = null;
+
+      if (transitions && transitions.length > 0) {
+        for (const trans of transitions) {
+          const fromClip = visualClips.find((c) => c.id === trans.fromClipId);
+          const toClip = visualClips.find((c) => c.id === trans.toClipId);
+          if (!fromClip || !toClip) continue;
+
+          const progress = getTransitionProgress(currentTime, trans, fromClip, toClip);
+          if (progress !== null) {
+            activeTransitionData = { transition: trans, fromClip, toClip, progress };
+            break;
+          }
+        }
+      }
+
+      if (activeTransitionData) {
+        const { transition, fromClip, toClip, progress } = activeTransitionData;
+        if (transition.type === "cross-dissolve") {
+          await drawClip(fromClip, 1 - progress, 0);
+          await drawClip(toClip, progress, 0);
+        } else if (transition.type === "fade-black") {
+          if (progress < 0.5) {
+            await drawClip(fromClip, 1 - progress * 2, 0);
+          } else {
+            await drawClip(toClip, (progress - 0.5) * 2, 0);
+          }
+        } else if (transition.type === "slide-left") {
+          await drawClip(fromClip, 1, -progress * width);
+          await drawClip(toClip, 1, (1 - progress) * width);
+        } else if (transition.type === "slide-right") {
+          await drawClip(fromClip, 1, progress * width);
+          await drawClip(toClip, 1, -(1 - progress) * width);
+        }
+      } else {
+        // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
+        const activeVisuals = visualClips
+          .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
+          .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
+
+        for (const activeClip of activeVisuals) {
+          await drawClip(activeClip, 1.0, 0);
         }
       }
 

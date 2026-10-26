@@ -15,6 +15,7 @@ import {
   Lock,
   Wand2,
   Layers,
+  Plus,
 } from "lucide-react";
 import {
   Card,
@@ -32,18 +33,24 @@ import {
   type TrackId,
   isAudioTrack,
 } from "@/types/timeline";
+import { findAdjacentClipPairs } from "@/lib/transition-helpers";
 
 export function TimelineDock() {
   const {
     isHydrated,
     clips,
+    transitions,
     selectedClipId,
+    selectedTransitionId,
     selectClip,
+    selectTransition,
     moveClip,
     trimClip,
     splitClipAtPlayhead,
     deleteClip,
     duplicateClip,
+    addTransition,
+    deleteTransition,
     playhead,
     seek,
     zoom,
@@ -134,11 +141,10 @@ export function TimelineDock() {
       let rawStart = Math.max(0, initialStart + deltaX / pxPerSec);
       let snapped = false;
 
-      // Magnetic Snapping (can be temporarily bypassed by holding Shift)
+      // Magnetic Snapping (can be bypassed by holding Shift)
       if (snapEnabled && !moveEvent.shiftKey) {
         const rawEnd = rawStart + clip.duration;
 
-        // Check snapping for clip start edge
         for (const pt of snapPoints) {
           if (Math.abs(rawStart - pt) <= snapThresholdSec) {
             rawStart = pt;
@@ -146,7 +152,6 @@ export function TimelineDock() {
             snapped = true;
             break;
           }
-          // Check snapping for clip end edge
           if (Math.abs(rawEnd - pt) <= snapThresholdSec) {
             rawStart = Math.max(0, pt - clip.duration);
             setActiveSnapGuide(pt);
@@ -225,6 +230,142 @@ export function TimelineDock() {
   const hasAudio = audioClips.length > 0;
   const hasVisual = visualLayer1Clips.length > 0 || visualLayer2Clips.length > 0;
 
+  // Render a visual track lane with clips and transition seam badges
+  const renderVisualTrackLane = (trackId: "visual-1" | "visual-2", trackClips: TimelineClip[]) => {
+    const adjacentPairs = findAdjacentClipPairs(trackClips);
+
+    return (
+      <div
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => handleTrackDrop(e, trackId)}
+        style={{ width: `${tracksContentWidth}px` }}
+        className="relative h-full flex items-center px-1 overflow-visible"
+      >
+        {!isHydrated || trackClips.length === 0 ? (
+          <div className="w-full border border-dashed border-border/60 rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/5 pointer-events-none">
+            <span>
+              {trackId === "visual-2"
+                ? "Drop PiP or overlay visual clips here (rendered in front)."
+                : "Drag scene images or videos here, or click '+' in Media Library."}
+            </span>
+          </div>
+        ) : (
+          <>
+            {/* Visual Clips on Track */}
+            {trackClips.map((clip) => {
+              const isSelected = clip.id === selectedClipId;
+              const leftPos = clip.startTime * pxPerSec;
+              const widthPx = Math.max(20, clip.duration * pxPerSec);
+              const asset = assets.find((a) => a.id === clip.assetId);
+
+              return (
+                <div
+                  key={clip.id}
+                  style={{
+                    left: `${leftPos}px`,
+                    width: `${widthPx}px`,
+                  }}
+                  onPointerDown={(e) => startMoveDrag(e, clip)}
+                  className={`group absolute h-8 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
+                    isSelected
+                      ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
+                      : "border-border bg-card hover:border-primary/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-1 min-w-0 pointer-events-none">
+                    {asset?.thumbnailUrl || asset?.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={asset.thumbnailUrl || asset.url}
+                        alt={clip.name}
+                        className="size-5 rounded object-cover shrink-0"
+                      />
+                    ) : (
+                      <Video className="size-3 text-primary shrink-0" />
+                    )}
+                    <span className="text-3xs font-medium text-foreground truncate">
+                      {clip.name}
+                    </span>
+                  </div>
+
+                  <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none">
+                    {clip.duration.toFixed(1)}s
+                  </span>
+
+                  <div
+                    onPointerDown={(e) => startTrimDrag(e, clip)}
+                    className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
+                    title="Drag to trim duration"
+                  />
+                </div>
+              );
+            })}
+
+            {/* Transition Seam Indicators Between Adjacent Clips */}
+            {adjacentPairs.map(({ fromClip, toClip }) => {
+              const cutPx = toClip.startTime * pxPerSec;
+              const existingTrans = transitions.find(
+                (t) =>
+                  (t.fromClipId === fromClip.id && t.toClipId === toClip.id) ||
+                  (t.fromClipId === toClip.id && t.toClipId === fromClip.id)
+              );
+              const isSelected = existingTrans && existingTrans.id === selectedTransitionId;
+
+              return (
+                <div
+                  key={`seam_${fromClip.id}_${toClip.id}`}
+                  style={{
+                    left: `${cutPx}px`,
+                    top: "50%",
+                    transform: "translate(-50%, -50%)",
+                  }}
+                  className="absolute z-20 flex items-center justify-center pointer-events-auto"
+                >
+                  {existingTrans ? (
+                    /* Active Transition Indicator Button (CapCut style 20x20) */
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectTransition(existingTrans.id);
+                      }}
+                      className={`size-5 rounded-md flex items-center justify-center transition-all duration-150 cursor-pointer shadow-xs ${
+                        isSelected
+                          ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background scale-110"
+                          : "bg-primary/90 text-primary-foreground border border-primary hover:bg-primary hover:scale-110"
+                      }`}
+                      title={`Transition: ${existingTrans.type} (${existingTrans.duration.toFixed(2)}s) — Click to edit or remove`}
+                      aria-label={`Transition: ${existingTrans.type}`}
+                    >
+                      {/* Bowtie / Hourglass Transition Icon matching CapCut Web */}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 5.3c0-1.37 1.66-2.06 2.63-1.09l4.95 4.95-1.41 1.42L5 6.41v11.17L10.59 12l1.41-1.41 6.37-6.37c.97-.97 2.63-.29 2.63 1.09v13.39c0 1.37-1.66 2.06-2.63 1.09l-4.95-4.95 1.41-1.42L19 17.59V6.41L13.41 12l-1.41 1.41-6.37 6.37c-.97.97-2.63.29-2.63-1.09V5.3Z" />
+                      </svg>
+                    </button>
+                  ) : (
+                    /* Add Transition Seam Button (CapCut style 20x20) */
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addTransition(fromClip.id, toClip.id);
+                      }}
+                      className="group/seam size-5 rounded-md bg-card border border-primary/40 text-primary hover:bg-primary hover:text-primary-foreground flex items-center justify-center opacity-90 hover:opacity-100 hover:scale-110 transition-all duration-150 cursor-pointer shadow-xs"
+                      title={`Add visual transition between "${fromClip.name}" and "${toClip.name}"`}
+                      aria-label="Add transition"
+                    >
+                      <Plus className="size-3 group-hover/seam:scale-110 transition-transform" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Card size="sm" className="flex flex-col w-full shrink-0">
       {/* Timeline Controls Header */}
@@ -253,10 +394,13 @@ export function TimelineDock() {
             <Button
               variant="outline"
               size="sm"
-              disabled={!selectedClipId}
-              onClick={() => selectedClipId && deleteClip(selectedClipId)}
+              disabled={!selectedClipId && !selectedTransitionId}
+              onClick={() => {
+                if (selectedClipId) deleteClip(selectedClipId);
+                else if (selectedTransitionId) deleteTransition(selectedTransitionId);
+              }}
               className="gap-1 text-destructive hover:bg-destructive/10"
-              title="Delete selected clip (Del / Backspace)"
+              title="Delete selected clip or transition (Del / Backspace)"
             >
               <Trash2 className="size-3" />
               <span className="hidden sm:inline">Delete</span>
@@ -429,68 +573,7 @@ export function TimelineDock() {
                   </div>
                 </div>
 
-                {/* Layer 2 Surface */}
-                <div
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleTrackDrop(e, "visual-2")}
-                  style={{ width: `${tracksContentWidth}px` }}
-                  className="relative h-full flex items-center px-1 overflow-visible"
-                >
-                  {!isHydrated || visualLayer2Clips.length === 0 ? (
-                    <div className="w-full border border-dashed border-border/60 rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/5 pointer-events-none">
-                      <span>Drop PiP or overlay visual clips here (rendered in front).</span>
-                    </div>
-                  ) : (
-                    visualLayer2Clips.map((clip) => {
-                      const isSelected = clip.id === selectedClipId;
-                      const leftPos = clip.startTime * pxPerSec;
-                      const widthPx = Math.max(20, clip.duration * pxPerSec);
-                      const asset = assets.find((a) => a.id === clip.assetId);
-
-                      return (
-                        <div
-                          key={clip.id}
-                          style={{
-                            left: `${leftPos}px`,
-                            width: `${widthPx}px`,
-                          }}
-                          onPointerDown={(e) => startMoveDrag(e, clip)}
-                          className={`group absolute h-8 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
-                            isSelected
-                              ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
-                              : "border-border bg-card hover:border-primary/50"
-                          }`}
-                        >
-                          <div className="flex items-center gap-1 min-w-0 pointer-events-none">
-                            {asset?.thumbnailUrl || asset?.url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={asset.thumbnailUrl || asset.url}
-                                alt={clip.name}
-                                className="size-5 rounded object-cover shrink-0"
-                              />
-                            ) : (
-                              <Video className="size-3 text-primary shrink-0" />
-                            )}
-                            <span className="text-3xs font-medium text-foreground truncate">
-                              {clip.name}
-                            </span>
-                          </div>
-
-                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none">
-                            {clip.duration.toFixed(1)}s
-                          </span>
-
-                          <div
-                            onPointerDown={(e) => startTrimDrag(e, clip)}
-                            className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
-                            title="Drag to trim duration"
-                          />
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                {renderVisualTrackLane("visual-2", visualLayer2Clips)}
               </div>
 
               {/* Layer 1: Visual Track 1 (Base / Main Visual Layer) */}
@@ -514,69 +597,7 @@ export function TimelineDock() {
                   </div>
                 </div>
 
-                {/* Layer 1 Surface */}
-                <div
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleTrackDrop(e, "visual-1")}
-                  style={{ width: `${tracksContentWidth}px` }}
-                  className="relative h-full flex items-center px-1 overflow-visible"
-                >
-                  {!isHydrated || visualLayer1Clips.length === 0 ? (
-                    <div className="w-full border border-dashed border-border rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
-                      <Video className="size-3 text-muted-foreground/60" />
-                      <span>Drag scene images or videos here, or click &quot;+&quot; in Media Library.</span>
-                    </div>
-                  ) : (
-                    visualLayer1Clips.map((clip) => {
-                      const isSelected = clip.id === selectedClipId;
-                      const leftPos = clip.startTime * pxPerSec;
-                      const widthPx = Math.max(20, clip.duration * pxPerSec);
-                      const asset = assets.find((a) => a.id === clip.assetId);
-
-                      return (
-                        <div
-                          key={clip.id}
-                          style={{
-                            left: `${leftPos}px`,
-                            width: `${widthPx}px`,
-                          }}
-                          onPointerDown={(e) => startMoveDrag(e, clip)}
-                          className={`group absolute h-8 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
-                            isSelected
-                              ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
-                              : "border-border bg-card hover:border-primary/50"
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none">
-                            {asset?.thumbnailUrl || asset?.url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={asset.thumbnailUrl || asset.url}
-                                alt={clip.name}
-                                className="size-5 rounded object-cover shrink-0"
-                              />
-                            ) : (
-                              <Video className="size-3 text-primary shrink-0" />
-                            )}
-                            <span className="text-3xs font-medium text-foreground truncate">
-                              {clip.name}
-                            </span>
-                          </div>
-
-                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none">
-                            {clip.duration.toFixed(1)}s
-                          </span>
-
-                          <div
-                            onPointerDown={(e) => startTrimDrag(e, clip)}
-                            className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
-                            title="Drag to trim duration"
-                          />
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                {renderVisualTrackLane("visual-1", visualLayer1Clips)}
               </div>
 
               {/* Track 3: Voiceover Narration (Cartesia Audio) */}

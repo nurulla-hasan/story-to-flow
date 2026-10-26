@@ -1,9 +1,11 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import type { TimelineProjectState, TimelineClip } from "@/types/timeline";
 
 export const TIMELINE_STORAGE_KEY = "story_forge_timeline_state_v1";
 export const TIMELINE_STORAGE_VERSION = 1;
+export const TIMELINE_STORAGE_EVENT = "story_forge_timeline_storage_change";
 
 export const DEFAULT_TIMELINE_STATE: TimelineProjectState = {
   version: TIMELINE_STORAGE_VERSION,
@@ -14,6 +16,9 @@ export const DEFAULT_TIMELINE_STATE: TimelineProjectState = {
   selectedClipId: null,
   updatedAt: 0,
 };
+
+let cachedTimelineRaw: string | null = "__init__";
+let cachedTimelineSnapshot: TimelineProjectState = DEFAULT_TIMELINE_STATE;
 
 /**
  * Safely load saved timeline project state from browser localStorage.
@@ -60,7 +65,11 @@ export function saveStoredTimelineState(state: Partial<TimelineProjectState>): v
       version: TIMELINE_STORAGE_VERSION,
       updatedAt: Date.now(),
     };
-    window.localStorage.setItem(TIMELINE_STORAGE_KEY, JSON.stringify(updated));
+    const serialized = JSON.stringify(updated);
+    cachedTimelineRaw = serialized;
+    cachedTimelineSnapshot = updated;
+    window.localStorage.setItem(TIMELINE_STORAGE_KEY, serialized);
+    window.dispatchEvent(new CustomEvent(TIMELINE_STORAGE_EVENT));
   } catch (err) {
     console.error("Failed to save timeline state:", err);
   }
@@ -72,8 +81,55 @@ export function saveStoredTimelineState(state: Partial<TimelineProjectState>): v
 export function clearStoredTimelineState(): void {
   if (typeof window === "undefined") return;
   try {
+    cachedTimelineRaw = null;
+    cachedTimelineSnapshot = DEFAULT_TIMELINE_STATE;
     window.localStorage.removeItem(TIMELINE_STORAGE_KEY);
+    window.dispatchEvent(new CustomEvent(TIMELINE_STORAGE_EVENT));
   } catch (err) {
     console.error("Failed to clear timeline storage:", err);
   }
+}
+
+function subscribeToTimelineStorage(callback: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  window.addEventListener(TIMELINE_STORAGE_EVENT, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(TIMELINE_STORAGE_EVENT, callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+function getTimelineSnapshot(): TimelineProjectState {
+  if (typeof window === "undefined") {
+    return DEFAULT_TIMELINE_STATE;
+  }
+  try {
+    const raw = window.localStorage.getItem(TIMELINE_STORAGE_KEY);
+    if (raw !== cachedTimelineRaw) {
+      cachedTimelineRaw = raw;
+      cachedTimelineSnapshot = getStoredTimelineState();
+    }
+    return cachedTimelineSnapshot;
+  } catch {
+    return DEFAULT_TIMELINE_STATE;
+  }
+}
+
+function getServerTimelineSnapshot(): TimelineProjectState {
+  return DEFAULT_TIMELINE_STATE;
+}
+
+/**
+ * Hydration-safe React hook using useSyncExternalStore for timeline persistence.
+ * Server snapshot and client's first render are 100% identical.
+ */
+export function useTimelineStorage(): TimelineProjectState {
+  return useSyncExternalStore(
+    subscribeToTimelineStorage,
+    getTimelineSnapshot,
+    getServerTimelineSnapshot
+  );
 }

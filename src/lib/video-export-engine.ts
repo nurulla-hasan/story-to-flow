@@ -1,8 +1,13 @@
 "use client";
 
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
-import type { TimelineClip } from "@/types/timeline";
-import type { MediaAssetItem } from "@/lib/media-storage";
+import {
+  type TimelineClip,
+  isVisualTrack,
+  isAudioTrack,
+  getVisualTrackLayerIndex,
+} from "../types/timeline";
+import type { MediaAssetItem } from "./media-storage";
 
 export const MAX_SAFE_EXPORT_DURATION = 300; // 5 minutes max safe browser export duration
 export const MAX_VIDEO_QUEUE_SIZE = 5; // Conservative max pending frames in GPU/RAM encoder queue
@@ -81,8 +86,8 @@ export function calculateExportPlan(
   return {
     totalDuration: maxEnd,
     totalFrames,
-    visualClipsCount: clips.filter((c) => c.trackId === "visual").length,
-    audioClipsCount: clips.filter((c) => c.trackId === "audio").length,
+    visualClipsCount: clips.filter((c) => isVisualTrack(c.trackId)).length,
+    audioClipsCount: clips.filter((c) => isAudioTrack(c.trackId)).length,
   };
 }
 
@@ -119,7 +124,7 @@ export function validateExportSafety(
  * Waits when pending queue exceeds maxQueue; wakes up when queue drains, on error, or abort.
  */
 export async function waitForEncoderQueue(
-  encoder: { encodeQueueSize: number; ondequeue: ((ev?: Event) => unknown) | null },
+  encoder: { encodeQueueSize: number; ondequeue: ((ev: Event) => unknown) | null },
   maxQueue: number = MAX_VIDEO_QUEUE_SIZE,
   signal?: AbortSignal,
   checkErrors?: () => Error | null
@@ -292,8 +297,8 @@ export async function exportTimelineToMp4({
     throw new Error(safety.error || "Timeline is invalid or exceeds safe export limits.");
   }
 
-  const visualClips = clips.filter((c) => c.trackId === "visual");
-  const audioClips = clips.filter((c) => c.trackId === "audio");
+  const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
+  const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
   const hasAudio =
     audioClips.length > 0 &&
     typeof (window as unknown as { AudioEncoder?: unknown }).AudioEncoder !== "undefined";
@@ -410,16 +415,16 @@ export async function exportTimelineToMp4({
 
       const currentTime = i / fps;
 
-      // Find active visual clip at current frame timestamp
-      const activeClip = visualClips.find(
-        (c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration
-      );
+      // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
+      const activeVisuals = visualClips
+        .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
+        .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
 
       // Draw background
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
 
-      if (activeClip) {
+      for (const activeClip of activeVisuals) {
         const asset = assets.find((a) => a.id === activeClip.assetId);
         if (asset) {
           if (asset.category === "image") {

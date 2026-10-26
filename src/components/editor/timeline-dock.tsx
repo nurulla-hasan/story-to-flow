@@ -14,6 +14,7 @@ import {
   Eye,
   Lock,
   Wand2,
+  Layers,
 } from "lucide-react";
 import {
   Card,
@@ -26,7 +27,11 @@ import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import { AudioWaveformView } from "@/components/editor/audio-waveform-view";
-import type { TimelineClip, TrackId } from "@/types/timeline";
+import {
+  type TimelineClip,
+  type TrackId,
+  isAudioTrack,
+} from "@/types/timeline";
 
 export function TimelineDock() {
   const {
@@ -50,9 +55,13 @@ export function TimelineDock() {
 
   const { assets } = useMediaLibrary();
 
+  // Magnetic snapping state & visual guide line
+  const [snapEnabled, setSnapEnabled] = React.useState<boolean>(true);
+  const [activeSnapGuide, setActiveSnapGuide] = React.useState<number | null>(null);
+
   // Pixels per second scaled by zoom (40px/s at 100% zoom)
   const pxPerSec = (zoom / 100) * 40;
-  const tracksContentWidth = Math.max(800, totalDuration * pxPerSec);
+  const tracksContentWidth = Math.max(900, (totalDuration + 5) * pxPerSec);
 
   const rulerRef = React.useRef<HTMLDivElement>(null);
   const tracksScrollRef = React.useRef<HTMLDivElement>(null);
@@ -95,21 +104,67 @@ export function TimelineDock() {
     }
   };
 
-  // Interactive Clip Move Dragging Handler
+  // Compute snap points from playhead, timeline start, and other clips' boundaries
+  const getSnapPoints = React.useCallback(
+    (excludeClipId: string): number[] => {
+      const points = [0, playhead];
+      clips.forEach((c) => {
+        if (c.id !== excludeClipId) {
+          points.push(c.startTime);
+          points.push(c.startTime + c.duration);
+        }
+      });
+      return points;
+    },
+    [clips, playhead]
+  );
+
+  // Interactive Clip Move Dragging Handler with Magnetic Snapping
   const startMoveDrag = (e: React.PointerEvent, clip: TimelineClip) => {
     e.stopPropagation();
     selectClip(clip.id);
 
     const startX = e.clientX;
     const initialStart = clip.startTime;
+    const snapThresholdSec = 10 / pxPerSec; // 10px snap window
+    const snapPoints = getSnapPoints(clip.id);
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      const deltaSec = deltaX / pxPerSec;
-      moveClip(clip.id, Math.max(0, initialStart + deltaSec));
+      let rawStart = Math.max(0, initialStart + deltaX / pxPerSec);
+      let snapped = false;
+
+      // Magnetic Snapping (can be temporarily bypassed by holding Shift)
+      if (snapEnabled && !moveEvent.shiftKey) {
+        const rawEnd = rawStart + clip.duration;
+
+        // Check snapping for clip start edge
+        for (const pt of snapPoints) {
+          if (Math.abs(rawStart - pt) <= snapThresholdSec) {
+            rawStart = pt;
+            setActiveSnapGuide(pt);
+            snapped = true;
+            break;
+          }
+          // Check snapping for clip end edge
+          if (Math.abs(rawEnd - pt) <= snapThresholdSec) {
+            rawStart = Math.max(0, pt - clip.duration);
+            setActiveSnapGuide(pt);
+            snapped = true;
+            break;
+          }
+        }
+      }
+
+      if (!snapped) {
+        setActiveSnapGuide(null);
+      }
+
+      moveClip(clip.id, rawStart);
     };
 
     const onPointerUp = () => {
+      setActiveSnapGuide(null);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
@@ -118,21 +173,42 @@ export function TimelineDock() {
     window.addEventListener("pointerup", onPointerUp);
   };
 
-  // Interactive Clip Trim Dragging Handler
+  // Interactive Clip Trim Dragging Handler with Magnetic Snapping
   const startTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
     e.stopPropagation();
     selectClip(clip.id);
 
     const startX = e.clientX;
     const initialDuration = clip.duration;
+    const snapThresholdSec = 10 / pxPerSec;
+    const snapPoints = getSnapPoints(clip.id);
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      const deltaSec = deltaX / pxPerSec;
-      trimClip(clip.id, Math.max(0.5, initialDuration + deltaSec));
+      let rawDuration = Math.max(0.5, initialDuration + deltaX / pxPerSec);
+      const rawEnd = clip.startTime + rawDuration;
+      let snapped = false;
+
+      if (snapEnabled && !moveEvent.shiftKey) {
+        for (const pt of snapPoints) {
+          if (pt > clip.startTime && Math.abs(rawEnd - pt) <= snapThresholdSec) {
+            rawDuration = Math.max(0.5, pt - clip.startTime);
+            setActiveSnapGuide(pt);
+            snapped = true;
+            break;
+          }
+        }
+      }
+
+      if (!snapped) {
+        setActiveSnapGuide(null);
+      }
+
+      trimClip(clip.id, rawDuration);
     };
 
     const onPointerUp = () => {
+      setActiveSnapGuide(null);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
@@ -141,10 +217,13 @@ export function TimelineDock() {
     window.addEventListener("pointerup", onPointerUp);
   };
 
-  const visualClips = clips.filter((c) => c.trackId === "visual");
-  const audioClips = clips.filter((c) => c.trackId === "audio");
+  // Multi-Track Layers Separation
+  const visualLayer2Clips = clips.filter((c) => c.trackId === "visual-2");
+  const visualLayer1Clips = clips.filter((c) => c.trackId === "visual-1" || c.trackId === "visual");
+  const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
+
   const hasAudio = audioClips.length > 0;
-  const hasVisual = visualClips.length > 0;
+  const hasVisual = visualLayer1Clips.length > 0 || visualLayer2Clips.length > 0;
 
   return (
     <Card size="sm" className="flex flex-col w-full shrink-0">
@@ -209,22 +288,24 @@ export function TimelineDock() {
           </div>
 
           {/* Right: Timeline Zoom, Snap & Playhead Position */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <div className="font-mono text-2xs bg-muted text-foreground font-semibold px-1.5 py-0.5 rounded">
               {isHydrated ? playhead.toFixed(2) : "0.00"}s
             </div>
 
+            {/* Magnetic Snapping Toggle */}
             <Button
-              variant="ghost"
+              variant={snapEnabled ? "secondary" : "ghost"}
               size="icon"
-              disabled
-              title="Toggle timeline snapping"
-              aria-label="Toggle timeline snapping"
+              onClick={() => setSnapEnabled(!snapEnabled)}
+              title={snapEnabled ? "Snapping ON (Hold Shift while dragging to disable)" : "Snapping OFF"}
+              aria-label="Toggle magnetic snapping"
             >
-              <Magnet className="size-3" />
+              <Magnet className={`size-3.5 ${snapEnabled ? "text-primary" : "text-muted-foreground"}`} />
             </Button>
 
-            <div className="flex items-center gap-0.5">
+            {/* Interactive Timeline Zoom Slider & Buttons */}
+            <div className="flex items-center gap-1.5 bg-muted/40 p-0.5 rounded-lg border border-border">
               <Button
                 variant="ghost"
                 size="icon"
@@ -236,9 +317,16 @@ export function TimelineDock() {
                 <ZoomOut className="size-3" />
               </Button>
 
-              <Badge variant="secondary">
-                {isHydrated ? zoom : 100}%
-              </Badge>
+              <input
+                type="range"
+                min="50"
+                max="200"
+                step="5"
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                aria-label="Timeline zoom scale"
+                className="w-16 sm:w-20 accent-primary cursor-pointer h-1"
+              />
 
               <Button
                 variant="ghost"
@@ -250,13 +338,17 @@ export function TimelineDock() {
               >
                 <ZoomIn className="size-3" />
               </Button>
+
+              <Badge variant="secondary">
+                {isHydrated ? zoom : 100}%
+              </Badge>
             </div>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="flex flex-col">
-        {/* Horizontal scroll container for tracks */}
+        {/* Horizontal scroll container for multi-track timeline */}
         <div ref={tracksScrollRef} className="overflow-x-auto overflow-y-hidden">
           <div
             style={{ width: `${tracksContentWidth + 144}px` }}
@@ -264,7 +356,6 @@ export function TimelineDock() {
           >
             {/* Time Ruler Section */}
             <div className="flex border-b border-border bg-muted/30 h-6 select-none shrink-0">
-              {/* Track headers offset spacer */}
               <div className="w-36 shrink-0 border-r border-border px-2 flex items-center text-3xs text-muted-foreground uppercase font-medium">
                 Tracks
               </div>
@@ -309,19 +400,26 @@ export function TimelineDock() {
                 <div className="w-0.5 flex-1 bg-primary" />
               </div>
 
-              {/* Track 1: Visual Scenes (Hero Videos & Images) */}
-              <div className="flex h-12 bg-card hover:bg-muted/10 transition-colors">
-                {/* Track 1 Header */}
+              {/* Active Snap Guide Line */}
+              {activeSnapGuide !== null && (
+                <div
+                  style={{ left: `${144 + activeSnapGuide * pxPerSec}px` }}
+                  className="absolute top-0 bottom-0 z-40 w-px bg-info pointer-events-none shadow-sm"
+                />
+              )}
+
+              {/* Layer 2: Visual Track 2 (Overlay / Top Visual Layer) */}
+              <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors">
                 <div className="w-36 shrink-0 border-r border-border p-2 flex items-center justify-between bg-muted/20 z-20">
                   <div className="flex items-center gap-1.5">
-                    <div className="size-5 rounded bg-primary/10 flex items-center justify-center text-primary">
-                      <Video className="size-3" />
+                    <div className="size-5 rounded bg-primary/15 flex items-center justify-center text-primary">
+                      <Layers className="size-3" />
                     </div>
                     <div>
                       <p className="text-2xs font-semibold text-foreground leading-tight">
-                        Visual Scenes
+                        Visual Layer 2
                       </p>
-                      <p className="text-3xs text-muted-foreground">{isHydrated ? visualClips.length : 0} clips</p>
+                      <p className="text-3xs text-muted-foreground">Overlay (Top)</p>
                     </div>
                   </div>
 
@@ -331,20 +429,19 @@ export function TimelineDock() {
                   </div>
                 </div>
 
-                {/* Track 1 Lane Surface */}
+                {/* Layer 2 Surface */}
                 <div
                   onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleTrackDrop(e, "visual")}
+                  onDrop={(e) => handleTrackDrop(e, "visual-2")}
                   style={{ width: `${tracksContentWidth}px` }}
                   className="relative h-full flex items-center px-1 overflow-visible"
                 >
-                  {!isHydrated || visualClips.length === 0 ? (
-                    <div className="w-full border border-dashed border-border rounded h-8 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
-                      <Video className="size-3 text-muted-foreground/60" />
-                      <span>Drag scene images or videos here, or click &quot;+&quot; in Media Library.</span>
+                  {!isHydrated || visualLayer2Clips.length === 0 ? (
+                    <div className="w-full border border-dashed border-border/60 rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/5 pointer-events-none">
+                      <span>Drop PiP or overlay visual clips here (rendered in front).</span>
                     </div>
                   ) : (
-                    visualClips.map((clip) => {
+                    visualLayer2Clips.map((clip) => {
                       const isSelected = clip.id === selectedClipId;
                       const leftPos = clip.startTime * pxPerSec;
                       const widthPx = Math.max(20, clip.duration * pxPerSec);
@@ -358,25 +455,24 @@ export function TimelineDock() {
                             width: `${widthPx}px`,
                           }}
                           onPointerDown={(e) => startMoveDrag(e, clip)}
-                          className={`group absolute h-9 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
+                          className={`group absolute h-8 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
                             isSelected
                               ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
                               : "border-border bg-card hover:border-primary/50"
                           }`}
                         >
-                          {/* Clip thumbnail preview badge */}
-                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none">
+                          <div className="flex items-center gap-1 min-w-0 pointer-events-none">
                             {asset?.thumbnailUrl || asset?.url ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={asset.thumbnailUrl || asset.url}
                                 alt={clip.name}
-                                className="size-6 rounded object-cover shrink-0"
+                                className="size-5 rounded object-cover shrink-0"
                               />
                             ) : (
-                              <Video className="size-3.5 text-primary shrink-0" />
+                              <Video className="size-3 text-primary shrink-0" />
                             )}
-                            <span className="text-2xs font-medium text-foreground truncate">
+                            <span className="text-3xs font-medium text-foreground truncate">
                               {clip.name}
                             </span>
                           </div>
@@ -385,7 +481,6 @@ export function TimelineDock() {
                             {clip.duration.toFixed(1)}s
                           </span>
 
-                          {/* Right edge trim handle */}
                           <div
                             onPointerDown={(e) => startTrimDrag(e, clip)}
                             className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
@@ -398,9 +493,94 @@ export function TimelineDock() {
                 </div>
               </div>
 
-              {/* Track 2: Voiceover Narration (Cartesia Audio) */}
-              <div className="flex h-12 bg-card hover:bg-muted/10 transition-colors">
-                {/* Track 2 Header */}
+              {/* Layer 1: Visual Track 1 (Base / Main Visual Layer) */}
+              <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors">
+                <div className="w-36 shrink-0 border-r border-border p-2 flex items-center justify-between bg-muted/20 z-20">
+                  <div className="flex items-center gap-1.5">
+                    <div className="size-5 rounded bg-primary/10 flex items-center justify-center text-primary">
+                      <Video className="size-3" />
+                    </div>
+                    <div>
+                      <p className="text-2xs font-semibold text-foreground leading-tight">
+                        Visual Layer 1
+                      </p>
+                      <p className="text-3xs text-muted-foreground">{visualLayer1Clips.length} clips</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-muted-foreground">
+                    <Eye className="size-2.5" />
+                    <Lock className="size-2.5" />
+                  </div>
+                </div>
+
+                {/* Layer 1 Surface */}
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleTrackDrop(e, "visual-1")}
+                  style={{ width: `${tracksContentWidth}px` }}
+                  className="relative h-full flex items-center px-1 overflow-visible"
+                >
+                  {!isHydrated || visualLayer1Clips.length === 0 ? (
+                    <div className="w-full border border-dashed border-border rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
+                      <Video className="size-3 text-muted-foreground/60" />
+                      <span>Drag scene images or videos here, or click &quot;+&quot; in Media Library.</span>
+                    </div>
+                  ) : (
+                    visualLayer1Clips.map((clip) => {
+                      const isSelected = clip.id === selectedClipId;
+                      const leftPos = clip.startTime * pxPerSec;
+                      const widthPx = Math.max(20, clip.duration * pxPerSec);
+                      const asset = assets.find((a) => a.id === clip.assetId);
+
+                      return (
+                        <div
+                          key={clip.id}
+                          style={{
+                            left: `${leftPos}px`,
+                            width: `${widthPx}px`,
+                          }}
+                          onPointerDown={(e) => startMoveDrag(e, clip)}
+                          className={`group absolute h-8 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
+                            isSelected
+                              ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
+                              : "border-border bg-card hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none">
+                            {asset?.thumbnailUrl || asset?.url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={asset.thumbnailUrl || asset.url}
+                                alt={clip.name}
+                                className="size-5 rounded object-cover shrink-0"
+                              />
+                            ) : (
+                              <Video className="size-3 text-primary shrink-0" />
+                            )}
+                            <span className="text-3xs font-medium text-foreground truncate">
+                              {clip.name}
+                            </span>
+                          </div>
+
+                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none">
+                            {clip.duration.toFixed(1)}s
+                          </span>
+
+                          <div
+                            onPointerDown={(e) => startTrimDrag(e, clip)}
+                            className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
+                            title="Drag to trim duration"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Track 3: Voiceover Narration (Cartesia Audio) */}
+              <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors">
                 <div className="w-36 shrink-0 border-r border-border p-2 flex items-center justify-between bg-muted/20 z-20">
                   <div className="flex items-center gap-1.5">
                     <div className="size-5 rounded bg-secondary flex items-center justify-center text-foreground">
@@ -410,7 +590,7 @@ export function TimelineDock() {
                       <p className="text-2xs font-semibold text-foreground leading-tight">
                         Voiceover
                       </p>
-                      <p className="text-3xs text-muted-foreground">{isHydrated ? audioClips.length : 0} tracks</p>
+                      <p className="text-3xs text-muted-foreground">{audioClips.length} tracks</p>
                     </div>
                   </div>
 
@@ -420,7 +600,7 @@ export function TimelineDock() {
                   </div>
                 </div>
 
-                {/* Track 2 Lane Surface */}
+                {/* Track 3 Surface */}
                 <div
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => handleTrackDrop(e, "audio")}
@@ -428,7 +608,7 @@ export function TimelineDock() {
                   className="relative h-full flex items-center px-1 overflow-visible"
                 >
                   {!isHydrated || audioClips.length === 0 ? (
-                    <div className="w-full border border-dashed border-border rounded h-8 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
+                    <div className="w-full border border-dashed border-border rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
                       <Mic className="size-3 text-muted-foreground/60" />
                       <span>Drag voiceover audio here to align visual scene pacing.</span>
                     </div>
@@ -447,7 +627,7 @@ export function TimelineDock() {
                             width: `${widthPx}px`,
                           }}
                           onPointerDown={(e) => startMoveDrag(e, clip)}
-                          className={`group absolute h-9 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
+                          className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
                             isSelected
                               ? "border-primary bg-primary/25 ring-2 ring-primary shadow-sm z-10"
                               : "border-border bg-card hover:border-primary/50"
@@ -460,7 +640,7 @@ export function TimelineDock() {
 
                           <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10">
                             <Mic className="size-3 text-primary shrink-0" />
-                            <span className="text-2xs font-medium text-foreground truncate">
+                            <span className="text-3xs font-medium text-foreground truncate">
                               {clip.name}
                             </span>
                           </div>
@@ -469,7 +649,6 @@ export function TimelineDock() {
                             {clip.duration.toFixed(1)}s
                           </span>
 
-                          {/* Right edge trim handle */}
                           <div
                             onPointerDown={(e) => startTrimDrag(e, clip)}
                             className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20"

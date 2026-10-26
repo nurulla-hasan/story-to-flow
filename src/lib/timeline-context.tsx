@@ -5,8 +5,8 @@ import type { TimelineClip, TrackId } from "@/types/timeline";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
   DEFAULT_TIMELINE_STATE,
-  getStoredTimelineState,
   saveStoredTimelineState,
+  useTimelineStorage,
 } from "@/lib/timeline-storage";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
 
@@ -44,40 +44,33 @@ const TimelineContext = React.createContext<TimelineContextType | null>(null);
 
 const MAX_HISTORY = 50;
 const MIN_CLIP_DURATION = 0.5; // minimum 500ms
+const emptySubscribe = () => () => {};
 
 export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const { assets } = useMediaLibrary();
 
-  // Deterministic initial state for SSR and initial client hydration
-  const [projectTitle, setProjectTitleState] = React.useState<string>(DEFAULT_TIMELINE_STATE.projectTitle);
-  const [clips, setClips] = React.useState<TimelineClip[]>(DEFAULT_TIMELINE_STATE.clips);
-  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(DEFAULT_TIMELINE_STATE.selectedClipId);
-  const [playhead, setPlayheadState] = React.useState<number>(DEFAULT_TIMELINE_STATE.playhead);
+  // Hydration-safe client detection via React useSyncExternalStore
+  const isHydrated = React.useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
+  // Hydration-safe external store subscription for persisted timeline state
+  const storedState = useTimelineStorage();
+
+  // Local overrides during active session (starts null so server and client first render use default)
+  const [localTitle, setLocalTitle] = React.useState<string | null>(null);
+  const [localClips, setLocalClips] = React.useState<TimelineClip[] | null>(null);
+  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  const [playhead, setPlayheadState] = React.useState<number>(0);
   const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
-  const [zoom, setZoomState] = React.useState<number>(DEFAULT_TIMELINE_STATE.zoom);
-  const [isHydrated, setIsHydrated] = React.useState<boolean>(false);
+  const [localZoom, setLocalZoom] = React.useState<number | null>(null);
 
-  // Guard to ensure localStorage is NEVER overwritten before initial restoration completes
-  const isRestoredRef = React.useRef(false);
-
-  // Restore saved state strictly after hydration in useEffect
-  React.useEffect(() => {
-    try {
-      const saved = getStoredTimelineState();
-      if (saved.clips.length > 0 || saved.projectTitle !== DEFAULT_TIMELINE_STATE.projectTitle) {
-        setProjectTitleState(saved.projectTitle);
-        setClips(saved.clips);
-        setPlayheadState(saved.playhead);
-        setZoomState(saved.zoom);
-        setSelectedClipId(saved.selectedClipId);
-      }
-    } catch (err) {
-      console.error("Failed to restore timeline state from localStorage:", err);
-    } finally {
-      isRestoredRef.current = true;
-      setIsHydrated(true);
-    }
-  }, []);
+  // Derived active state: perfectly identical between server and client first render
+  const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
+  const clips = localClips ?? (isHydrated ? storedState.clips : DEFAULT_TIMELINE_STATE.clips);
+  const zoom = localZoom ?? (isHydrated ? storedState.zoom : DEFAULT_TIMELINE_STATE.zoom);
 
   // Undo / Redo Stacks & State Flags
   const undoStackRef = React.useRef<TimelineClip[][]>([]);
@@ -106,14 +99,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     setCanRedo(redoStackRef.current.length > 0);
   }, []);
 
-  // Save changes to localStorage with explicit restoration guard
+  // Save changes to localStorage with hydration guard
   const persistClips = React.useCallback((newClips: TimelineClip[], newSelectedId?: string | null) => {
-    if (!isRestoredRef.current) return;
+    if (!isHydrated) return;
     saveStoredTimelineState({
       clips: newClips,
       selectedClipId: newSelectedId !== undefined ? newSelectedId : selectedClipId,
     });
-  }, [selectedClipId]);
+  }, [isHydrated, selectedClipId]);
 
   // Push current snapshot to undo stack before a mutation
   const pushHistorySnapshot = React.useCallback((currentClips: TimelineClip[]) => {
@@ -121,25 +114,24 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     if (undoStackRef.current.length > MAX_HISTORY) {
       undoStackRef.current.shift();
     }
-    // Any new action clears the redo stack
     redoStackRef.current = [];
     syncHistoryFlags();
   }, [syncHistoryFlags]);
 
   const setProjectTitle = React.useCallback((title: string) => {
-    setProjectTitleState(title);
-    if (isRestoredRef.current) {
+    setLocalTitle(title);
+    if (isHydrated) {
       saveStoredTimelineState({ projectTitle: title });
     }
-  }, []);
+  }, [isHydrated]);
 
   const setZoom = React.useCallback((newZoom: number) => {
     const clamped = Math.min(200, Math.max(50, newZoom));
-    setZoomState(clamped);
-    if (isRestoredRef.current) {
+    setLocalZoom(clamped);
+    if (isHydrated) {
       saveStoredTimelineState({ zoom: clamped });
     }
-  }, []);
+  }, [isHydrated]);
 
   // Calculate total timeline duration (at least 10s or ends after the latest clip)
   const totalDuration = React.useMemo(() => {
@@ -155,10 +147,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const seek = React.useCallback((time: number) => {
     const clamped = Math.max(0, Math.min(totalDuration, time));
     setPlayheadState(clamped);
-    if (isRestoredRef.current) {
+    if (isHydrated) {
       saveStoredTimelineState({ playhead: clamped });
     }
-  }, [totalDuration]);
+  }, [isHydrated, totalDuration]);
 
   const togglePlay = React.useCallback(() => {
     setIsPlaying((prev) => !prev);
@@ -230,15 +222,15 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   const selectClip = React.useCallback((clipId: string | null) => {
     setSelectedClipId(clipId);
-    if (isRestoredRef.current) {
+    if (isHydrated) {
       saveStoredTimelineState({ selectedClipId: clipId });
     }
-  }, []);
+  }, [isHydrated]);
 
   const selectedClip = React.useMemo(() => {
     if (!selectedClipId) return null;
     return clips.find((c) => c.id === selectedClipId) || null;
-  }, [clips, selectedClipId]);
+  }, [selectedClipId, clips]);
 
   // 1. ADD ASSET TO TIMELINE
   const addAssetToTimeline = React.useCallback(
@@ -274,7 +266,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       };
 
       const updated = [...clips, newClip];
-      setClips(updated);
+      setLocalClips(updated);
       setSelectedClipId(newClip.id);
       persistClips(updated, newClip.id);
     },
@@ -294,7 +286,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         c.id === clipId ? { ...c, startTime: clampedStart } : c
       );
 
-      setClips(updated);
+      setLocalClips(updated);
       persistClips(updated);
     },
     [clips, pushHistorySnapshot, persistClips]
@@ -324,7 +316,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           : c
       );
 
-      setClips(updated);
+      setLocalClips(updated);
       persistClips(updated);
     },
     [clips, pushHistorySnapshot, persistClips]
@@ -339,7 +331,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       pushHistorySnapshot(clips);
 
       const updated = clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c));
-      setClips(updated);
+      setLocalClips(updated);
       persistClips(updated);
     },
     [clips, pushHistorySnapshot, persistClips]
@@ -381,7 +373,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       };
 
       const updated = clips.flatMap((c) => (c.id === idToSplit ? [part1, part2] : [c]));
-      setClips(updated);
+      setLocalClips(updated);
       setSelectedClipId(part2.id);
       persistClips(updated, part2.id);
     },
@@ -397,7 +389,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       pushHistorySnapshot(clips);
 
       const updated = clips.filter((c) => c.id !== clipId);
-      setClips(updated);
+      setLocalClips(updated);
       const newSelected = selectedClipId === clipId ? null : selectedClipId;
       setSelectedClipId(newSelected);
       persistClips(updated, newSelected);
@@ -421,7 +413,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       };
 
       const updated = [...clips, duplicate];
-      setClips(updated);
+      setLocalClips(updated);
       setSelectedClipId(duplicate.id);
       persistClips(updated, duplicate.id);
     },
@@ -433,7 +425,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     const result = calculateFitVisualsToVoiceover(clips);
     if (result.success) {
       pushHistorySnapshot(clips);
-      setClips(result.updatedClips);
+      setLocalClips(result.updatedClips);
       persistClips(result.updatedClips);
     }
     return { success: result.success, message: result.message };
@@ -446,7 +438,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     const previousClips = undoStackRef.current.pop()!;
     redoStackRef.current.push(JSON.parse(JSON.stringify(clips)));
 
-    setClips(previousClips);
+    setLocalClips(previousClips);
     persistClips(previousClips);
     syncHistoryFlags();
   }, [clips, persistClips, syncHistoryFlags]);
@@ -457,7 +449,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     const nextClips = redoStackRef.current.pop()!;
     undoStackRef.current.push(JSON.parse(JSON.stringify(clips)));
 
-    setClips(nextClips);
+    setLocalClips(nextClips);
     persistClips(nextClips);
     syncHistoryFlags();
   }, [clips, persistClips, syncHistoryFlags]);

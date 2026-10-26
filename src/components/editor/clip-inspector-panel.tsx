@@ -13,6 +13,7 @@ import {
   Mic,
   Image as ImageIcon,
   Volume2,
+  Layers,
 } from "lucide-react";
 import {
   Card,
@@ -24,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
+import { isVisualTrack, isAudioTrack } from "@/types/timeline";
 
 export function ClipInspectorPanel() {
   const {
@@ -104,10 +106,49 @@ export function ClipInspectorPanel() {
                   {selectedClip.name}
                 </p>
                 <p className="text-3xs text-muted-foreground">
-                  Track: {selectedClip.trackId === "visual" ? "Visual Scenes" : "Voiceover"}
+                  Track: {isAudioTrack(selectedClip.trackId) ? "Voiceover" : selectedClip.trackId === "visual-2" ? "Visual Track 2 (Overlay)" : "Visual Track 1 (Base)"}
                 </p>
               </div>
             </div>
+
+            {/* Visual Layer Track Switcher */}
+            {isVisualTrack(selectedClip.trackId) && (
+              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <Layers className="size-3 text-muted-foreground" />
+                    <span>Visual Track Layer</span>
+                  </span>
+                  <span className="text-3xs text-muted-foreground font-mono">
+                    {selectedClip.trackId === "visual-2" ? "Top Layer (z-2)" : "Base Layer (z-1)"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => updateClip(selectedClip.id, { trackId: "visual-1" })}
+                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer ${
+                      selectedClip.trackId !== "visual-2"
+                        ? "border-primary bg-primary/10 text-primary font-bold"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Track 1 (Base)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateClip(selectedClip.id, { trackId: "visual-2" })}
+                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer ${
+                      selectedClip.trackId === "visual-2"
+                        ? "border-primary bg-primary/10 text-primary font-bold"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Track 2 (Overlay)
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Start Time Position Display */}
             <div className="flex items-center justify-between text-2xs rounded-md bg-muted/20 p-2 border border-border">
@@ -156,7 +197,7 @@ export function ClipInspectorPanel() {
             </div>
 
             {/* Audio Specific: Volume Control Slider */}
-            {selectedClip.trackId === "audio" && (
+            {isAudioTrack(selectedClip.trackId) && (
               <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
@@ -187,7 +228,7 @@ export function ClipInspectorPanel() {
             )}
 
             {/* Visual Specific: Speed Controls */}
-            {selectedClip.trackId === "visual" && (
+            {isVisualTrack(selectedClip.trackId) && (
               <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">

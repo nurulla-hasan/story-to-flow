@@ -1,4 +1,17 @@
-export type TrackId = "visual" | "audio";
+export type TrackId = "visual" | "visual-1" | "visual-2" | "audio" | "audio-1";
+
+export function isVisualTrack(trackId: TrackId): boolean {
+  return trackId === "visual" || trackId === "visual-1" || trackId === "visual-2";
+}
+
+export function isAudioTrack(trackId: TrackId): boolean {
+  return trackId === "audio" || trackId === "audio-1";
+}
+
+export function getVisualTrackLayerIndex(trackId: TrackId): number {
+  if (trackId === "visual-2") return 2;
+  return 1;
+}
 
 export interface TimelineClip {
   id: string;
@@ -21,6 +34,7 @@ export interface TimelineTrack {
   type: "visual" | "audio";
   muted: boolean;
   locked: boolean;
+  layerIndex?: number;
 }
 
 export interface TimelineProjectState {

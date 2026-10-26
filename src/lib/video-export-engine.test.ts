@@ -108,7 +108,7 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
   it("resolves immediately when queue is below threshold", async () => {
     const mockEncoder = {
       encodeQueueSize: 2,
-      ondequeue: null as (() => void) | null,
+      ondequeue: null as (((ev: Event) => unknown) | null),
     };
 
     // Should return immediately without waiting
@@ -118,7 +118,7 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
   it("waits when queue is full and resolves as soon as queue drains", async () => {
     const mockEncoder = {
       encodeQueueSize: 7,
-      ondequeue: null as (() => void) | null,
+      ondequeue: null as (((ev: Event) => unknown) | null),
     };
 
     let resolved = false;
@@ -132,7 +132,7 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
 
     // Simulate encoder draining to 4
     mockEncoder.encodeQueueSize = 4;
-    mockEncoder.ondequeue?.();
+    mockEncoder.ondequeue?.(new Event("dequeue"));
 
     await promise;
     expect(resolved).toBe(true);
@@ -142,7 +142,7 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
     const controller = new AbortController();
     const mockEncoder = {
       encodeQueueSize: 6,
-      ondequeue: null as (() => void) | null,
+      ondequeue: null as (((ev: Event) => unknown) | null),
     };
 
     const promise = waitForEncoderQueue(mockEncoder, 5, controller.signal);
@@ -154,7 +154,7 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
   it("propagates encoder callback errors through backpressure wait", async () => {
     const mockEncoder = {
       encodeQueueSize: 8,
-      ondequeue: null as (() => void) | null,
+      ondequeue: null as (((ev: Event) => unknown) | null),
     };
 
     let simulatedError: Error | null = null;
@@ -167,7 +167,7 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
 
     // Simulate an encoder error occurring while waiting
     simulatedError = new Error("Hardware GPU pipeline crashed");
-    mockEncoder.ondequeue?.();
+    mockEncoder.ondequeue?.(new Event("dequeue"));
 
     await expect(promise).rejects.toThrow("Hardware GPU pipeline crashed");
   });

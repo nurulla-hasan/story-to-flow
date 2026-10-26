@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
+import { isVisualTrack, getVisualTrackLayerIndex } from "@/types/timeline";
 
 /**
  * Format seconds into standard MM:SS:FF timecode
@@ -46,36 +47,36 @@ export function PreviewCanvasPanel() {
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
-  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const videoRefs = React.useRef<Map<string, HTMLVideoElement>>(new Map());
 
-  // Find active visual clip under current playhead
-  const visualClips = React.useMemo(() => clips.filter((c) => c.trackId === "visual"), [clips]);
-  const activeClip = React.useMemo(() => {
-    return visualClips.find(
-      (c) => playhead >= c.startTime && playhead < c.startTime + c.duration
-    );
-  }, [visualClips, playhead]);
-
-  // Find matching asset object URL from IndexedDB library
-  const activeAsset = React.useMemo(() => {
-    if (!activeClip) return null;
-    return assets.find((a) => a.id === activeClip.assetId) || null;
-  }, [activeClip, assets]);
+  // Find all active visual clips under current playhead sorted by z-order
+  const visualClips = React.useMemo(() => clips.filter((c) => isVisualTrack(c.trackId)), [clips]);
+  const activeVisuals = React.useMemo(() => {
+    if (!isHydrated) return [];
+    return visualClips
+      .filter((c) => playhead >= c.startTime && playhead < c.startTime + c.duration)
+      .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
+  }, [isHydrated, visualClips, playhead]);
 
   // Synchronize video element playback time with timeline playhead
   React.useEffect(() => {
-    if (activeAsset?.category === "video" && videoRef.current && activeClip) {
-      const targetTime = (playhead - activeClip.startTime) + activeClip.inPoint;
-      if (Math.abs(videoRef.current.currentTime - targetTime) > 0.15) {
-        videoRef.current.currentTime = Math.max(0, targetTime);
+    activeVisuals.forEach((clip) => {
+      const vid = videoRefs.current.get(clip.id);
+      if (vid) {
+        const targetTime = (playhead - clip.startTime) + clip.inPoint;
+        if (Math.abs(vid.currentTime - targetTime) > 0.15) {
+          vid.currentTime = Math.max(0, targetTime);
+        }
+        if (isPlaying) {
+          vid.play().catch(() => {});
+        } else {
+          vid.pause();
+        }
       }
-      if (isPlaying) {
-        videoRef.current.play().catch(() => {});
-      } else {
-        videoRef.current.pause();
-      }
-    }
-  }, [activeAsset, activeClip, playhead, isPlaying]);
+    });
+  }, [activeVisuals, playhead, isPlaying]);
+
+  const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
   return (
     <Card size="sm" className="flex flex-col h-full">
@@ -86,7 +87,9 @@ export function PreviewCanvasPanel() {
             <CardTitle>9:16 Preview Canvas</CardTitle>
           </div>
           <Badge variant="outline">
-            {isHydrated && activeClip ? `${activeClip.name}` : "1080 × 1920"}
+            {isHydrated && topActiveClip
+              ? `${topActiveClip.name} (${activeVisuals.length > 1 ? `${activeVisuals.length} Layers` : "Layer 1"})`
+              : "1080 × 1920"}
           </Badge>
         </div>
         <CardDescription>
@@ -103,33 +106,45 @@ export function PreviewCanvasPanel() {
             className="relative h-full max-h-72 sm:max-h-84 md:max-h-96 rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-hidden"
           >
             {/* Top Phone Notch / Camera indicator */}
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-20 pointer-events-none" />
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
 
-            {/* Stage Media Display */}
+            {/* Stage Media Display Container with multi-track layering */}
             <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center bg-muted/20">
-              {isHydrated && activeAsset && activeClip ? (
-                activeAsset.category === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={activeAsset.url}
-                    alt={activeAsset.name}
-                    className="w-full h-full object-cover rounded-xl"
-                  />
-                ) : activeAsset.category === "video" ? (
-                  <video
-                    ref={videoRef}
-                    src={activeAsset.url}
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover rounded-xl"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-center p-4">
-                    <Smartphone className="size-8 text-primary/60 mb-2" />
-                    <p className="text-xs font-semibold text-foreground">Audio Track Active</p>
-                    <p className="text-2xs text-muted-foreground">{activeClip.name}</p>
-                  </div>
-                )
+              {isHydrated && activeVisuals.length > 0 ? (
+                activeVisuals.map((clip, index) => {
+                  const asset = assets.find((a) => a.id === clip.assetId);
+                  if (!asset) return null;
+
+                  const isOverlay = index > 0;
+                  return (
+                    <div
+                      key={clip.id}
+                      className={`w-full h-full overflow-hidden ${
+                        isOverlay ? "absolute inset-0 z-10" : "relative z-0"
+                      }`}
+                    >
+                      {asset.category === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={asset.url}
+                          alt={asset.name}
+                          className="w-full h-full object-cover rounded-xl"
+                        />
+                      ) : asset.category === "video" ? (
+                        <video
+                          ref={(el) => {
+                            if (el) videoRefs.current.set(clip.id, el);
+                            else videoRefs.current.delete(clip.id);
+                          }}
+                          src={asset.url}
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover rounded-xl"
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })
               ) : (
                 /* Empty Canvas Placeholder */
                 <div className="flex flex-col items-center justify-center text-center space-y-2 p-2">
@@ -156,7 +171,7 @@ export function PreviewCanvasPanel() {
             </div>
 
             {/* Bottom Home Indicator Bar */}
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-muted-foreground/30 z-20 pointer-events-none" />
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
           </div>
         </div>
 

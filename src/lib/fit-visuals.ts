@@ -1,4 +1,4 @@
-import type { TimelineClip } from "@/types/timeline";
+import { type TimelineClip, isVisualTrack, isAudioTrack } from "../types/timeline";
 
 export interface FitVisualsResult {
   success: boolean;
@@ -17,8 +17,8 @@ const MIN_CLIP_DURATION = 0.5; // 500ms minimum clip duration
  * - Single logical undoable action.
  */
 export function calculateFitVisualsToVoiceover(clips: TimelineClip[]): FitVisualsResult {
-  const audioClips = clips.filter((c) => c.trackId === "audio");
-  const visualClips = clips.filter((c) => c.trackId === "visual");
+  const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
 
   if (audioClips.length === 0) {
     return {
@@ -145,7 +145,7 @@ export function calculateFitVisualsToVoiceover(clips: TimelineClip[]): FitVisual
   }
 
   // Combine fitted visuals with untouched audio clips
-  const untouchedOtherClips = clips.filter((c) => c.trackId !== "visual");
+  const untouchedOtherClips = clips.filter((c) => !isVisualTrack(c.trackId));
   const finalClips = [...fittedVisuals, ...untouchedOtherClips];
 
   return {

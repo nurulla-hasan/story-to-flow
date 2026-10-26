@@ -43,12 +43,12 @@ export default function StudioEditorPage() {
             {/* Overlay play button */}
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity"
+              className="absolute inset-0 flex items-center justify-center bg-overlay opacity-0 hover:opacity-100 transition-opacity"
             >
               {isPlaying ? (
-                <Pause className="w-16 h-16 text-white" />
+                <Pause className="size-16 text-editor-on-dark" />
               ) : (
-                <Play className="w-16 h-16 text-white" />
+                <Play className="size-16 text-editor-on-dark" />
               )}
             </button>
           </div>

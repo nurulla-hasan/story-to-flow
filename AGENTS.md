@@ -26,6 +26,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Example: Instead of `h-[400px]`, write `h-100`.
   - Use standard Tailwind utility classes (`w-full`, `max-w-480`, `max-w-7xl`, `h-96`, `p-6`, `gap-8`, `rounded-2xl`, etc.) rather than arbitrary bracket syntax.
 
+
 <!-- BEGIN:nextjs-agent-feedback -->
 
 ## Report Next.js feedback

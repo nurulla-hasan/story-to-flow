@@ -1,0 +1,47 @@
+BGM: emotional-piano (SCENE #01–#05)
+
+### PART 1 — FULL VOICEOVER
+
+```text
+আচ্ছা সোনারা, সেদিন ভোরের আবছা আলোয় নদীর ঘাটে যেতেই রিনার চোখ হঠাৎ থমকে গিয়েছিল। ঘাটের সিঁড়িতে দাঁড়িয়ে থাকা ওই অচেনা অবয়বটি আসলে কে? কুয়াশা কাটতেই দেখা গেল, বহু বছর পর শহর থেকে ফিরে এসেছে করিম। শান্ত নদীর কিনারে দাঁড়িয়ে, কত বছর বাদে দুই পুরোনো বন্ধু আবার একসঙ্গে কথা বলতে লাগল। ভোরের মৃদুমন্দ বাতাসে ভেসে চলল তাদের ফেলে আসা সেই সোনালী অতীতের কত শত স্মৃতি।
+```
+
+### PART 2 — SCENE-BY-SCENE PROMPTS
+
+```text
+SCENE #01 (0:00 - 0:06 • 6.0s • pan-right) [🖼️ STATIC IMAGE]
+VOICEOVER: আচ্ছা সোনারা, সেদিন ভোরের আবছা আলোয় নদীর ঘাটে যেতেই রিনার চোখ হঠাৎ থমকে গিয়েছিল।
+PROMPT: In a polished 3D animated cartoon style with expressive stylized character design and rich tactile textures, a vertical 9:16 composition depicts a peaceful rural Bengal riverbank at first light. A young Bangladeshi woman named Rina, featuring warm honey-brown skin, large expressive dark brown eyes, and long dark hair neatly woven into a loose side braid, wearing a soft pastel teal cotton salwar kameez with a cream dupatta draped over her shoulder, is captured mid-step walking along a damp earthen pathway leading down to the river ghat. Surrounding her are lush green banana plants, dewy riverside reeds, and a calm river blanketed in soft lilac and blue morning mist. Tender dawn sunlight filters through the trees, casting a gentle volumetric glow across the scenic landscape. No text, no captions, no watermark.
+SFX: soft morning birds chirping, gentle rustling leaves
+```
+
+```text
+SCENE #02 (0:06 - 0:11 • 5.0s • zoom-in) [🖼️ STATIC IMAGE]
+VOICEOVER: ঘাটের সিঁড়িতে দাঁড়িয়ে থাকা ওই অচেনা অবয়বটি আসলে কে?
+PROMPT: In a polished 3D animated cartoon style with expressive stylized character design and rich tactile textures, a vertical 9:16 medium shot shows Rina pausing at the upper brick steps of the village ghat, her eyes wide with curiosity and wonder. Down by the water's edge on the wooden landing, veiled in drifting morning fog, stands the mysterious silhouette of a young man viewed from behind, carrying a vintage leather shoulder bag. The glassy river reflects the faint amber glow of the awakening horizon, with a small traditional wooden boat moored to a wooden post nearby. The composition is steeped in tranquil suspense, wrapped in cool dawn tones and soft misty highlights. No text, no captions, no watermark.
+SFX: distant river water lapping, faint cool breeze
+```
+
+```text
+SCENE #03 (0:11 - 0:15 • 4.0s • pan-left) [🎥 HERO VIDEO — 4.0s]
+VOICEOVER: কুয়াশা কাটতেই দেখা গেল, বহু বছর পর শহর থেকে ফিরে এসেছে করিম।
+PROMPT: VIDEO GENERATION — NOT A STATIC IMAGE. Create one continuous 4.0-second animated video shot in a polished 3D animated cartoon style with vertical 9:16 framing. At the start, the camera captures Karim from behind as he stands on the weathered wooden ghat steps looking across the misty river, wearing a muted maroon casual collared shirt, dark grey trousers, and a leather travel bag over his shoulder; then, hearing footsteps, Karim smoothly turns his upper body toward the camera, his neat wavy black hair swaying softly in the river breeze as the morning mist parts; as this happens, his face is revealed with warm dusky skin, kind expressive brown eyes, and a joyous, friendly smile of instant recognition. The camera executes a smooth pan-left to frame his turning motion into a warm medium close-up. There is no character dialogue, lip-sync, or generated narration. This must remain a moving video for the full 4.0 seconds, ending with Karim fully facing Rina with a warm, welcoming smile in clear view. Strictly 4.0 seconds duration.
+SFX: gentle morning wind, soft wooden plank creak
+```
+
+```text
+SCENE #04 (0:15 - 0:22 • 7.0s • static) [🖼️ STATIC IMAGE]
+VOICEOVER: শান্ত নদীর কিনারে দাঁড়িয়ে, কত বছর বাদে দুই পুরোনো বন্ধু আবার একসঙ্গে কথা বলতে লাগল।
+PROMPT: In a polished 3D animated cartoon style with expressive stylized character design and rich tactile textures, a vertical 9:16 eye-level medium two-shot captures Rina and Karim standing close on the riverside steps, joyfully reunited after years apart. Rina, in her pastel teal attire, smiles with heartfelt warmth and sparkling eyes as she listens, while Karim, in his neat maroon city shirt with his travel bag resting against an old wooden bollard, gestures expressively with an open hand, sharing news of his life in the city. Behind them, the calm river gleams with soft ripples, flanked by tall river reeds and swaying palms under warm, inviting morning light. No text, no captions, no watermark.
+SFX: gentle flowing river water, distant village bird calls
+```
+
+```text
+SCENE #05 (0:22 - 0:30 • 8.0s • zoom-out) [🖼️ STATIC IMAGE]
+VOICEOVER: ভোরের মৃদুমন্দ বাতাসে ভেসে চলল তাদের ফেলে আসা সেই সোনালী অতীতের কত শত স্মৃতি।
+PROMPT: In a polished 3D animated cartoon style with expressive stylized character design and rich tactile textures, a vertical 9:16 cinematic wide shot showcases a breathtaking sunrise over the wide Bengal river. On the wooden ghat steps beside a moored wooden dinghy, Rina in her teal salwar kameez and Karim in his maroon shirt sit side by side in relaxed, heartfelt conversation, looking out over the water together like dear old childhood companions. Radiant golden-amber sunlight breaks over the distant lush tree line, casting shimmering golden reflections across the gentle water and clearing away the last traces of morning mist in a serene, nostalgic finale. No text, no captions, no watermark.
+SFX: gentle river ripples, peaceful morning bird song fading out
+```
+
+---
+*Note: Scene timings are provisional estimates based on natural Bengali narration pacing and will align automatically once the final Cartesia voiceover audio is recorded. For SCENE #03, ensure Google Flow is set to Video/Animate mode at exactly 4.0 seconds duration.*

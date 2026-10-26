@@ -1,0 +1,43 @@
+### PART 1 — FULL VOICEOVER
+
+```text
+আচ্ছা সোনারা, ভোরের কুয়াশাঘেরা নদীর ঘাটে একা দাঁড়িয়ে ওটা কে? রিনা কলসি কাঁখে ঘাটে নেমে হঠাৎ থমকে দাঁড়াল। কাছে গিয়ে ভালো করে তাকাতেই বুকটা ধক করে উঠল—এ যে তাদের করিম! দীর্ঘ কত বছর পর অচেনা শহরের ভিড় ছেড়ে সে আজ গ্রামে ফিরেছে। নদীর পাড়ে দুজনের চোখাচোখি হতেই মুছে গেল দীর্ঘদিনের সব দূরত্ব। পুরোনো দিনের সুখ-দুঃখের গল্প নিয়ে নদীর ঘাটে শুরু হলো এক নতুন সোনালী ভোর।
+```
+
+---
+
+### PART 2 — SCENE-BY-SCENE PROMPTS
+
+```text
+SCENE #01 (0:00 - 0:07 • 7.0s • zoom-in) [🖼️ STATIC IMAGE]
+VOICEOVER: আচ্ছা সোনারা, ভোরের কুয়াশাঘেরা নদীর ঘাটে একা দাঁড়িয়ে ওটা কে? রিনা কলসি কাঁখে ঘাটে নেমে হঠাৎ থমকে দাঁড়াল।
+PROMPT: A wide vertical shot in polished 3D animated cartoon style capturing an atmospheric dawn scene at a rural Bangladeshi river ghat. A young Bengali village woman named Rina, in her early twenties with expressive large almond eyes, warm brown skin, and long black hair woven into a side braid, is frozen mid-step as she walks down damp earthen steps toward the water. She carries a round terracotta clay water pitcher resting against her hip and is dressed in a traditional yellow cotton saree with red borders. She pauses with wide, curious eyes looking ahead toward a dark male silhouette standing motionless at the edge of a rustic wooden dock shrouded in morning mist. Soft pastel lavender and peach sunrise light filters through tall coconut palms and lush riverside foliage, casting a gentle shimmer on the calm river water. Expressive stylized 3D character design, volumetric morning fog, cinematic lighting, 9:16 vertical composition, clean digital render, no text, no watermarks, no subtitles.
+```
+
+```text
+SCENE #02 (0:07 - 0:12 • 5.0s • pan-right) [🖼️ STATIC IMAGE]
+VOICEOVER: কাছে গিয়ে ভালো করে তাকাতেই বুকটা ধক করে উঠল—এ যে তাদের করিম!
+PROMPT: A medium close-up shot in polished 3D animated cartoon style capturing a moment of sudden discovery on the wooden riverbank ghat. Rina, the young Bengali woman wearing her yellow cotton saree with red trim and holding her terracotta water pitcher, has stepped closer, her face frozen in pure amazement with wide brown eyes and a joyful, parted-lip expression of astonishment. In the foreground framing the shot, a young Bengali man named Karim in his early twenties is seen from a three-quarter angle wearing a teal-blue rolled-sleeve casual shirt, carrying a worn brown travel duffel bag slung over one shoulder. Early morning golden sunlight breaks through the soft river mist behind them, catching the dewdrops on the wooden planks and highlighting Rina's delighted expression. Polished 3D character models, rich warm morning tones, cinematic shallow depth of field, 9:16 vertical framing, no text, no labels, no watermarks.
+```
+
+```text
+SCENE #03 (0:12 - 0:16 • 4.0s • static) [🎥 HERO VIDEO — 4.0s]
+VOICEOVER: দীর্ঘ কত বছর পর অচেনা শহরের ভিড় ছেড়ে সে আজ গ্রামে ফিরেছে।
+PROMPT: VIDEO GENERATION — NOT A STATIC IMAGE. Create one continuous 4.0-second animated video shot in polished 3D animated cartoon style, framed in 9:16 vertical aspect ratio. At the start, Karim, a young Bengali man in his early twenties with short tousled black hair, warm brown skin, wearing a teal-blue rolled-sleeve shirt and dark trousers, stands half-turned on the wooden river jetty holding a weathered brown travel duffel bag, looking tired from a long journey from the city. Then, hearing footsteps on the wooden dock, Karim smoothly turns around toward the camera, lowering his travel bag slightly as his weary expression instantly brightens into a warm, heartfelt smile of recognition upon seeing his old childhood friend. The camera remains steady as gentle dawn river breezes softly sway his hair and early sunrise rays illuminate his beaming face, with wisps of morning mist floating lazily across the water behind him. There is no character dialogue, lip-sync, or audible character speech. This must remain a moving video for the full 4.0 seconds, ending with Karim standing fully turned toward Rina with a joyful, open-hearted smile of greeting. Strictly 4.0 seconds duration.
+```
+
+```text
+SCENE #04 (0:16 - 0:22 • 6.0s • zoom-out) [🖼️ STATIC IMAGE]
+VOICEOVER: নদীর পাড়ে দুজনের চোখাচোখি হতেই মুছে গেল দীর্ঘদিনের সব দূরত্ব।
+PROMPT: A heartwarming medium two-shot in polished 3D animated cartoon style showing Rina and Karim reuniting by the tranquil river ghat at sunrise. Karim, in his teal-blue casual shirt with his brown travel duffel bag resting on the wooden planks beside his feet, smiles warmly with genuine nostalgia and crinkled happy eyes. Standing a couple of paces opposite him on the jetty, Rina, in her vibrant yellow cotton saree with red borders and holding her terracotta pitcher gracefully, smiles back with radiant affection and relief, their eyes meeting in mutual recognition. Golden dawn sunlight floods the scene between them, creating a gentle lens flare and casting long warm shadows across the wooden dock and the calm, glistening river current. Stylized expressive 3D character design, vibrant morning palette, heartwarming emotional atmosphere, 9:16 vertical composition, pristine digital render, no text, no watermarks, no subtitles.
+```
+
+```text
+SCENE #05 (0:22 - 0:30 • 8.0s • pan-left) [🖼️ STATIC IMAGE]
+VOICEOVER: পুরোনো দিনের সুখ-দুঃখের গল্প নিয়ে নদীর ঘাটে শুরু হলো এক নতুন সোনালী ভোর।
+PROMPT: A wide cinematic landscape tableau in polished 3D animated cartoon style capturing the peaceful beginning of a new day in rural Bengal. Rina and Karim sit companionably side by side on the weathered wooden jetty of the river ghat, talking and laughing warmly together as old friends. Karim gestures gently with one hand as he shares stories, while Rina listens with a bright, tranquil smile, her terracotta water pitcher placed securely on the wooden planks next to Karim's travel bag. A traditional wooden dingi boat floats tethered to a bamboo pole nearby on the sparkling water. The entire riverbank is bathed in brilliant golden morning light, with lush green banana trees, coconut palms, and distant thatched village cottages reflecting softly on the water's surface under a clear, glowing sky. Wholesome storybook 3D animation aesthetic, luminous golden hour lighting, 9:16 vertical format, immaculate render, no text, no captions, no watermarks.
+```
+
+---
+
+*Note: Scene timecodes are provisional estimates based on natural spoken Bengali pacing (~2.2 words/sec) and should be aligned to your final Cartesia voiceover audio in the editor. For **SCENE #03**, set Google Flow to **Video / Animate** mode with duration strictly set to **4.0 seconds**.*

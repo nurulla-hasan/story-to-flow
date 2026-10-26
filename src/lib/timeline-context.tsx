@@ -1,0 +1,436 @@
+"use client";
+
+import * as React from "react";
+import type { TimelineClip, TrackId } from "@/types/timeline";
+import type { MediaAssetItem } from "@/lib/media-storage";
+import {
+  getStoredTimelineState,
+  saveStoredTimelineState,
+} from "@/lib/timeline-storage";
+
+export interface TimelineContextType {
+  clips: TimelineClip[];
+  selectedClipId: string | null;
+  selectedClip: TimelineClip | null;
+  playhead: number;
+  isPlaying: boolean;
+  zoom: number;
+  totalDuration: number;
+  projectTitle: string;
+  canUndo: boolean;
+  canRedo: boolean;
+  setProjectTitle: (title: string) => void;
+  setPlayhead: (time: number) => void;
+  seek: (time: number) => void;
+  togglePlay: () => void;
+  setZoom: (zoom: number) => void;
+  selectClip: (clipId: string | null) => void;
+  addAssetToTimeline: (asset: MediaAssetItem, trackId?: TrackId, startTime?: number) => void;
+  moveClip: (clipId: string, newStartTime: number) => void;
+  trimClip: (clipId: string, newDuration: number) => void;
+  splitClipAtPlayhead: (clipId?: string) => void;
+  deleteClip: (clipId: string) => void;
+  duplicateClip: (clipId: string) => void;
+  undo: () => void;
+  redo: () => void;
+}
+
+const TimelineContext = React.createContext<TimelineContextType | null>(null);
+
+const MAX_HISTORY = 50;
+const MIN_CLIP_DURATION = 0.5; // minimum 500ms
+
+export function TimelineProvider({ children }: { children: React.ReactNode }) {
+  // Lazy state initialization from localStorage (avoids setState in effect)
+  const [projectTitle, setProjectTitleState] = React.useState<string>(() => getStoredTimelineState().projectTitle);
+  const [clips, setClips] = React.useState<TimelineClip[]>(() => getStoredTimelineState().clips);
+  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(() => getStoredTimelineState().selectedClipId);
+  const [playhead, setPlayheadState] = React.useState<number>(() => getStoredTimelineState().playhead);
+  const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
+  const [zoom, setZoomState] = React.useState<number>(() => getStoredTimelineState().zoom);
+
+  // Undo / Redo Stacks & State Flags
+  const undoStackRef = React.useRef<TimelineClip[][]>([]);
+  const redoStackRef = React.useRef<TimelineClip[][]>([]);
+  const [canUndo, setCanUndo] = React.useState<boolean>(false);
+  const [canRedo, setCanRedo] = React.useState<boolean>(false);
+
+  // Helper to sync canUndo / canRedo states outside of render
+  const syncHistoryFlags = React.useCallback(() => {
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(redoStackRef.current.length > 0);
+  }, []);
+
+  // Save changes to localStorage
+  const persistClips = React.useCallback((newClips: TimelineClip[], newSelectedId?: string | null) => {
+    saveStoredTimelineState({
+      clips: newClips,
+      selectedClipId: newSelectedId !== undefined ? newSelectedId : selectedClipId,
+    });
+  }, [selectedClipId]);
+
+  // Push current snapshot to undo stack before a mutation
+  const pushHistorySnapshot = React.useCallback((currentClips: TimelineClip[]) => {
+    undoStackRef.current.push(JSON.parse(JSON.stringify(currentClips)));
+    if (undoStackRef.current.length > MAX_HISTORY) {
+      undoStackRef.current.shift();
+    }
+    // Any new action clears the redo stack
+    redoStackRef.current = [];
+    syncHistoryFlags();
+  }, [syncHistoryFlags]);
+
+  const setProjectTitle = React.useCallback((title: string) => {
+    setProjectTitleState(title);
+    saveStoredTimelineState({ projectTitle: title });
+  }, []);
+
+  const setZoom = React.useCallback((newZoom: number) => {
+    const clamped = Math.min(200, Math.max(50, newZoom));
+    setZoomState(clamped);
+    saveStoredTimelineState({ zoom: clamped });
+  }, []);
+
+  // Calculate total timeline duration (at least 10s or ends after the latest clip)
+  const totalDuration = React.useMemo(() => {
+    if (clips.length === 0) return 10;
+    const maxEnd = Math.max(...clips.map((c) => c.startTime + c.duration));
+    return Math.max(10, Math.ceil(maxEnd + 2)); // Add 2s tail padding
+  }, [clips]);
+
+  const setPlayhead = React.useCallback((time: number) => {
+    setPlayheadState(Math.max(0, time));
+  }, []);
+
+  const seek = React.useCallback((time: number) => {
+    const clamped = Math.max(0, Math.min(totalDuration, time));
+    setPlayheadState(clamped);
+    saveStoredTimelineState({ playhead: clamped });
+  }, [totalDuration]);
+
+  const togglePlay = React.useCallback(() => {
+    setIsPlaying((prev) => !prev);
+  }, []);
+
+  // Real-time playback loop
+  React.useEffect(() => {
+    if (!isPlaying) return;
+
+    let lastTime = performance.now();
+    let animId: number;
+
+    const tick = (now: number) => {
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      setPlayheadState((prev) => {
+        const next = prev + dt;
+        if (next >= totalDuration) {
+          setIsPlaying(false);
+          return 0; // Loop or stop at start
+        }
+        return next;
+      });
+
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [isPlaying, totalDuration]);
+
+  const selectClip = React.useCallback((clipId: string | null) => {
+    setSelectedClipId(clipId);
+    saveStoredTimelineState({ selectedClipId: clipId });
+  }, []);
+
+  const selectedClip = React.useMemo(() => {
+    if (!selectedClipId) return null;
+    return clips.find((c) => c.id === selectedClipId) || null;
+  }, [clips, selectedClipId]);
+
+  // 1. ADD ASSET TO TIMELINE
+  const addAssetToTimeline = React.useCallback(
+    (asset: MediaAssetItem, targetTrack?: TrackId, customStartTime?: number) => {
+      pushHistorySnapshot(clips);
+
+      const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual");
+      const trackClips = clips.filter((c) => c.trackId === trackId);
+
+      // Default placement: at end of track or custom position
+      let startTime = customStartTime !== undefined ? customStartTime : 0;
+      if (customStartTime === undefined && trackClips.length > 0) {
+        startTime = Math.max(...trackClips.map((c) => c.startTime + c.duration));
+      }
+
+      // Default duration: images = 3.0s, video/audio = source duration or 4.0s
+      let duration = 3.0;
+      if (asset.category === "video" || asset.category === "audio") {
+        duration = asset.duration && asset.duration > 0 ? asset.duration : 4.0;
+      }
+
+      const newClip: TimelineClip = {
+        id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        assetId: asset.id,
+        name: asset.name,
+        type: asset.category,
+        trackId,
+        startTime: Math.max(0, startTime),
+        duration,
+        inPoint: 0,
+        outPoint: duration,
+        sourceDuration: asset.duration || null,
+        speed: 1.0,
+        volume: 1.0,
+      };
+
+      const updated = [...clips, newClip];
+      setClips(updated);
+      setSelectedClipId(newClip.id);
+      persistClips(updated, newClip.id);
+    },
+    [clips, pushHistorySnapshot, persistClips]
+  );
+
+  // 2. MOVE CLIP
+  const moveClip = React.useCallback(
+    (clipId: string, newStartTime: number) => {
+      const target = clips.find((c) => c.id === clipId);
+      if (!target) return;
+
+      pushHistorySnapshot(clips);
+
+      const clampedStart = Math.max(0, newStartTime);
+      const updated = clips.map((c) =>
+        c.id === clipId ? { ...c, startTime: clampedStart } : c
+      );
+
+      setClips(updated);
+      persistClips(updated);
+    },
+    [clips, pushHistorySnapshot, persistClips]
+  );
+
+  // 3. TRIM CLIP / ADJUST DURATION
+  const trimClip = React.useCallback(
+    (clipId: string, newDuration: number) => {
+      const target = clips.find((c) => c.id === clipId);
+      if (!target) return;
+
+      pushHistorySnapshot(clips);
+
+      let clampedDuration = Math.max(MIN_CLIP_DURATION, newDuration);
+      // For video/audio, do not exceed remaining source duration
+      if (target.sourceDuration && target.sourceDuration > 0) {
+        const remaining = target.sourceDuration - target.inPoint;
+        clampedDuration = Math.min(clampedDuration, remaining);
+      }
+
+      const updated = clips.map((c) =>
+        c.id === clipId
+          ? {
+              ...c,
+              duration: clampedDuration,
+              outPoint: c.inPoint + clampedDuration,
+            }
+          : c
+      );
+
+      setClips(updated);
+      persistClips(updated);
+    },
+    [clips, pushHistorySnapshot, persistClips]
+  );
+
+  // 4. SPLIT SELECTED CLIP AT PLAYHEAD (Ctrl+B)
+  const splitClipAtPlayhead = React.useCallback(
+    (targetClipId?: string) => {
+      const idToSplit = targetClipId || selectedClipId;
+      if (!idToSplit) return;
+
+      const clip = clips.find((c) => c.id === idToSplit);
+      if (!clip) return;
+
+      // Check if playhead is strictly inside the clip
+      const clipEnd = clip.startTime + clip.duration;
+      if (playhead <= clip.startTime + MIN_CLIP_DURATION || playhead >= clipEnd - MIN_CLIP_DURATION) {
+        return; // Too close to edge to split
+      }
+
+      pushHistorySnapshot(clips);
+
+      const splitOffset = playhead - clip.startTime;
+      const part1Duration = splitOffset;
+      const part2Duration = clip.duration - splitOffset;
+
+      const part1: TimelineClip = {
+        ...clip,
+        duration: part1Duration,
+        outPoint: clip.inPoint + part1Duration,
+      };
+
+      const part2: TimelineClip = {
+        ...clip,
+        id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        startTime: playhead,
+        duration: part2Duration,
+        inPoint: clip.inPoint + splitOffset,
+        outPoint: clip.outPoint,
+      };
+
+      const updated = clips.flatMap((c) => (c.id === idToSplit ? [part1, part2] : [c]));
+      setClips(updated);
+      setSelectedClipId(part2.id);
+      persistClips(updated, part2.id);
+    },
+    [clips, selectedClipId, playhead, pushHistorySnapshot, persistClips]
+  );
+
+  // 5. DELETE SELECTED CLIP (Delete/Backspace)
+  const deleteClip = React.useCallback(
+    (clipId: string) => {
+      const exists = clips.some((c) => c.id === clipId);
+      if (!exists) return;
+
+      pushHistorySnapshot(clips);
+
+      const updated = clips.filter((c) => c.id !== clipId);
+      setClips(updated);
+      const newSelected = selectedClipId === clipId ? null : selectedClipId;
+      setSelectedClipId(newSelected);
+      persistClips(updated, newSelected);
+    },
+    [clips, selectedClipId, pushHistorySnapshot, persistClips]
+  );
+
+  // 6. DUPLICATE SELECTED CLIP (Ctrl+D)
+  const duplicateClip = React.useCallback(
+    (clipId: string) => {
+      const clip = clips.find((c) => c.id === clipId);
+      if (!clip) return;
+
+      pushHistorySnapshot(clips);
+
+      const duplicate: TimelineClip = {
+        ...clip,
+        id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        name: `${clip.name} (Copy)`,
+        startTime: clip.startTime + clip.duration,
+      };
+
+      const updated = [...clips, duplicate];
+      setClips(updated);
+      setSelectedClipId(duplicate.id);
+      persistClips(updated, duplicate.id);
+    },
+    [clips, pushHistorySnapshot, persistClips]
+  );
+
+  // 7. UNDO & REDO
+  const undo = React.useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+
+    const previousClips = undoStackRef.current.pop()!;
+    redoStackRef.current.push(JSON.parse(JSON.stringify(clips)));
+
+    setClips(previousClips);
+    persistClips(previousClips);
+    syncHistoryFlags();
+  }, [clips, persistClips, syncHistoryFlags]);
+
+  const redo = React.useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+
+    const nextClips = redoStackRef.current.pop()!;
+    undoStackRef.current.push(JSON.parse(JSON.stringify(clips)));
+
+    setClips(nextClips);
+    persistClips(nextClips);
+    syncHistoryFlags();
+  }, [clips, persistClips, syncHistoryFlags]);
+
+  // Keyboard Shortcuts Listener (Ctrl+Z, Ctrl+Y, Ctrl+B, Ctrl+D, Delete, Space)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl?.tagName === "INPUT" ||
+        activeEl?.tagName === "TEXTAREA" ||
+        activeEl?.getAttribute("contenteditable") === "true";
+
+      if (isInput) return; // Do not intercept while typing
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+      if (modifier && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (
+        (modifier && e.key.toLowerCase() === "y") ||
+        (modifier && e.shiftKey && e.key.toLowerCase() === "z")
+      ) {
+        e.preventDefault();
+        redo();
+      } else if (modifier && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        splitClipAtPlayhead();
+      } else if (modifier && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        if (selectedClipId) duplicateClip(selectedClipId);
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedClipId) {
+          e.preventDefault();
+          deleteClip(selectedClipId);
+        }
+      } else if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        togglePlay();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo, splitClipAtPlayhead, duplicateClip, deleteClip, togglePlay, selectedClipId]);
+
+  return (
+    <TimelineContext.Provider
+      value={{
+        clips,
+        selectedClipId,
+        selectedClip,
+        playhead,
+        isPlaying,
+        zoom,
+        totalDuration,
+        projectTitle,
+        canUndo,
+        canRedo,
+        setProjectTitle,
+        setPlayhead,
+        seek,
+        togglePlay,
+        setZoom,
+        selectClip,
+        addAssetToTimeline,
+        moveClip,
+        trimClip,
+        splitClipAtPlayhead,
+        deleteClip,
+        duplicateClip,
+        undo,
+        redo,
+      }}
+    >
+      {children}
+    </TimelineContext.Provider>
+  );
+}
+
+export function useTimeline(): TimelineContextType {
+  const context = React.useContext(TimelineContext);
+  if (!context) {
+    throw new Error("useTimeline must be used within a TimelineProvider");
+  }
+  return context;
+}

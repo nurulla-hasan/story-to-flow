@@ -5,9 +5,13 @@ import {
   SlidersHorizontal,
   Clock,
   Gauge,
-  Sparkles,
   MousePointerClick,
-  Info,
+  Scissors,
+  Copy,
+  Trash2,
+  Film,
+  Mic,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   Card,
@@ -16,109 +20,207 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useTimeline } from "@/lib/timeline-context";
 
 export function ClipInspectorPanel() {
+  const {
+    selectedClip,
+    trimClip,
+    splitClipAtPlayhead,
+    deleteClip,
+    duplicateClip,
+  } = useTimeline();
+
+  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedClip) return;
+    const val = parseFloat(e.target.value);
+    if (!isNaN(val) && val >= 0.5) {
+      trimClip(selectedClip.id, val);
+    }
+  };
+
   return (
-    <Card size="sm" className="flex flex-col h-full">
-      <CardHeader className="flex flex-col gap-1.5">
+    <Card size="sm" className="flex flex-col h-full overflow-hidden">
+      <CardHeader className="flex flex-col gap-1.5 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="size-4 text-primary" />
             <CardTitle>Clip Inspector</CardTitle>
           </div>
-          <Badge variant="outline">No Selection</Badge>
+          <Badge variant={selectedClip ? "secondary" : "outline"}>
+            {selectedClip ? `${selectedClip.type.toUpperCase()}` : "No Selection"}
+          </Badge>
         </div>
         <CardDescription>
-          Fine-tune clip timing, motion &amp; narration
+          {selectedClip
+            ? `Editing "${selectedClip.name}"`
+            : "Select a clip on the timeline to edit its properties"}
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-3">
-        {/* Empty selection guidance box */}
-        <div className="flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-3 text-center space-y-1 bg-muted/20">
-          <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-            <MousePointerClick className="size-3.5" />
+      <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-3 p-3 overflow-y-auto">
+        {!selectedClip ? (
+          /* Empty selection guidance box */
+          <div className="flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-5 text-center space-y-2 bg-muted/20 my-auto">
+            <div className="size-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+              <MousePointerClick className="size-4" />
+            </div>
+            <p className="text-xs font-semibold text-foreground">
+              No clip selected
+            </p>
+            <p className="text-2xs text-muted-foreground max-w-44 leading-relaxed">
+              Click any scene clip or voiceover track on the timeline below to inspect and edit its properties.
+            </p>
           </div>
-          <p className="text-xs font-semibold text-foreground">
-            No clip selected
-          </p>
-          <p className="text-3xs text-muted-foreground max-w-44 leading-tight">
-            Select any scene clip or voiceover track on the timeline below to edit its properties.
-          </p>
-        </div>
+        ) : (
+          /* Active Clip Properties */
+          <div className="space-y-3.5 flex-1 min-h-0 overflow-y-auto pr-1">
+            {/* Clip Summary Card */}
+            <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-2 border border-border">
+              <div className="size-7 rounded bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                {selectedClip.type === "video" ? (
+                  <Film className="size-3.5" />
+                ) : selectedClip.type === "audio" ? (
+                  <Mic className="size-3.5" />
+                ) : (
+                  <ImageIcon className="size-3.5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-2xs font-semibold text-foreground truncate" title={selectedClip.name}>
+                  {selectedClip.name}
+                </p>
+                <p className="text-3xs text-muted-foreground">
+                  Track: {selectedClip.trackId === "visual" ? "Visual Scenes" : "Voiceover"}
+                </p>
+              </div>
+            </div>
 
-        {/* Disabled Preview Parameters */}
-        <div className="space-y-3 opacity-60">
-          {/* Duration Control Preview */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-2xs">
-              <span className="flex items-center gap-1 font-medium text-foreground">
-                <Clock className="size-3 text-muted-foreground" />
-                <span>Duration</span>
+            {/* Start Time Position Display */}
+            <div className="flex items-center justify-between text-2xs rounded-md bg-muted/20 p-2 border border-border">
+              <span className="text-muted-foreground font-medium">Timeline Position</span>
+              <span className="font-mono text-foreground font-semibold">
+                {selectedClip.startTime.toFixed(2)}s
               </span>
-              <span className="font-mono text-3xs text-muted-foreground">3.00s</span>
             </div>
-            <input
-              type="range"
-              min="0.5"
-              max="15"
-              step="0.5"
-              defaultValue="3"
-              disabled
-              aria-label="Clip duration preview"
-              className="w-full accent-primary cursor-not-allowed"
-            />
-          </div>
 
-          {/* Speed Preset Chips */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 text-2xs font-medium text-foreground">
-              <Gauge className="size-3 text-muted-foreground" />
-              <span>Speed</span>
+            {/* Duration Slider & Number Editor */}
+            <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+              <div className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5 font-medium text-foreground">
+                  <Clock className="size-3 text-muted-foreground" />
+                  <span>Duration</span>
+                </span>
+                <span className="font-mono text-xs font-semibold text-primary">
+                  {selectedClip.duration.toFixed(2)}s
+                </span>
+              </div>
+
+              <input
+                type="range"
+                min="0.5"
+                max={
+                  selectedClip.sourceDuration && selectedClip.sourceDuration > 0
+                    ? Math.max(0.5, selectedClip.sourceDuration - selectedClip.inPoint)
+                    : 30
+                }
+                step="0.1"
+                value={selectedClip.duration}
+                onChange={handleDurationChange}
+                aria-label="Clip duration"
+                className="w-full accent-primary cursor-pointer"
+              />
+
+              <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
+                <span>0.5s</span>
+                <span>
+                  Max:{" "}
+                  {selectedClip.sourceDuration && selectedClip.sourceDuration > 0
+                    ? `${selectedClip.sourceDuration.toFixed(1)}s`
+                    : "30.0s"}
+                </span>
+              </div>
             </div>
-            <div className="grid grid-cols-4 gap-1 text-center">
-              {["0.5x", "1.0x", "1.5x", "2.0x"].map((speed, i) => (
-                <div
-                  key={speed}
-                  className={`py-0.5 text-3xs font-mono rounded border border-border ${
-                    i === 1 ? "bg-muted font-bold" : "text-muted-foreground"
-                  }`}
+
+            {/* Playback Speed Controls */}
+            <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+              <div className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5 font-medium text-foreground">
+                  <Gauge className="size-3 text-muted-foreground" />
+                  <span>Speed</span>
+                </span>
+                <span className="font-mono text-2xs text-muted-foreground">
+                  {(selectedClip.speed || 1).toFixed(1)}x
+                </span>
+              </div>
+
+              <div className="grid grid-cols-4 gap-1 text-center">
+                {[0.5, 1.0, 1.5, 2.0].map((s) => {
+                  const isCurrent = (selectedClip.speed || 1.0) === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        trimClip(selectedClip.id, selectedClip.duration); // Keep duration updated
+                      }}
+                      className={`py-1 text-2xs font-mono rounded-md border transition-colors cursor-pointer ${
+                        isCurrent
+                          ? "border-primary bg-primary/10 text-primary font-bold"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {s.toFixed(1)}x
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Clip Operations Toolbar */}
+            <div className="space-y-1.5 pt-1">
+              <p className="text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Clip Actions
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => splitClipAtPlayhead(selectedClip.id)}
+                  className="gap-1 text-xs"
+                  title="Split at playhead (Ctrl+B)"
                 >
-                  {speed}
-                </div>
-              ))}
-            </div>
-          </div>
+                  <Scissors className="size-3" />
+                  <span>Split</span>
+                </Button>
 
-          {/* Motion Presets Preview */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 text-2xs font-medium text-foreground">
-              <Sparkles className="size-3 text-muted-foreground" />
-              <span>Motion Preset</span>
-            </div>
-            <div className="grid grid-cols-2 gap-1">
-              {["Static", "Zoom In", "Pan Left", "Pan Right"].map((motion, i) => (
-                <div
-                  key={motion}
-                  className={`py-0.5 px-1.5 text-3xs rounded border border-border text-center ${
-                    i === 0 ? "bg-muted font-bold" : "text-muted-foreground"
-                  }`}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => duplicateClip(selectedClip.id)}
+                  className="gap-1 text-xs"
+                  title="Duplicate clip (Ctrl+D)"
                 >
-                  {motion}
-                </div>
-              ))}
+                  <Copy className="size-3" />
+                  <span>Duplicate</span>
+                </Button>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => deleteClip(selectedClip.id)}
+                className="w-full gap-1 text-xs text-destructive hover:bg-destructive/10"
+                title="Delete clip (Delete / Backspace)"
+              >
+                <Trash2 className="size-3" />
+                <span>Delete Clip</span>
+              </Button>
             </div>
           </div>
-        </div>
-
-        {/* Phase 3 info notice */}
-        <div className="flex items-start gap-1.5 rounded-lg bg-muted/50 p-2 text-2xs text-muted-foreground">
-          <Info className="size-3 shrink-0 mt-0.5 text-primary" />
-          <p className="leading-tight">
-            Clip splitting, duration trimming, and speed controls will be fully interactive in Phase 3.
-          </p>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

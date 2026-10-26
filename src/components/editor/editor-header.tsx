@@ -15,21 +15,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { useTimeline } from "@/lib/timeline-context";
 
-interface EditorHeaderProps {
-  projectTitle?: string;
-  onTitleChange?: (title: string) => void;
-}
-
-export function EditorHeader({
-  projectTitle = "Untitled Story Video",
-  onTitleChange,
-}: EditorHeaderProps) {
-  const [title, setTitle] = React.useState(projectTitle);
+export function EditorHeader() {
+  const {
+    projectTitle,
+    setProjectTitle,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    clips,
+  } = useTimeline();
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(e.target.value);
-    onTitleChange?.(e.target.value);
+    setProjectTitle(e.target.value);
   };
 
   return (
@@ -56,24 +56,27 @@ export function EditorHeader({
           </div>
           <input
             type="text"
-            value={title}
+            value={projectTitle}
             onChange={handleTitleChange}
             aria-label="Project Title"
             className="font-semibold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-hidden px-1 py-0.5 max-w-44 sm:max-w-64 truncate text-sm"
           />
         </div>
 
-        <Badge variant="outline">Draft</Badge>
+        <Badge variant="outline">
+          {clips.length > 0 ? `${clips.length} ${clips.length === 1 ? "Clip" : "Clips"}` : "Draft"}
+        </Badge>
 
         <Separator orientation="vertical" className="h-4 hidden md:block" />
 
-        {/* Undo / Redo controls (Phase 1 placeholder) */}
+        {/* Undo / Redo controls */}
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
-            disabled
-            title="Undo (Ctrl+Z) — Available in Phase 2"
+            onClick={undo}
+            disabled={!canUndo}
+            title={canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}
             aria-label="Undo"
           >
             <RotateCcw className="size-4" />
@@ -82,8 +85,9 @@ export function EditorHeader({
           <Button
             variant="ghost"
             size="icon"
-            disabled
-            title="Redo (Ctrl+Y) — Available in Phase 2"
+            onClick={redo}
+            disabled={!canRedo}
+            title={canRedo ? "Redo (Ctrl+Y)" : "Nothing to redo"}
             aria-label="Redo"
           >
             <RotateCw className="size-4" />
@@ -103,7 +107,7 @@ export function EditorHeader({
           size="sm"
           disabled
           className="gap-1.5"
-          title="Auto-fit visual scenes to voiceover duration — Available in Phase 4"
+          title="Auto-fit visual scenes to voiceover duration — Phase 4"
         >
           <Wand2 className="size-3.5" />
           <span className="hidden md:inline">Fit to Voiceover</span>

@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useMediaLibrary } from "@/lib/use-media-library";
+import { useTimeline } from "@/lib/timeline-context";
 import { formatBytes, formatDuration } from "@/lib/media-helpers";
 import type { MediaCategory } from "@/lib/media-storage";
 
@@ -43,6 +44,8 @@ export function MediaLibraryPanel() {
     removeAsset,
     clearError,
   } = useMediaLibrary();
+
+  const { addAssetToTimeline } = useTimeline();
 
   const filteredAssets = React.useMemo(() => {
     if (activeTab === "all") return assets;
@@ -254,7 +257,12 @@ export function MediaLibraryPanel() {
               {filteredAssets.map((asset) => (
                 <div
                   key={asset.id}
-                  className="group relative flex flex-col rounded-lg border border-border bg-card overflow-hidden hover:border-primary/50 transition-colors shadow-xs"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/json", JSON.stringify(asset));
+                    e.dataTransfer.setData("text/plain", asset.id);
+                  }}
+                  className="group relative flex flex-col rounded-lg border border-border bg-card overflow-hidden hover:border-primary/50 transition-colors shadow-xs cursor-grab active:cursor-grabbing"
                 >
                   {/* Thumbnail / Visual Preview Box */}
                   <div className="relative w-full h-20 bg-muted flex items-center justify-center overflow-hidden">
@@ -263,7 +271,7 @@ export function MediaLibraryPanel() {
                       <img
                         src={asset.url}
                         alt={asset.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover pointer-events-none"
                         loading="lazy"
                       />
                     ) : asset.category === "video" ? (
@@ -272,17 +280,17 @@ export function MediaLibraryPanel() {
                         <img
                           src={asset.thumbnailUrl}
                           alt={asset.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover pointer-events-none"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
+                        <div className="flex flex-col items-center justify-center text-muted-foreground gap-1 pointer-events-none">
                           <Film className="size-6 text-primary" />
                           <span className="text-3xs font-mono uppercase">Video</span>
                         </div>
                       )
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-muted-foreground gap-1">
+                      <div className="flex flex-col items-center justify-center text-muted-foreground gap-1 pointer-events-none">
                         <Mic className="size-6 text-primary" />
                         <span className="text-3xs font-mono uppercase">Audio</span>
                       </div>
@@ -290,10 +298,24 @@ export function MediaLibraryPanel() {
 
                     {/* Duration badge for audio/video */}
                     {asset.duration && asset.duration > 0 && (
-                      <div className="absolute bottom-1 right-1 bg-overlay/80 text-foreground font-mono text-3xs px-1 py-0.5 rounded backdrop-blur-xs font-semibold">
+                      <div className="absolute bottom-1 right-1 bg-overlay/80 text-foreground font-mono text-3xs px-1 py-0.5 rounded backdrop-blur-xs font-semibold pointer-events-none">
                         {formatDuration(asset.duration)}
                       </div>
                     )}
+
+                    {/* Quick Add to Timeline button (hover overlay) */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addAssetToTimeline(asset);
+                      }}
+                      className="absolute top-1 left-1 size-6 rounded-md bg-primary text-primary-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:scale-105 cursor-pointer"
+                      title="Add to timeline"
+                      aria-label={`Add ${asset.name} to timeline`}
+                    >
+                      <Plus className="size-3.5" />
+                    </button>
 
                     {/* Delete button (hover overlay) */}
                     <button

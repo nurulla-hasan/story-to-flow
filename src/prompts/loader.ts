@@ -11,7 +11,7 @@ import * as path from "node:path";
 /**
  * Current active Master Prompt version
  */
-export const MASTER_PROMPT_VERSION = "v1.5.5";
+export const MASTER_PROMPT_VERSION = "v1.5.7";
 
 /**
  * Metadata for the loaded master prompt.

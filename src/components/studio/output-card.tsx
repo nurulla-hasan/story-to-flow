@@ -216,7 +216,7 @@ export function OutputCard({
           {parsed.visualStyle && (
             <>
               <span className="text-muted-foreground">•</span>
-              <span className="font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+              <span className="font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-md">
                 {parsed.visualStyle}
               </span>
             </>

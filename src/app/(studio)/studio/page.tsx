@@ -10,18 +10,12 @@ import {
   saveStoredResult,
   clearStoredStudioState,
 } from "@/lib/studio-storage";
-import { StudioSidebar } from "@/components/studio/studio-sidebar";
-import { StudioHeader } from "@/components/studio/studio-header";
 import { StoryInputCard } from "@/components/studio/story-input-card";
 import { StudioSettingsBar } from "@/components/studio/studio-settings-bar";
 import { OutputCard } from "@/components/studio/output-card";
 import { HowItWorksCard } from "@/components/studio/how-it-works-card";
 import { OutputFormatCard } from "@/components/studio/output-format-card";
 import { Button } from "@/components/ui/button";
-import {
-  SidebarProvider,
-  SidebarInset,
-} from "@/components/ui/sidebar";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -62,10 +56,13 @@ export default function StudioPage() {
 
   // Local states with fallback to persistent storage
   const [localStory, setLocalStory] = useState<string | null>(null);
-  const [localResult, setLocalResult] = useState<StoryProcessResponse | null | undefined>(undefined);
+  const [localResult, setLocalResult] = useState<
+    StoryProcessResponse | null | undefined
+  >(undefined);
 
   const story = localStory !== null ? localStory : storedStudio.story;
-  const result = localResult !== undefined ? localResult : storedStudio.lastResult;
+  const result =
+    localResult !== undefined ? localResult : storedStudio.lastResult;
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -209,7 +206,9 @@ export default function StudioPage() {
     setElapsedSeconds(0);
     setCancelNotice("Generation was stopped.");
     setTimeout(() => {
-      setCancelNotice((prev) => (prev === "Generation was stopped." ? null : prev));
+      setCancelNotice((prev) =>
+        prev === "Generation was stopped." ? null : prev,
+      );
     }, 4000);
   };
 
@@ -238,7 +237,9 @@ export default function StudioPage() {
 
     setCancelNotice("Story workspace reset. Settings preserved.");
     setTimeout(() => {
-      setCancelNotice((prev) => (prev === "Story workspace reset. Settings preserved." ? null : prev));
+      setCancelNotice((prev) =>
+        prev === "Story workspace reset. Settings preserved." ? null : prev,
+      );
     }, 3500);
   };
 
@@ -255,113 +256,107 @@ export default function StudioPage() {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <StudioSidebar />
-      <SidebarInset className="bg-background flex flex-col min-h-screen">
-        <StudioHeader />
+    <>
+      {/* 2-Column Dashboard Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Column: Input + Settings Summary + Generate Button + How It Works + Format Info */}
+        <div className="space-y-6">
+          {/* Story Input Card */}
+          <StoryInputCard
+            story={story}
+            onChange={handleStoryChange}
+            onClear={handleClear}
+            validationError={validationError}
+            disabled={isGenerating}
+          />
 
-        {/* Main Content Area */}
-        <div className="flex-1 p-4 sm:p-6 w-full mx-auto max-w-full">
-          {/* 2-Column Dashboard Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left Column: Input + Settings Summary + Generate Button + How It Works + Format Info */}
-            <div className="space-y-6">
-              {/* Story Input Card */}
-              <StoryInputCard
-                story={story}
-                onChange={handleStoryChange}
-                onClear={handleClear}
-                validationError={validationError}
-                disabled={isGenerating}
-              />
+          {/* Compact Active Production Settings Bar with Reset Studio Button */}
+          <StudioSettingsBar
+            settings={prodSettings}
+            model={selectedModel}
+            onResetClick={() => setIsResetDialogOpen(true)}
+          />
 
-              {/* Compact Active Production Settings Bar with Reset Studio Button */}
-              <StudioSettingsBar
-                settings={prodSettings}
-                model={selectedModel}
-                onResetClick={() => setIsResetDialogOpen(true)}
-              />
-
-              {/* Generate & Stop Button Controls with Live Timer */}
-              <div className="space-y-2.5">
-                {isGenerating ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2.5">
-                      <Button
-                        size="lg"
-                        className="flex-1 gap-2.5 cursor-default select-none shadow-sm"
-                        tabIndex={-1}
-                      >
-                        <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                        <span className="font-semibold truncate">Generating Package</span>
-                        <span className="font-mono text-xs font-bold bg-primary-foreground/20 px-2 py-0.5 rounded-md shadow-xs">
-                          {formatSeconds(elapsedSeconds)}
-                        </span>
-                      </Button>
-                      <Button
-                        size="lg"
-                        variant="destructive"
-                        onClick={handleStop}
-                        className="gap-2 shrink-0 cursor-pointer shadow-sm"
-                        title="Cancel generation and abort request"
-                      >
-                        <Square className="size-3.5 fill-current" />
-                        <span>Stop</span>
-                      </Button>
-                    </div>
-
-                    {/* Live Progress Phase & Timer Bar */}
-                    <div className="flex items-center justify-between text-2xs text-muted-foreground px-1.5 animate-in fade-in">
-                      <span className="flex items-center gap-1.5 font-medium text-foreground/80">
-                        <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-                        <span>{getProgressPhase(elapsedSeconds)}</span>
-                      </span>
-                      <span className="font-mono text-muted-foreground">
-                        {elapsedSeconds}s elapsed
-                      </span>
-                    </div>
-                  </div>
-                ) : (
+          {/* Generate & Stop Button Controls with Live Timer */}
+          <div className="space-y-2.5">
+            {isGenerating ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2.5">
                   <Button
                     size="lg"
-                    onClick={handleGenerate}
-                    disabled={!story.trim()}
-                    className="w-full gap-2 cursor-pointer shadow-sm"
+                    className="flex-1 gap-2.5 cursor-default select-none shadow-sm"
+                    tabIndex={-1}
                   >
-                    <Sparkles className="size-4.5" />
-                    <span>Generate Production Package</span>
-                    <ArrowRight className="size-4.5" />
+                    <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
+                    <span className="font-semibold truncate">
+                      Generating Package
+                    </span>
+                    <span className="font-mono text-xs font-bold bg-primary-foreground/20 px-2 py-0.5 rounded-md shadow-xs">
+                      {formatSeconds(elapsedSeconds)}
+                    </span>
                   </Button>
-                )}
+                  <Button
+                    size="lg"
+                    variant="destructive"
+                    onClick={handleStop}
+                    className="gap-2 shrink-0 cursor-pointer shadow-sm"
+                    title="Cancel generation and abort request"
+                  >
+                    <Square className="size-3.5 fill-current" />
+                    <span>Stop</span>
+                  </Button>
+                </div>
 
-                {/* Brief cancellation / reset notice */}
-                {cancelNotice && (
-                  <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground animate-in fade-in">
-                    <span className="size-2 rounded-full bg-muted-foreground/50" />
-                    <span>{cancelNotice}</span>
-                  </div>
-                )}
+                {/* Live Progress Phase & Timer Bar */}
+                <div className="flex items-center justify-between text-2xs text-muted-foreground px-1.5 animate-in fade-in">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground/80">
+                    <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+                    <span>{getProgressPhase(elapsedSeconds)}</span>
+                  </span>
+                  <span className="font-mono text-muted-foreground">
+                    {elapsedSeconds}s elapsed
+                  </span>
+                </div>
               </div>
+            ) : (
+              <Button
+                size="lg"
+                onClick={handleGenerate}
+                disabled={!story.trim()}
+                className="w-full gap-2 cursor-pointer shadow-sm"
+              >
+                <Sparkles className="size-4.5" />
+                <span>Generate Production Package</span>
+                <ArrowRight className="size-4.5" />
+              </Button>
+            )}
 
-              {/* How it works Card */}
-              <HowItWorksCard />
-
-              {/* Output format Card */}
-              <OutputFormatCard />
-            </div>
-
-            {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
-            <div className="space-y-6">
-              <OutputCard
-                result={result}
-                error={error}
-                copied={copied}
-                onCopyAll={handleCopyAll}
-              />
-            </div>
+            {/* Brief cancellation / reset notice */}
+            {cancelNotice && (
+              <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground animate-in fade-in">
+                <span className="size-2 rounded-full bg-muted-foreground/50" />
+                <span>{cancelNotice}</span>
+              </div>
+            )}
           </div>
+
+          {/* How it works Card */}
+          <HowItWorksCard />
+
+          {/* Output format Card */}
+          <OutputFormatCard />
         </div>
-      </SidebarInset>
+
+        {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
+        <div className="space-y-6">
+          <OutputCard
+            result={result}
+            error={error}
+            copied={copied}
+            onCopyAll={handleCopyAll}
+          />
+        </div>
+      </div>
 
       {/* Reset Studio Confirmation Alert Dialog */}
       <AlertDialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
@@ -372,14 +367,15 @@ export default function StudioPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Reset Studio Workspace?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently clear your current story text, cancel any active generation, and remove the generated production package. Your production settings and AI model preference will remain unchanged.
+              This will permanently clear your current story text, cancel any
+              active generation, and remove the generated production package.
+              Your production settings and AI model preference will remain
+              unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <AlertDialogFooter>
-            <AlertDialogCancel>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleConfirmResetStudio}
@@ -391,6 +387,6 @@ export default function StudioPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </SidebarProvider>
+    </>
   );
 }

@@ -70,9 +70,12 @@ export function StudioSidebar() {
     },
     {
       title: "Help & Docs",
-      href: "#",
+      href: "/docs",
       icon: HelpCircle,
-      isActive: false,
+      isActive:
+        pathname === "/docs" ||
+        pathname.startsWith("/docs/") ||
+        pathname === "/help",
     },
   ]
 

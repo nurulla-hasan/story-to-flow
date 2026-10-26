@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { HelpCircle, Layers, FolderKanban, Settings } from "lucide-react";
+import { HelpCircle, Layers, Settings } from "lucide-react";
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -73,18 +73,14 @@ export function StudioHeader({ className = "" }: StudioHeaderProps) {
                   <Settings className="size-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  render={<Link href="/" />}
-                  className="flex items-center gap-2 cursor-pointer text-xs"
-                >
-                  <FolderKanban className="size-4" />
-                  All Projects
-                </DropdownMenuItem>
               </DropdownMenuGroup>
 
               <DropdownMenuSeparator />
 
-              <DropdownMenuItem className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <DropdownMenuItem
+                render={<Link href="/docs" />}
+                className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer"
+              >
                 <HelpCircle className="size-4" />
                 Documentation
               </DropdownMenuItem>

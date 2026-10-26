@@ -12,6 +12,7 @@ import {
   Film,
   Mic,
   Image as ImageIcon,
+  Volume2,
 } from "lucide-react";
 import {
   Card,
@@ -28,6 +29,7 @@ export function ClipInspectorPanel() {
   const {
     selectedClip,
     trimClip,
+    updateClip,
     splitClipAtPlayhead,
     deleteClip,
     duplicateClip,
@@ -38,6 +40,14 @@ export function ClipInspectorPanel() {
     const val = parseFloat(e.target.value);
     if (!isNaN(val) && val >= 0.5) {
       trimClip(selectedClip.id, val);
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedClip) return;
+    const val = parseFloat(e.target.value);
+    if (!isNaN(val)) {
+      updateClip(selectedClip.id, { volume: val });
     }
   };
 
@@ -144,40 +154,73 @@ export function ClipInspectorPanel() {
               </div>
             </div>
 
-            {/* Playback Speed Controls */}
-            <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
-              <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5 font-medium text-foreground">
-                  <Gauge className="size-3 text-muted-foreground" />
-                  <span>Speed</span>
-                </span>
-                <span className="font-mono text-2xs text-muted-foreground">
-                  {(selectedClip.speed || 1).toFixed(1)}x
-                </span>
-              </div>
+            {/* Audio Specific: Volume Control Slider */}
+            {selectedClip.trackId === "audio" && (
+              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <Volume2 className="size-3 text-muted-foreground" />
+                    <span>Track Volume</span>
+                  </span>
+                  <span className="font-mono text-xs font-semibold text-primary">
+                    {Math.round((selectedClip.volume ?? 1.0) * 100)}%
+                  </span>
+                </div>
 
-              <div className="grid grid-cols-4 gap-1 text-center">
-                {[0.5, 1.0, 1.5, 2.0].map((s) => {
-                  const isCurrent = (selectedClip.speed || 1.0) === s;
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => {
-                        trimClip(selectedClip.id, selectedClip.duration); // Keep duration updated
-                      }}
-                      className={`py-1 text-2xs font-mono rounded-md border transition-colors cursor-pointer ${
-                        isCurrent
-                          ? "border-primary bg-primary/10 text-primary font-bold"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {s.toFixed(1)}x
-                    </button>
-                  );
-                })}
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={selectedClip.volume ?? 1.0}
+                  onChange={handleVolumeChange}
+                  aria-label="Audio clip volume"
+                  className="w-full accent-primary cursor-pointer"
+                />
+
+                <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
+                  <span>0% (Mute)</span>
+                  <span>100%</span>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Visual Specific: Speed Controls */}
+            {selectedClip.trackId === "visual" && (
+              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <Gauge className="size-3 text-muted-foreground" />
+                    <span>Speed</span>
+                  </span>
+                  <span className="font-mono text-2xs text-muted-foreground">
+                    {(selectedClip.speed || 1).toFixed(1)}x
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1 text-center">
+                  {[0.5, 1.0, 1.5, 2.0].map((s) => {
+                    const isCurrent = (selectedClip.speed || 1.0) === s;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          updateClip(selectedClip.id, { speed: s });
+                        }}
+                        className={`py-1 text-2xs font-mono rounded-md border transition-colors cursor-pointer ${
+                          isCurrent
+                            ? "border-primary bg-primary/10 text-primary font-bold"
+                            : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {s.toFixed(1)}x
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Clip Operations Toolbar */}
             <div className="space-y-1.5 pt-1">

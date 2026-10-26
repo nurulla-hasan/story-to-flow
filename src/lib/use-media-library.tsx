@@ -26,6 +26,8 @@ export interface MediaLibraryState {
   clearError: () => void;
 }
 
+const MediaLibraryContext = React.createContext<MediaLibraryState | null>(null);
+
 /**
  * Hydrate a persisted record by allocating in-memory Object URLs
  */
@@ -62,13 +64,12 @@ function revokeAssetUrls(asset: MediaAssetItem) {
   }
 }
 
-export function useMediaLibrary(): MediaLibraryState {
+export function MediaLibraryProvider({ children }: { children: React.ReactNode }) {
   const [assets, setAssets] = React.useState<MediaAssetItem[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isImporting, setIsImporting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Keep a reference to current assets so cleanup on unmount always has the latest items
   const assetsRef = React.useRef<MediaAssetItem[]>([]);
 
   React.useEffect(() => {
@@ -101,7 +102,6 @@ export function useMediaLibrary(): MediaLibraryState {
 
     loadAssets();
 
-    // Revoke all created URLs when unmounting
     return () => {
       isMounted = false;
       assetsRef.current.forEach(revokeAssetUrls);
@@ -123,7 +123,6 @@ export function useMediaLibrary(): MediaLibraryState {
 
   const removeAsset = React.useCallback(async (id: string) => {
     try {
-      // Find asset to revoke its URLs
       const target = assetsRef.current.find((a) => a.id === id);
       if (target) {
         revokeAssetUrls(target);
@@ -157,7 +156,6 @@ export function useMediaLibrary(): MediaLibraryState {
           continue;
         }
 
-        // Check for duplicates in current library (by name, size, and lastModified)
         const isDuplicate = assetsRef.current.some(
           (existing) =>
             existing.name === file.name &&
@@ -212,14 +210,28 @@ export function useMediaLibrary(): MediaLibraryState {
     []
   );
 
-  return {
-    assets,
-    isLoading,
-    isImporting,
-    error,
-    counts,
-    importFiles,
-    removeAsset,
-    clearError,
-  };
+  return (
+    <MediaLibraryContext.Provider
+      value={{
+        assets,
+        isLoading,
+        isImporting,
+        error,
+        counts,
+        importFiles,
+        removeAsset,
+        clearError,
+      }}
+    >
+      {children}
+    </MediaLibraryContext.Provider>
+  );
+}
+
+export function useMediaLibrary(): MediaLibraryState {
+  const context = React.useContext(MediaLibraryContext);
+  if (!context) {
+    throw new Error("useMediaLibrary must be used within a MediaLibraryProvider");
+  }
+  return context;
 }

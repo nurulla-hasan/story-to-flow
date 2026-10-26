@@ -13,6 +13,7 @@ import {
   Volume2,
   Eye,
   Lock,
+  Wand2,
 } from "lucide-react";
 import {
   Card,
@@ -24,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
+import { AudioWaveformView } from "@/components/editor/audio-waveform-view";
 import type { TimelineClip, TrackId } from "@/types/timeline";
 
 export function TimelineDock() {
@@ -42,6 +44,7 @@ export function TimelineDock() {
     setZoom,
     totalDuration,
     addAssetToTimeline,
+    fitVisualsToVoiceover,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
@@ -80,7 +83,6 @@ export function TimelineDock() {
       if (raw) {
         const asset = JSON.parse(raw);
         if (asset && asset.id) {
-          // Calculate drop time relative to track start
           const rect = e.currentTarget.getBoundingClientRect();
           const dropX = e.clientX - rect.left;
           const dropTime = Math.max(0, dropX / pxPerSec);
@@ -140,6 +142,8 @@ export function TimelineDock() {
 
   const visualClips = clips.filter((c) => c.trackId === "visual");
   const audioClips = clips.filter((c) => c.trackId === "audio");
+  const hasAudio = audioClips.length > 0;
+  const hasVisual = visualClips.length > 0;
 
   return (
     <Card size="sm" className="flex flex-col w-full shrink-0">
@@ -188,6 +192,18 @@ export function TimelineDock() {
             >
               <Copy className="size-3" />
               <span className="hidden sm:inline">Duplicate</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!hasAudio || !hasVisual}
+              onClick={() => fitVisualsToVoiceover()}
+              className="gap-1"
+              title="Auto-fit visual scenes to voiceover duration"
+            >
+              <Wand2 className="size-3" />
+              <span className="hidden md:inline">Fit to Audio</span>
             </Button>
           </div>
 
@@ -420,6 +436,7 @@ export function TimelineDock() {
                       const isSelected = clip.id === selectedClipId;
                       const leftPos = clip.startTime * pxPerSec;
                       const widthPx = Math.max(20, clip.duration * pxPerSec);
+                      const asset = assets.find((a) => a.id === clip.assetId);
 
                       return (
                         <div
@@ -435,21 +452,26 @@ export function TimelineDock() {
                               : "border-border bg-card hover:border-primary/50"
                           }`}
                         >
-                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none">
+                          {/* Real Audio Waveform Visualization in background */}
+                          <div className="absolute inset-0 flex items-center justify-center px-1 overflow-hidden pointer-events-none opacity-30">
+                            <AudioWaveformView blob={asset?.blob || null} clipDuration={clip.duration} />
+                          </div>
+
+                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10">
                             <Mic className="size-3 text-primary shrink-0" />
                             <span className="text-2xs font-medium text-foreground truncate">
                               {clip.name}
                             </span>
                           </div>
 
-                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none">
+                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10">
                             {clip.duration.toFixed(1)}s
                           </span>
 
                           {/* Right edge trim handle */}
                           <div
                             onPointerDown={(e) => startTrimDrag(e, clip)}
-                            className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
+                            className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20"
                             title="Drag to trim duration"
                           />
                         </div>

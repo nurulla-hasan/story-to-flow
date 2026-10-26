@@ -10,6 +10,8 @@ import {
   Wand2,
   Download,
   ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,11 +28,28 @@ export function EditorHeader() {
     undo,
     redo,
     clips,
+    fitVisualsToVoiceover,
   } = useTimeline();
+
+  const [feedback, setFeedback] = React.useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setProjectTitle(e.target.value);
   };
+
+  const handleFit = () => {
+    const res = fitVisualsToVoiceover();
+    setFeedback({
+      type: res.success ? "success" : "error",
+      message: res.message,
+    });
+    setTimeout(() => {
+      setFeedback(null);
+    }, 4000);
+  };
+
+  const hasAudio = clips.some((c) => c.trackId === "audio");
+  const hasVisual = clips.some((c) => c.trackId === "visual");
 
   return (
     <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-3 shrink-0">
@@ -97,6 +116,24 @@ export function EditorHeader() {
 
       {/* Right: Aspect ratio, Smart Auto-fit, Export & Theme Toggle */}
       <div className="flex flex-wrap items-center gap-2">
+        {/* Feedback pill */}
+        {feedback && (
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-2xs font-medium animate-in fade-in duration-200 ${
+              feedback.type === "success"
+                ? "bg-primary/10 text-primary border border-primary/20"
+                : "bg-destructive/10 text-destructive border border-destructive/20"
+            }`}
+          >
+            {feedback.type === "success" ? (
+              <CheckCircle2 className="size-3.5 shrink-0" />
+            ) : (
+              <AlertCircle className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate max-w-56">{feedback.message}</span>
+          </div>
+        )}
+
         <Badge variant="secondary" className="gap-1.5">
           <Smartphone className="size-3" />
           <span>9:16 Vertical</span>
@@ -105,9 +142,16 @@ export function EditorHeader() {
         <Button
           variant="outline"
           size="sm"
-          disabled
+          onClick={handleFit}
+          disabled={!hasAudio || !hasVisual}
           className="gap-1.5"
-          title="Auto-fit visual scenes to voiceover duration — Phase 4"
+          title={
+            !hasAudio
+              ? "Add an audio clip to fit visual scenes"
+              : !hasVisual
+              ? "Add visual scenes to fit"
+              : "Auto-fit visual scenes to match voiceover duration"
+          }
         >
           <Wand2 className="size-3.5" />
           <span className="hidden md:inline">Fit to Voiceover</span>

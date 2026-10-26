@@ -2,11 +2,12 @@
 
 import * as React from "react";
 import type { TimelineClip, TrackId } from "@/types/timeline";
-import type { MediaAssetItem } from "@/lib/media-storage";
+import { useMediaLibrary } from "@/lib/use-media-library";
 import {
   getStoredTimelineState,
   saveStoredTimelineState,
 } from "@/lib/timeline-storage";
+import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
 
 export interface TimelineContextType {
   clips: TimelineClip[];
@@ -25,12 +26,14 @@ export interface TimelineContextType {
   togglePlay: () => void;
   setZoom: (zoom: number) => void;
   selectClip: (clipId: string | null) => void;
-  addAssetToTimeline: (asset: MediaAssetItem, trackId?: TrackId, startTime?: number) => void;
+  addAssetToTimeline: (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, trackId?: TrackId, startTime?: number) => void;
   moveClip: (clipId: string, newStartTime: number) => void;
   trimClip: (clipId: string, newDuration: number) => void;
+  updateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   splitClipAtPlayhead: (clipId?: string) => void;
   deleteClip: (clipId: string) => void;
   duplicateClip: (clipId: string) => void;
+  fitVisualsToVoiceover: () => { success: boolean; message: string };
   undo: () => void;
   redo: () => void;
 }
@@ -41,6 +44,8 @@ const MAX_HISTORY = 50;
 const MIN_CLIP_DURATION = 0.5; // minimum 500ms
 
 export function TimelineProvider({ children }: { children: React.ReactNode }) {
+  const { assets } = useMediaLibrary();
+
   // Lazy state initialization from localStorage (avoids setState in effect)
   const [projectTitle, setProjectTitleState] = React.useState<string>(() => getStoredTimelineState().projectTitle);
   const [clips, setClips] = React.useState<TimelineClip[]>(() => getStoredTimelineState().clips);
@@ -54,6 +59,21 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const redoStackRef = React.useRef<TimelineClip[][]>([]);
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
   const [canRedo, setCanRedo] = React.useState<boolean>(false);
+
+  // Dedicated Audio Element for synchronized timeline playback
+  const audioElementRef = React.useRef<HTMLAudioElement | null>(null);
+
+  React.useEffect(() => {
+    const audio = new Audio();
+    audio.preload = "auto";
+    audioElementRef.current = audio;
+
+    return () => {
+      audio.pause();
+      audio.src = "";
+      audioElementRef.current = null;
+    };
+  }, []);
 
   // Helper to sync canUndo / canRedo states outside of render
   const syncHistoryFlags = React.useCallback(() => {
@@ -112,7 +132,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     setIsPlaying((prev) => !prev);
   }, []);
 
-  // Real-time playback loop
+  // Real-time playback loop for timeline clock
   React.useEffect(() => {
     if (!isPlaying) return;
 
@@ -127,7 +147,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         const next = prev + dt;
         if (next >= totalDuration) {
           setIsPlaying(false);
-          return 0; // Loop or stop at start
+          return 0; // Stop and reset
         }
         return next;
       });
@@ -138,6 +158,43 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, totalDuration]);
+
+  // Synchronize audio playback with timeline clock
+  React.useEffect(() => {
+    const audio = audioElementRef.current;
+    if (!audio) return;
+
+    const audioClips = clips.filter((c) => c.trackId === "audio");
+    const activeAudioClip = audioClips.find(
+      (c) => playhead >= c.startTime && playhead < c.startTime + c.duration
+    );
+
+    if (activeAudioClip) {
+      const asset = assets.find((a) => a.id === activeAudioClip.assetId);
+      if (asset && asset.url) {
+        if (audio.src !== asset.url) {
+          audio.src = asset.url;
+        }
+
+        const targetTime = (playhead - activeAudioClip.startTime) + activeAudioClip.inPoint;
+        if (Math.abs(audio.currentTime - targetTime) > 0.15) {
+          audio.currentTime = Math.max(0, targetTime);
+        }
+
+        audio.volume = typeof activeAudioClip.volume === "number" ? Math.max(0, Math.min(1, activeAudioClip.volume)) : 1.0;
+
+        if (isPlaying) {
+          audio.play().catch(() => {});
+        } else {
+          audio.pause();
+        }
+        return;
+      }
+    }
+
+    // No active audio at playhead
+    audio.pause();
+  }, [playhead, isPlaying, clips, assets]);
 
   const selectClip = React.useCallback((clipId: string | null) => {
     setSelectedClipId(clipId);
@@ -151,7 +208,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   // 1. ADD ASSET TO TIMELINE
   const addAssetToTimeline = React.useCallback(
-    (asset: MediaAssetItem, targetTrack?: TrackId, customStartTime?: number) => {
+    (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, targetTrack?: TrackId, customStartTime?: number) => {
       pushHistorySnapshot(clips);
 
       const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual");
@@ -242,7 +299,22 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, pushHistorySnapshot, persistClips]
   );
 
-  // 4. SPLIT SELECTED CLIP AT PLAYHEAD (Ctrl+B)
+  // 4. UPDATE CLIP GENERAL PROPERTIES (Volume, Speed, InPoint, etc.)
+  const updateClip = React.useCallback(
+    (clipId: string, updates: Partial<TimelineClip>) => {
+      const target = clips.find((c) => c.id === clipId);
+      if (!target) return;
+
+      pushHistorySnapshot(clips);
+
+      const updated = clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c));
+      setClips(updated);
+      persistClips(updated);
+    },
+    [clips, pushHistorySnapshot, persistClips]
+  );
+
+  // 5. SPLIT SELECTED CLIP AT PLAYHEAD (Ctrl+B)
   const splitClipAtPlayhead = React.useCallback(
     (targetClipId?: string) => {
       const idToSplit = targetClipId || selectedClipId;
@@ -251,7 +323,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const clip = clips.find((c) => c.id === idToSplit);
       if (!clip) return;
 
-      // Check if playhead is strictly inside the clip
       const clipEnd = clip.startTime + clip.duration;
       if (playhead <= clip.startTime + MIN_CLIP_DURATION || playhead >= clipEnd - MIN_CLIP_DURATION) {
         return; // Too close to edge to split
@@ -286,7 +357,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, selectedClipId, playhead, pushHistorySnapshot, persistClips]
   );
 
-  // 5. DELETE SELECTED CLIP (Delete/Backspace)
+  // 6. DELETE SELECTED CLIP (Delete/Backspace)
   const deleteClip = React.useCallback(
     (clipId: string) => {
       const exists = clips.some((c) => c.id === clipId);
@@ -303,7 +374,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, selectedClipId, pushHistorySnapshot, persistClips]
   );
 
-  // 6. DUPLICATE SELECTED CLIP (Ctrl+D)
+  // 7. DUPLICATE SELECTED CLIP (Ctrl+D)
   const duplicateClip = React.useCallback(
     (clipId: string) => {
       const clip = clips.find((c) => c.id === clipId);
@@ -326,7 +397,18 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, pushHistorySnapshot, persistClips]
   );
 
-  // 7. UNDO & REDO
+  // 8. FIT VISUALS TO VOICEOVER ACTION
+  const fitVisualsToVoiceover = React.useCallback(() => {
+    const result = calculateFitVisualsToVoiceover(clips);
+    if (result.success) {
+      pushHistorySnapshot(clips);
+      setClips(result.updatedClips);
+      persistClips(result.updatedClips);
+    }
+    return { success: result.success, message: result.message };
+  }, [clips, pushHistorySnapshot, persistClips]);
+
+  // 9. UNDO & REDO
   const undo = React.useCallback(() => {
     if (undoStackRef.current.length === 0) return;
 
@@ -415,9 +497,11 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         addAssetToTimeline,
         moveClip,
         trimClip,
+        updateClip,
         splitClipAtPlayhead,
         deleteClip,
         duplicateClip,
+        fitVisualsToVoiceover,
         undo,
         redo,
       }}

@@ -64,9 +64,9 @@ export function StudioSidebar() {
   const toolNavItems = [
     {
       title: "Settings",
-      href: "#",
+      href: "/settings",
       icon: Settings,
-      isActive: false,
+      isActive: pathname === "/settings" || pathname.startsWith("/settings/"),
     },
     {
       title: "Help & Docs",

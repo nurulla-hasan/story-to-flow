@@ -84,7 +84,6 @@ export function StoryInputCard({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
               onClick={onClear}
               disabled={disabled || !story}
               className="gap-1.5"

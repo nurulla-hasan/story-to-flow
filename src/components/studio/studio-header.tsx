@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { HelpCircle, Layers, FolderKanban } from "lucide-react"
+import { HelpCircle, Layers, FolderKanban, Settings } from "lucide-react"
 
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -275,6 +275,13 @@ export function StudioHeader({ className = "" }: StudioHeaderProps) {
                 >
                   <Layers className="size-4" />
                   Video Editor
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  render={<Link href="/settings" />}
+                  className="flex items-center gap-2 cursor-pointer text-xs"
+                >
+                  <Settings className="size-4" />
+                  Settings
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   render={<Link href="/" />}

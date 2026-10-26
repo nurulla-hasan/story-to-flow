@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import {
@@ -9,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Palette, Clock, Image as ImageIcon, Settings } from "lucide-react"
+import { Palette, Clock, Image as ImageIcon, Settings, Cpu } from "lucide-react"
 
 function AspectRatioIcon({ className = "size-3.5" }: { className?: string }) {
   return (
@@ -77,6 +78,7 @@ interface SettingsCardProps {
   onDurationChange: (value: "Auto" | number) => void
   staticFramePacing: "Auto" | number
   onStaticFramePacingChange: (value: "Auto" | number) => void
+  activeModel?: string
   disabled?: boolean
 }
 
@@ -89,6 +91,7 @@ export function SettingsCard({
   onDurationChange,
   staticFramePacing,
   onStaticFramePacingChange,
+  activeModel,
   disabled = false,
 }: SettingsCardProps) {
   return (
@@ -96,18 +99,31 @@ export function SettingsCard({
       <CardContent>
         <div className="space-y-5">
           {/* Header */}
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-xl bg-brand-subtle flex items-center justify-center shrink-0 border border-brand-border/40">
-              <Settings className="size-5 text-primary" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-brand-subtle flex items-center justify-center shrink-0 border border-brand-border/40">
+                <Settings className="size-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-foreground leading-tight">
+                  Production Settings
+                </h2>
+                <p className="text-xs text-muted-foreground font-bangla mt-0.5">
+                  কনটেন্ট অনুযায়ী আপনার পছন্দের সেটিংস নির্বাচন করুন
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-bold text-foreground leading-tight">
-                Production Settings
-              </h2>
-              <p className="text-xs text-muted-foreground font-bangla mt-0.5">
-                কনটেন্ট অনুযায়ী আপনার পছন্দের সেটিংস নির্বাচন করুন
-              </p>
-            </div>
+
+            {activeModel && (
+              <Link
+                href="/settings"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                title="Change active model in Settings"
+              >
+                <Cpu className="size-3 text-primary shrink-0" />
+                <span className="truncate max-w-36 font-mono">{activeModel}</span>
+              </Link>
+            )}
           </div>
 
           {/* 2x2 Grid of Dropdowns */}

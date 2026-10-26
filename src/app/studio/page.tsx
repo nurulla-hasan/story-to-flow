@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { StoryProcessResponse } from "@/lib/validation";
+import { useSelectedModel } from "@/lib/model-storage";
 import { StudioSidebar } from "@/components/studio/studio-sidebar";
 import { StudioHeader } from "@/components/studio/studio-header";
 import { StoryInputCard } from "@/components/studio/story-input-card";
@@ -21,6 +22,7 @@ const SAMPLE_STORY = `আজ তোমাদের শোনাবো রীন�
 সেদিন ভোরের আবছা আলোয় নদীর ঘাটে যেতেই রিনার চোখ হঠাৎ থমকে গিয়েছিল। ঘাটের সিঁড়িতে দাঁড়িয়ে থাকা ওই অচেনা অবয়বটি আসলে কে? কুয়াশা কাটতেই দেখা গেল, বহু বছর পর শহর থেকে ফিরে এসেছে করিম। শান্ত নদীর কিনারে দাঁড়িয়ে, কত বছর বাদে দুই পুরোনো বন্ধু আবার একসঙ্গে কথা বলতে লাগল। ভোরের মৃদুমন্দ বাতাসে ভেসে চলল তাদের ফেলে আসা সেই সোনালী অতীতের কত শত স্মৃতি।`;
 
 export default function StudioPage() {
+  const { selectedModel } = useSelectedModel();
   const [story, setStory] = useState(SAMPLE_STORY);
   const [visualStyle, setVisualStyle] = useState("3D Animated Cartoon");
   const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">("9:16");
@@ -55,6 +57,7 @@ export default function StudioPage() {
         body: JSON.stringify({
           story,
           settings: {
+            model: selectedModel,
             visualStyle,
             aspectRatio,
             duration,
@@ -133,6 +136,7 @@ export default function StudioPage() {
                 onDurationChange={setDuration}
                 staticFramePacing={staticFramePacing}
                 onStaticFramePacingChange={setStaticFramePacing}
+                activeModel={selectedModel}
                 disabled={isGenerating}
               />
 

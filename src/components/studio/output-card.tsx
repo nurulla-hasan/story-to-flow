@@ -103,7 +103,6 @@ export function OutputCard({
             {/* Copy Button when output is available */}
             {result && (
               <Button
-                size="sm"
                 variant="outline"
                 onClick={onCopyAll}
                 disabled={copied}

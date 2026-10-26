@@ -6,8 +6,8 @@ export interface EnvConfig {
   apiKey: string;
 }
 
-// Application-level default model (not environment-dependent)
-export const DEFAULT_MODEL = "antigravity/gemini-3.8-flash-high";
+// Application-level default model (re-exported from client-safe constants)
+export { DEFAULT_MODEL } from "./constants";
 
 let fileEnvLoaded = false;
 

@@ -61,8 +61,10 @@ export function resolveSettings(
  * For now: basic format check to prevent arbitrary injection.
  */
 export function isValidModelId(modelId: string): boolean {
-  // Model IDs should follow format: provider/model-name
-  // Examples: antigravity/gemini-3.8-flash-high, auto/best-fast
-  const modelIdPattern = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9._-]+$/;
-  return modelIdPattern.test(modelId) && modelId.length <= 100;
+  if (!modelId || typeof modelId !== "string" || modelId.length > 128) {
+    return false;
+  }
+  // Model IDs should follow format: provider/model-name or multi-segment like no-think/kr/claude-sonnet-4.5
+  const modelIdPattern = /^[a-zA-Z0-9_.-]+(\/[a-zA-Z0-9_.-]+)*$/;
+  return modelIdPattern.test(modelId);
 }

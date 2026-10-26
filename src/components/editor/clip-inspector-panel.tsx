@@ -27,6 +27,7 @@ import { useTimeline } from "@/lib/timeline-context";
 
 export function ClipInspectorPanel() {
   const {
+    isHydrated,
     selectedClip,
     trimClip,
     updateClip,
@@ -59,19 +60,19 @@ export function ClipInspectorPanel() {
             <SlidersHorizontal className="size-4 text-primary" />
             <CardTitle>Clip Inspector</CardTitle>
           </div>
-          <Badge variant={selectedClip ? "secondary" : "outline"}>
-            {selectedClip ? `${selectedClip.type.toUpperCase()}` : "No Selection"}
+          <Badge variant={isHydrated && selectedClip ? "secondary" : "outline"}>
+            {isHydrated && selectedClip ? `${selectedClip.type.toUpperCase()}` : "No Selection"}
           </Badge>
         </div>
         <CardDescription>
-          {selectedClip
+          {isHydrated && selectedClip
             ? `Editing "${selectedClip.name}"`
             : "Select a clip on the timeline to edit its properties"}
         </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-3 p-3 overflow-y-auto">
-        {!selectedClip ? (
+        {!isHydrated || !selectedClip ? (
           /* Empty selection guidance box */
           <div className="flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-5 text-center space-y-2 bg-muted/20 my-auto">
             <div className="size-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">

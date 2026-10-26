@@ -36,6 +36,7 @@ function formatTimecode(seconds: number): string {
 
 export function PreviewCanvasPanel() {
   const {
+    isHydrated,
     clips,
     playhead,
     isPlaying,
@@ -85,7 +86,7 @@ export function PreviewCanvasPanel() {
             <CardTitle>9:16 Preview Canvas</CardTitle>
           </div>
           <Badge variant="outline">
-            {activeClip ? `${activeClip.name}` : "1080 × 1920"}
+            {isHydrated && activeClip ? `${activeClip.name}` : "1080 × 1920"}
           </Badge>
         </div>
         <CardDescription>
@@ -106,7 +107,7 @@ export function PreviewCanvasPanel() {
 
             {/* Stage Media Display */}
             <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center bg-muted/20">
-              {activeAsset && activeClip ? (
+              {isHydrated && activeAsset && activeClip ? (
                 activeAsset.category === "image" ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -141,7 +142,7 @@ export function PreviewCanvasPanel() {
                       Canvas is empty
                     </p>
                     <p className="text-2xs text-muted-foreground max-w-40 leading-tight">
-                      {clips.length === 0
+                      {!isHydrated || clips.length === 0
                         ? "Add clips to timeline to preview vertical video."
                         : "Playhead is on an empty timeline space."}
                     </p>
@@ -198,7 +199,7 @@ export function PreviewCanvasPanel() {
 
             {/* Timecode Counter */}
             <div className="ml-1 font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-              {formatTimecode(playhead)} / {formatTimecode(totalDuration)}
+              {formatTimecode(isHydrated ? playhead : 0)} / {formatTimecode(isHydrated ? totalDuration : 10)}
             </div>
           </div>
 

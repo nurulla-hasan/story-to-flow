@@ -4,12 +4,14 @@ import * as React from "react";
 import type { TimelineClip, TrackId } from "@/types/timeline";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
+  DEFAULT_TIMELINE_STATE,
   getStoredTimelineState,
   saveStoredTimelineState,
 } from "@/lib/timeline-storage";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
 
 export interface TimelineContextType {
+  isHydrated: boolean;
   clips: TimelineClip[];
   selectedClipId: string | null;
   selectedClip: TimelineClip | null;
@@ -46,13 +48,36 @@ const MIN_CLIP_DURATION = 0.5; // minimum 500ms
 export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const { assets } = useMediaLibrary();
 
-  // Lazy state initialization from localStorage (avoids setState in effect)
-  const [projectTitle, setProjectTitleState] = React.useState<string>(() => getStoredTimelineState().projectTitle);
-  const [clips, setClips] = React.useState<TimelineClip[]>(() => getStoredTimelineState().clips);
-  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(() => getStoredTimelineState().selectedClipId);
-  const [playhead, setPlayheadState] = React.useState<number>(() => getStoredTimelineState().playhead);
+  // Deterministic initial state for SSR and initial client hydration
+  const [projectTitle, setProjectTitleState] = React.useState<string>(DEFAULT_TIMELINE_STATE.projectTitle);
+  const [clips, setClips] = React.useState<TimelineClip[]>(DEFAULT_TIMELINE_STATE.clips);
+  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(DEFAULT_TIMELINE_STATE.selectedClipId);
+  const [playhead, setPlayheadState] = React.useState<number>(DEFAULT_TIMELINE_STATE.playhead);
   const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
-  const [zoom, setZoomState] = React.useState<number>(() => getStoredTimelineState().zoom);
+  const [zoom, setZoomState] = React.useState<number>(DEFAULT_TIMELINE_STATE.zoom);
+  const [isHydrated, setIsHydrated] = React.useState<boolean>(false);
+
+  // Guard to ensure localStorage is NEVER overwritten before initial restoration completes
+  const isRestoredRef = React.useRef(false);
+
+  // Restore saved state strictly after hydration in useEffect
+  React.useEffect(() => {
+    try {
+      const saved = getStoredTimelineState();
+      if (saved.clips.length > 0 || saved.projectTitle !== DEFAULT_TIMELINE_STATE.projectTitle) {
+        setProjectTitleState(saved.projectTitle);
+        setClips(saved.clips);
+        setPlayheadState(saved.playhead);
+        setZoomState(saved.zoom);
+        setSelectedClipId(saved.selectedClipId);
+      }
+    } catch (err) {
+      console.error("Failed to restore timeline state from localStorage:", err);
+    } finally {
+      isRestoredRef.current = true;
+      setIsHydrated(true);
+    }
+  }, []);
 
   // Undo / Redo Stacks & State Flags
   const undoStackRef = React.useRef<TimelineClip[][]>([]);
@@ -81,8 +106,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     setCanRedo(redoStackRef.current.length > 0);
   }, []);
 
-  // Save changes to localStorage
+  // Save changes to localStorage with explicit restoration guard
   const persistClips = React.useCallback((newClips: TimelineClip[], newSelectedId?: string | null) => {
+    if (!isRestoredRef.current) return;
     saveStoredTimelineState({
       clips: newClips,
       selectedClipId: newSelectedId !== undefined ? newSelectedId : selectedClipId,
@@ -102,13 +128,17 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   const setProjectTitle = React.useCallback((title: string) => {
     setProjectTitleState(title);
-    saveStoredTimelineState({ projectTitle: title });
+    if (isRestoredRef.current) {
+      saveStoredTimelineState({ projectTitle: title });
+    }
   }, []);
 
   const setZoom = React.useCallback((newZoom: number) => {
     const clamped = Math.min(200, Math.max(50, newZoom));
     setZoomState(clamped);
-    saveStoredTimelineState({ zoom: clamped });
+    if (isRestoredRef.current) {
+      saveStoredTimelineState({ zoom: clamped });
+    }
   }, []);
 
   // Calculate total timeline duration (at least 10s or ends after the latest clip)
@@ -125,7 +155,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const seek = React.useCallback((time: number) => {
     const clamped = Math.max(0, Math.min(totalDuration, time));
     setPlayheadState(clamped);
-    saveStoredTimelineState({ playhead: clamped });
+    if (isRestoredRef.current) {
+      saveStoredTimelineState({ playhead: clamped });
+    }
   }, [totalDuration]);
 
   const togglePlay = React.useCallback(() => {
@@ -198,7 +230,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   const selectClip = React.useCallback((clipId: string | null) => {
     setSelectedClipId(clipId);
-    saveStoredTimelineState({ selectedClipId: clipId });
+    if (isRestoredRef.current) {
+      saveStoredTimelineState({ selectedClipId: clipId });
+    }
   }, []);
 
   const selectedClip = React.useMemo(() => {
@@ -214,13 +248,11 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual");
       const trackClips = clips.filter((c) => c.trackId === trackId);
 
-      // Default placement: at end of track or custom position
       let startTime = customStartTime !== undefined ? customStartTime : 0;
       if (customStartTime === undefined && trackClips.length > 0) {
         startTime = Math.max(...trackClips.map((c) => c.startTime + c.duration));
       }
 
-      // Default duration: images = 3.0s, video/audio = source duration or 4.0s
       let duration = 3.0;
       if (asset.category === "video" || asset.category === "audio") {
         duration = asset.duration && asset.duration > 0 ? asset.duration : 4.0;
@@ -277,7 +309,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       pushHistorySnapshot(clips);
 
       let clampedDuration = Math.max(MIN_CLIP_DURATION, newDuration);
-      // For video/audio, do not exceed remaining source duration
       if (target.sourceDuration && target.sourceDuration > 0) {
         const remaining = target.sourceDuration - target.inPoint;
         clampedDuration = Math.min(clampedDuration, remaining);
@@ -299,7 +330,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, pushHistorySnapshot, persistClips]
   );
 
-  // 4. UPDATE CLIP GENERAL PROPERTIES (Volume, Speed, InPoint, etc.)
+  // 4. UPDATE CLIP GENERAL PROPERTIES
   const updateClip = React.useCallback(
     (clipId: string, updates: Partial<TimelineClip>) => {
       const target = clips.find((c) => c.id === clipId);
@@ -325,7 +356,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       const clipEnd = clip.startTime + clip.duration;
       if (playhead <= clip.startTime + MIN_CLIP_DURATION || playhead >= clipEnd - MIN_CLIP_DURATION) {
-        return; // Too close to edge to split
+        return;
       }
 
       pushHistorySnapshot(clips);
@@ -431,7 +462,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     syncHistoryFlags();
   }, [clips, persistClips, syncHistoryFlags]);
 
-  // Keyboard Shortcuts Listener (Ctrl+Z, Ctrl+Y, Ctrl+B, Ctrl+D, Delete, Space)
+  // Keyboard Shortcuts Listener
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -440,7 +471,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         activeEl?.tagName === "TEXTAREA" ||
         activeEl?.getAttribute("contenteditable") === "true";
 
-      if (isInput) return; // Do not intercept while typing
+      if (isInput) return;
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const modifier = isMac ? e.metaKey : e.ctrlKey;
@@ -478,6 +509,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   return (
     <TimelineContext.Provider
       value={{
+        isHydrated,
         clips,
         selectedClipId,
         selectedClip,

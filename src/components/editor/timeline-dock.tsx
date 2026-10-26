@@ -30,6 +30,7 @@ import type { TimelineClip, TrackId } from "@/types/timeline";
 
 export function TimelineDock() {
   const {
+    isHydrated,
     clips,
     selectedClipId,
     selectClip,
@@ -210,7 +211,7 @@ export function TimelineDock() {
           {/* Right: Timeline Zoom, Snap & Playhead Position */}
           <div className="flex items-center gap-1.5">
             <div className="font-mono text-2xs bg-muted text-foreground font-semibold px-1.5 py-0.5 rounded">
-              {playhead.toFixed(2)}s
+              {isHydrated ? playhead.toFixed(2) : "0.00"}s
             </div>
 
             <Button
@@ -236,7 +237,7 @@ export function TimelineDock() {
               </Button>
 
               <Badge variant="secondary">
-                {zoom}%
+                {isHydrated ? zoom : 100}%
               </Badge>
 
               <Button
@@ -320,7 +321,7 @@ export function TimelineDock() {
                       <p className="text-2xs font-semibold text-foreground leading-tight">
                         Visual Scenes
                       </p>
-                      <p className="text-3xs text-muted-foreground">{visualClips.length} clips</p>
+                      <p className="text-3xs text-muted-foreground">{isHydrated ? visualClips.length : 0} clips</p>
                     </div>
                   </div>
 
@@ -337,7 +338,7 @@ export function TimelineDock() {
                   style={{ width: `${tracksContentWidth}px` }}
                   className="relative h-full flex items-center px-1 overflow-visible"
                 >
-                  {visualClips.length === 0 ? (
+                  {!isHydrated || visualClips.length === 0 ? (
                     <div className="w-full border border-dashed border-border rounded h-8 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
                       <Video className="size-3 text-muted-foreground/60" />
                       <span>Drag scene images or videos here, or click &quot;+&quot; in Media Library.</span>
@@ -409,7 +410,7 @@ export function TimelineDock() {
                       <p className="text-2xs font-semibold text-foreground leading-tight">
                         Voiceover
                       </p>
-                      <p className="text-3xs text-muted-foreground">{audioClips.length} tracks</p>
+                      <p className="text-3xs text-muted-foreground">{isHydrated ? audioClips.length : 0} tracks</p>
                     </div>
                   </div>
 
@@ -426,7 +427,7 @@ export function TimelineDock() {
                   style={{ width: `${tracksContentWidth}px` }}
                   className="relative h-full flex items-center px-1 overflow-visible"
                 >
-                  {audioClips.length === 0 ? (
+                  {!isHydrated || audioClips.length === 0 ? (
                     <div className="w-full border border-dashed border-border rounded h-8 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
                       <Mic className="size-3 text-muted-foreground/60" />
                       <span>Drag voiceover audio here to align visual scene pacing.</span>

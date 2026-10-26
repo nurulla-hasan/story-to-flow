@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   Card,
@@ -6,21 +6,25 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-} from "@/components/ui/card"
-import { Field, FieldError } from "@/components/ui/field"
-import { Textarea } from "@/components/ui/textarea"
-import { Button } from "@/components/ui/button"
-import { Trash2 } from "lucide-react"
+} from "@/components/ui/card";
+import { Field, FieldError } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
 
 interface StoryInputCardProps {
-  story: string
-  onChange: (value: string) => void
-  onClear?: () => void
-  validationError?: string | null
-  disabled?: boolean
+  story: string;
+  onChange: (value: string) => void;
+  onClear?: () => void;
+  validationError?: string | null;
+  disabled?: boolean;
 }
 
-function StoryInputHeaderIcon({ className = "size-5" }: { className?: string }) {
+function StoryInputHeaderIcon({
+  className = "size-5",
+}: {
+  className?: string;
+}) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -37,7 +41,7 @@ function StoryInputHeaderIcon({ className = "size-5" }: { className?: string }) 
       <path d="M6 10h10" />
       <path d="M6 14h6" />
     </svg>
-  )
+  );
 }
 
 export function StoryInputCard({
@@ -57,7 +61,7 @@ export function StoryInputCard({
           <div>
             <CardTitle>Story Input</CardTitle>
             <CardDescription className="font-bangla">
-              বাংলা বা ইংরেজিতে আপনার গল্প লিখুন
+              Write your story in Bangla or English.
             </CardDescription>
           </div>
         </div>
@@ -71,12 +75,10 @@ export function StoryInputCard({
               value={story}
               onChange={(e) => onChange(e.target.value)}
               disabled={disabled}
-              placeholder="আজ তোমাদের শোনাবো রীনা আর করিমের গল্প—দুই পুরোনো বন্ধুর, যাদের জীবনে এক ভোরের দেখা ফিরিয়ে এনেছিল বহু বছরের ফেলে আসা স্মৃতি..."
+              placeholder="শরতের এক রাতে ছোট্ট গ্রামটিতে হঠাৎ আকাশের সব তারা নিভে গেল। গ্রামের মানুষ ভয়ে ঘরের দরজা বন্ধ করে ...."
               className="w-full min-h-64 font-bangla resize-none"
             />
-            {validationError && (
-              <FieldError>{validationError}</FieldError>
-            )}
+            {validationError && <FieldError>{validationError}</FieldError>}
           </Field>
 
           {/* Footer Bar: Counter & Clear Button */}
@@ -100,5 +102,5 @@ export function StoryInputCard({
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

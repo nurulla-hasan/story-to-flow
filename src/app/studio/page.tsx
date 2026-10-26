@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { StoryProcessResponse } from "@/lib/validation";
 import { useSelectedModel } from "@/lib/model-storage";
+import { useProductionSettings } from "@/lib/settings-storage";
 import { StudioSidebar } from "@/components/studio/studio-sidebar";
 import { StudioHeader } from "@/components/studio/studio-header";
 import { StoryInputCard } from "@/components/studio/story-input-card";
-import { SettingsCard } from "@/components/studio/settings-card";
+import { StudioSettingsBar } from "@/components/studio/studio-settings-bar";
 import { OutputCard } from "@/components/studio/output-card";
 import { HowItWorksCard } from "@/components/studio/how-it-works-card";
 import { OutputFormatCard } from "@/components/studio/output-format-card";
@@ -15,27 +16,31 @@ import {
   SidebarProvider,
   SidebarInset,
 } from "@/components/ui/sidebar";
-import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
-
-const SAMPLE_STORY = `আজ তোমাদের শোনাবো রীনা আর করিমের গল্প—দুই পুরোনো বন্ধুর, যাদের জীবনে এক ভোরের দেখা ফিরিয়ে এনেছিল বহু বছরের ফেলে আসা স্মৃতি।
-
-সেদিন ভোরের আবছা আলোয় নদীর ঘাটে যেতেই রিনার চোখ হঠাৎ থমকে গিয়েছিল। ঘাটের সিঁড়িতে দাঁড়িয়ে থাকা ওই অচেনা অবয়বটি আসলে কে? কুয়াশা কাটতেই দেখা গেল, বহু বছর পর শহর থেকে ফিরে এসেছে করিম। শান্ত নদীর কিনারে দাঁড়িয়ে, কত বছর বাদে দুই পুরোনো বন্ধু আবার একসঙ্গে কথা বলতে লাগল। ভোরের মৃদুমন্দ বাতাসে ভেসে চলল তাদের ফেলে আসা সেই সোনালী অতীতের কত শত স্মৃতি।`;
+import { Sparkles, ArrowRight, Loader2, Square } from "lucide-react";
 
 export default function StudioPage() {
   const { selectedModel } = useSelectedModel();
-  const [story, setStory] = useState(SAMPLE_STORY);
-  const [visualStyle, setVisualStyle] = useState("Auto");
-  const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">("9:16");
-  const [duration, setDuration] = useState<"Auto" | number>("Auto");
-  const [staticFramePacing, setStaticFramePacing] = useState<"Auto" | number>(
-    "Auto",
-  );
+  const { settings: prodSettings } = useProductionSettings();
+  const [story, setStory] = useState("");
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<StoryProcessResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef<number>(0);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const handleGenerate = async () => {
     if (!story.trim()) {
@@ -43,9 +48,19 @@ export default function StudioPage() {
       return;
     }
 
+    // Cancel any previous in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const currentRequestId = ++requestIdRef.current;
+
     setResult(null);
     setError(null);
     setValidationError(null);
+    setCancelNotice(null);
     setIsGenerating(true);
 
     try {
@@ -54,35 +69,65 @@ export default function StudioPage() {
         headers: {
           "Content-Type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           story,
           settings: {
             model: selectedModel,
-            visualStyle,
-            aspectRatio,
-            duration,
-            staticFramePacing,
+            visualStyle: prodSettings.visualStyle,
+            aspectRatio: prodSettings.aspectRatio,
+            duration: prodSettings.duration,
+            staticFramePacing: prodSettings.staticFramePacing,
           },
         }),
       });
 
+      // Ignore if superseded or cancelled
+      if (requestIdRef.current !== currentRequestId) return;
+
       const data = await response.json();
 
       if (!response.ok) {
+        if (data.cancelled || response.status === 499) {
+          setCancelNotice("Generation was stopped.");
+          return;
+        }
         setError(data.error || "Failed to generate production package");
         return;
       }
 
       setResult(data);
     } catch (err) {
+      if (requestIdRef.current !== currentRequestId) return;
+
+      if (err instanceof Error && err.name === "AbortError") {
+        setCancelNotice("Generation was stopped.");
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
           : "An unexpected error occurred. Please try again.",
       );
     } finally {
-      setIsGenerating(false);
+      if (requestIdRef.current === currentRequestId) {
+        setIsGenerating(false);
+        abortControllerRef.current = null;
+      }
     }
+  };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setCancelNotice("Generation was stopped.");
+    setTimeout(() => {
+      setCancelNotice((prev) => (prev === "Generation was stopped." ? null : prev));
+    }, 4000);
   };
 
   const handleClear = () => {
@@ -126,40 +171,56 @@ export default function StudioPage() {
                 disabled={isGenerating}
               />
 
-              {/* Production Settings Card */}
-              <SettingsCard
-                visualStyle={visualStyle}
-                onVisualStyleChange={setVisualStyle}
-                aspectRatio={aspectRatio}
-                onAspectRatioChange={setAspectRatio}
-                duration={duration}
-                onDurationChange={setDuration}
-                staticFramePacing={staticFramePacing}
-                onStaticFramePacingChange={setStaticFramePacing}
-                activeModel={selectedModel}
-                disabled={isGenerating}
+              {/* Compact Active Production Settings Bar */}
+              <StudioSettingsBar
+                settings={prodSettings}
+                model={selectedModel}
               />
 
-              {/* Generate Button */}
-              <Button
-                size="lg"
-                onClick={handleGenerate}
-                disabled={isGenerating || !story.trim()}
-                className="w-full gap-2"
-              >
+              {/* Generate & Stop Button Controls */}
+              <div className="space-y-2">
                 {isGenerating ? (
-                  <>
-                    <Loader2 className="size-4.5 animate-spin" />
-                    <span>Generating Production Package...</span>
-                  </>
+                  <div className="flex items-center gap-2.5">
+                    <Button
+                      size="lg"
+                      disabled
+                      className="flex-1 gap-2 cursor-not-allowed"
+                    >
+                      <Loader2 className="size-4.5 animate-spin" />
+                      <span>Generating Production Package...</span>
+                    </Button>
+                    <Button
+                      size="lg"
+                      variant="destructive"
+                      onClick={handleStop}
+                      className="gap-2 shrink-0 cursor-pointer"
+                      title="Cancel generation and abort request"
+                    >
+                      <Square className="size-3.5 fill-current" />
+                      <span>Stop</span>
+                    </Button>
+                  </div>
                 ) : (
-                  <>
+                  <Button
+                    size="lg"
+                    onClick={handleGenerate}
+                    disabled={!story.trim()}
+                    className="w-full gap-2 cursor-pointer"
+                  >
                     <Sparkles className="size-4.5" />
                     <span>Generate Production Package</span>
                     <ArrowRight className="size-4.5" />
-                  </>
+                  </Button>
                 )}
-              </Button>
+
+                {/* Brief cancellation notice */}
+                {cancelNotice && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground animate-in fade-in">
+                    <span className="size-2 rounded-full bg-muted-foreground/50" />
+                    <span>{cancelNotice}</span>
+                  </div>
+                )}
+              </div>
 
               {/* How it works Card */}
               <HowItWorksCard />

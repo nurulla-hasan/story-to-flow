@@ -100,6 +100,24 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const processingTimeMs = Date.now() - startTime;
 
+    // Handle request cancellation first (normal user-initiated cancellation)
+    if (
+      request.signal?.aborted ||
+      (error instanceof LlmError && error.message === "Request was cancelled") ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      return NextResponse.json(
+        {
+          cancelled: true,
+          error: "Generation was cancelled by the user",
+          metadata: {
+            processingTimeMs,
+          },
+        },
+        { status: 499 } // Client closed request
+      );
+    }
+
     // Handle LLM-specific errors
     if (error instanceof LlmError) {
       const friendlyError = friendlyLlmError(error);
@@ -125,19 +143,6 @@ export async function POST(request: NextRequest) {
           },
         },
         { status: statusCode }
-      );
-    }
-
-    // Handle request cancellation
-    if (request.signal?.aborted) {
-      return NextResponse.json(
-        {
-          error: "Request was cancelled",
-          metadata: {
-            processingTimeMs,
-          },
-        },
-        { status: 499 } // Client closed request
       );
     }
 

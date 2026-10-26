@@ -6,12 +6,10 @@ import {
   Cpu,
   RefreshCw,
   RotateCcw,
-  Sliders,
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
   Sparkles,
-  Layers,
   ArrowRight,
   Zap,
 } from "lucide-react";
@@ -35,6 +33,8 @@ import {
 } from "@/components/ui/select";
 import { DEFAULT_MODEL } from "@/lib/constants";
 import { useSelectedModel } from "@/lib/model-storage";
+import { useProductionSettings } from "@/lib/settings-storage";
+import { SettingsCard } from "@/components/studio/settings-card";
 import type { ModelOption, ModelsApiResponse } from "@/app/api/models/route";
 
 export default function SettingsPage() {
@@ -44,6 +44,13 @@ export default function SettingsPage() {
     isDefaultModel,
     isLoaded: isStorageLoaded,
   } = useSelectedModel();
+
+  const {
+    settings: prodSettings,
+    updateSetting,
+    resetDefaults: resetProdDefaults,
+    isDefault: isProdDefault,
+  } = useProductionSettings();
 
   const [models, setModels] = useState<ModelOption[]>([
     {
@@ -399,57 +406,20 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
 
-              {/* 4. Studio Production Defaults (Read-only Reference as per Req 7 & 8) */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Sliders className="size-5 text-primary" />
-                    <CardTitle>Studio Production Defaults</CardTitle>
-                  </div>
-                  <CardDescription>
-                    Verified defaults matching Master Prompt v1.5.5 for all story generations.
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
-                      <span className="text-muted-foreground font-medium text-2xs uppercase">Visual Style</span>
-                      <p className="font-semibold text-foreground text-sm">Auto</p>
-                      <p className="text-2xs text-muted-foreground">AI recommends best style</p>
-                    </div>
-
-                    <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
-                      <span className="text-muted-foreground font-medium text-2xs uppercase">Aspect Ratio</span>
-                      <p className="font-semibold text-foreground text-sm">9:16</p>
-                      <p className="text-2xs text-muted-foreground">Vertical Reels</p>
-                    </div>
-
-                    <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
-                      <span className="text-muted-foreground font-medium text-2xs uppercase">Duration</span>
-                      <p className="font-semibold text-foreground text-sm">Auto</p>
-                      <p className="text-2xs text-muted-foreground">AI recommends duration</p>
-                    </div>
-
-                    <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
-                      <span className="text-muted-foreground font-medium text-2xs uppercase">Frame Pacing</span>
-                      <p className="font-semibold text-foreground text-sm">Auto</p>
-                      <p className="text-2xs text-muted-foreground">AI recommends pacing</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between rounded-lg bg-muted/40 p-3 text-xs">
-                    <div className="flex items-center gap-2">
-                      <Layers className="size-4 text-primary shrink-0" />
-                      <span className="font-medium text-foreground">Master Prompt:</span>
-                      <Badge variant="secondary">v1.5.5</Badge>
-                    </div>
-                    <span className="text-2xs text-muted-foreground hidden sm:inline">
-                      Active
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* 4. Interactive Studio Production Settings Card */}
+              <SettingsCard
+                visualStyle={prodSettings.visualStyle}
+                onVisualStyleChange={(val) => updateSetting("visualStyle", val)}
+                aspectRatio={prodSettings.aspectRatio}
+                onAspectRatioChange={(val) => updateSetting("aspectRatio", val)}
+                duration={prodSettings.duration}
+                onDurationChange={(val) => updateSetting("duration", val)}
+                staticFramePacing={prodSettings.staticFramePacing}
+                onStaticFramePacingChange={(val) => updateSetting("staticFramePacing", val)}
+                activeModel={selectedModel}
+                onResetDefaults={resetProdDefaults}
+                isDefault={isProdDefault}
+              />
             </div>
           </div>
         </div>

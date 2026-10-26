@@ -211,7 +211,7 @@ function RightScenicIllustration() {
 
 export function StudioHeader({ className = "" }: StudioHeaderProps) {
   return (
-    <header className={`sticky top-0 z-20 w-full border-b border-border bg-card/95 backdrop-blur shrink-0 ${className}`}>
+    <header className={`sticky top-0 z-20 w-full border-b border-border bg-sidebar backdrop-blur shrink-0 ${className}`}>
       {/* Header Container exactly matching Image 1: max 80px (h-20) */}
       <div className="relative flex h-20 w-full items-center justify-between overflow-hidden px-3 sm:px-5">
         {/* Left Side: Sidebar Trigger + Glossy Star + Story Studio + Subtitle */}

@@ -8,6 +8,7 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import {
   Select,
@@ -16,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Palette, Clock, Image as ImageIcon, Settings, Cpu } from "lucide-react"
+import { Palette, Clock, Image as ImageIcon, Settings, Cpu, RotateCcw } from "lucide-react"
 
 function AspectRatioIcon({ className = "size-3.5" }: { className?: string }) {
   return (
@@ -87,6 +88,8 @@ interface SettingsCardProps {
   onStaticFramePacingChange: (value: "Auto" | number) => void
   activeModel?: string
   disabled?: boolean
+  onResetDefaults?: () => void
+  isDefault?: boolean
 }
 
 export function SettingsCard({
@@ -100,6 +103,8 @@ export function SettingsCard({
   onStaticFramePacingChange,
   activeModel,
   disabled = false,
+  onResetDefaults,
+  isDefault = true,
 }: SettingsCardProps) {
   return (
     <Card>
@@ -243,6 +248,27 @@ export function SettingsCard({
               </Select>
             </Field>
           </div>
+
+          {/* Reset Defaults Action Bar */}
+          {onResetDefaults && (
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onResetDefaults}
+                disabled={isDefault || disabled}
+                className="gap-1.5"
+                title="Reset production settings to default values"
+              >
+                <RotateCcw className="size-3.5" />
+                <span>Reset to Defaults</span>
+              </Button>
+
+              <span className="text-2xs text-muted-foreground">
+                Settings persist automatically in browser
+              </span>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

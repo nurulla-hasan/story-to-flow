@@ -42,7 +42,7 @@ export function StoryInputCard({
   disabled = false,
 }: StoryInputCardProps) {
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardContent>
         <div className="space-y-4">
           {/* Card Header with Icon */}

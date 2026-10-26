@@ -244,10 +244,8 @@ export function StudioHeader({ className = "" }: StudioHeaderProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger className="rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring cursor-pointer">
-              <Avatar className="size-8">
-                <AvatarFallback className="bg-primary/10 text-primary font-semibold text-xs">
-                  SF
-                </AvatarFallback>
+              <Avatar>
+                <AvatarFallback>SF</AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
 

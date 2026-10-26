@@ -3,7 +3,7 @@ import { Info } from "lucide-react"
 
 export function OutputFormatCard() {
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardContent>
         <div className="flex items-start gap-3.5">
           {/* Solid Blue Circle with Info Icon */}

@@ -26,12 +26,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Example: Instead of `h-[400px]`, write `h-100`.
   - Use standard Tailwind utility classes (`w-full`, `max-w-480`, `max-w-7xl`, `h-96`, `p-6`, `gap-8`, `rounded-2xl`, etc.) rather than arbitrary bracket syntax.
 
-## 3. Strict Shadcn Component Class Rule
-- **NEVER** write visual restyling classes on shadcn components (such as `SelectTrigger`, `Card`, `CardContent`, `Button`, `Input`, `Textarea`, `Badge`, `Avatar`, `DialogContent`, `Field`, `Label`, etc.).
-  - **Forbidden on shadcn components**: custom backgrounds (`bg-card`, `bg-muted`), borders (`border-input`, `border-border`), roundedness (`rounded-xl`, `rounded-2xl`), paddings/margins (`p-4`, `px-3`, `h-10`), or color overrides.
-- **ONLY layout classes allowed on shadcn components**:
-  - `w-full`, `flex`, `grid`, `space-y-*`, `gap-*`, `items-*`, `justify-*`, `col-span-*` — only if strictly necessary for layout flow.
+## 3. Strict Shadcn Component Class Rule (Consumer Rule)
+- This rule applies to **consuming components** (our app and studio files that import and use shadcn components), **NOT** the root internal implementation files inside `src/components/ui/` (leave shadcn library internals intact).
+- **NEVER** write visual restyling classes when using shadcn components (such as `<SelectTrigger>`, `<Card>`, `<Button>`, `<Input>`, `<Textarea>`, `<Badge>`, `<Avatar>`, `<DialogContent>`, `<Field>`, `<FieldLabel>`, `<Label>`, etc.):
+  - **Forbidden when using shadcn components**: custom backgrounds (`bg-card`, `bg-muted`), borders (`border-input`, `border-border`), roundedness (`rounded-xl`, `rounded-2xl`), paddings/margins (`p-4`, `px-3`, `h-10`, `mb-2`), typography overrides (`text-xs`, `font-semibold`), or color overrides.
+- **ONLY layout classes allowed when using shadcn components**:
+  - `w-full`, `flex`, `grid`, `space-y-*`, `gap-*`, `items-*`, `justify-*`, `col-span-*`, `flex-1` — only if strictly necessary for layout flow.
   - Rely 100% on the internal design and variants of the shadcn component.
+
 
 
 

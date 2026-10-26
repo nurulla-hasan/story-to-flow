@@ -92,7 +92,7 @@ export function SettingsCard({
   disabled = false,
 }: SettingsCardProps) {
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardContent>
         <div className="space-y-5">
           {/* Header */}

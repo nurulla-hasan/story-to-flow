@@ -90,8 +90,8 @@ export default function StudioEditorPage() {
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-6">
             {/* Clip prompt */}
-            <div>
-              <Label htmlFor="prompt" className="mb-2 block">Image prompt</Label>
+            <div className="space-y-2">
+              <Label htmlFor="prompt">Image prompt</Label>
               <Input
                 id="prompt"
                 placeholder="Describe the scene..."
@@ -100,8 +100,8 @@ export default function StudioEditorPage() {
             </div>
 
             {/* Motion presets */}
-            <div>
-              <Label className="mb-2 block">Motion preset</Label>
+            <div className="space-y-2">
+              <Label>Motion preset</Label>
               <div className="grid grid-cols-2 gap-2">
                 {["static", "zoom-in", "pan-left", "pan-right"].map((motion) => (
                   <button
@@ -120,8 +120,8 @@ export default function StudioEditorPage() {
             </div>
 
             {/* SFX */}
-            <div>
-              <Label className="mb-2 block">Sound effect</Label>
+            <div className="space-y-2">
+              <Label>Sound effect</Label>
               <select className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm">
                 <option value="none">None</option>
                 <option value="whoosh">Whoosh / Fly</option>
@@ -132,8 +132,8 @@ export default function StudioEditorPage() {
             </div>
 
             {/* Volume */}
-            <div>
-              <Label htmlFor="volume" className="mb-2 block">Volume: 1.0</Label>
+            <div className="space-y-2">
+              <Label htmlFor="volume">Volume: 1.0</Label>
               <input
                 id="volume"
                 type="range"

@@ -106,7 +106,7 @@ export default function StudioPage() {
         <StudioHeader />
 
         {/* Main Content Area */}
-        <div className="flex-1 p-4 sm:p-6 w-full mx-auto max-w-7xl">
+        <div className="flex-1 p-4 sm:p-6 w-full mx-auto max-w-full">
           {/* 2-Column Dashboard Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Left Column: Input + Settings + Generate Button */}
@@ -141,7 +141,7 @@ export default function StudioPage() {
                 size="lg"
                 onClick={handleGenerate}
                 disabled={isGenerating || !story.trim()}
-                className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full gap-2"
               >
                 {isGenerating ? (
                   <>

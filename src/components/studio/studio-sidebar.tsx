@@ -78,7 +78,7 @@ export function StudioSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar">
-      <SidebarHeader className="h-16 border-b border-sidebar-border px-4 flex flex-row items-center justify-between">
+      <SidebarHeader className="h-20 border-b border-sidebar-border px-4 flex flex-row items-center justify-between">
         <StoryForgeLogo />
       </SidebarHeader>
 

@@ -92,7 +92,7 @@ export function SettingsCard({
   disabled = false,
 }: SettingsCardProps) {
   return (
-    <Card className="rounded-2xl border border-border shadow-xs bg-card overflow-hidden">
+    <Card className="overflow-hidden">
       <CardContent>
         <div className="space-y-5">
           {/* Header */}
@@ -114,7 +114,7 @@ export function SettingsCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Visual Style */}
             <Field>
-              <FieldLabel className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <FieldLabel>
                 <Palette className="size-3.5 text-muted-foreground" />
                 <span>Visual Style</span>
               </FieldLabel>
@@ -125,7 +125,7 @@ export function SettingsCard({
                 }}
                 disabled={disabled}
               >
-                <SelectTrigger className="w-full h-10 rounded-xl bg-card border-input">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select style" />
                 </SelectTrigger>
                 <SelectContent>
@@ -140,7 +140,7 @@ export function SettingsCard({
 
             {/* Aspect Ratio */}
             <Field>
-              <FieldLabel className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <FieldLabel>
                 <AspectRatioIcon className="size-3.5 text-muted-foreground" />
                 <span>Aspect Ratio</span>
               </FieldLabel>
@@ -153,7 +153,7 @@ export function SettingsCard({
                 }}
                 disabled={disabled}
               >
-                <SelectTrigger className="w-full h-10 rounded-xl bg-card border-input">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select ratio" />
                 </SelectTrigger>
                 <SelectContent>
@@ -168,7 +168,7 @@ export function SettingsCard({
 
             {/* Duration */}
             <Field>
-              <FieldLabel className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <FieldLabel>
                 <Clock className="size-3.5 text-muted-foreground" />
                 <span>Duration</span>
               </FieldLabel>
@@ -181,7 +181,7 @@ export function SettingsCard({
                 }}
                 disabled={disabled}
               >
-                <SelectTrigger className="w-full h-10 rounded-xl bg-card border-input">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select duration" />
                 </SelectTrigger>
                 <SelectContent>
@@ -196,7 +196,7 @@ export function SettingsCard({
 
             {/* Static Frame Pacing */}
             <Field>
-              <FieldLabel className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <FieldLabel>
                 <ImageIcon className="size-3.5 text-muted-foreground" />
                 <span>Static Frame Pacing</span>
               </FieldLabel>
@@ -209,7 +209,7 @@ export function SettingsCard({
                 }}
                 disabled={disabled}
               >
-                <SelectTrigger className="w-full h-10 rounded-xl bg-card border-input">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select pacing" />
                 </SelectTrigger>
                 <SelectContent>

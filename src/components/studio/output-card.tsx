@@ -81,7 +81,7 @@ export function OutputCard({
   onCopyAll,
 }: OutputCardProps) {
   return (
-    <Card className="rounded-2xl border border-border shadow-xs bg-card overflow-hidden">
+    <Card className="overflow-hidden">
       <CardContent>
         <div className="space-y-4">
           {/* Header */}
@@ -107,16 +107,15 @@ export function OutputCard({
                 variant="outline"
                 onClick={onCopyAll}
                 disabled={copied}
-                className="rounded-xl border-border hover:bg-muted text-xs font-semibold"
               >
                 {copied ? (
                   <>
-                    <Check className="mr-1.5 size-3.5 text-success" />
+                    <Check className="text-success" />
                     Copied!
                   </>
                 ) : (
                   <>
-                    <Copy className="mr-1.5 size-3.5" />
+                    <Copy />
                     Copy All
                   </>
                 )}
@@ -164,7 +163,7 @@ export function OutputCard({
 
               {/* Raw Markdown Output */}
               <div className="rounded-xl border border-border bg-muted/30 max-h-125 overflow-y-auto">
-                <pre className="whitespace-pre-wrap break-words text-xs font-mono text-foreground leading-relaxed select-text">
+                <pre className="whitespace-pre-wrap wrap-break-word text-xs font-mono text-foreground leading-relaxed select-text">
                   {result.response}
                 </pre>
               </div>

@@ -10,7 +10,7 @@ export function HowItWorksCard() {
   ]
 
   return (
-    <Card className="rounded-2xl border border-border shadow-xs bg-card overflow-hidden">
+    <Card className="overflow-hidden">
       <CardContent>
         <div className="space-y-4">
           {/* Header */}

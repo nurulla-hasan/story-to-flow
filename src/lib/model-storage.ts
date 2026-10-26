@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { DEFAULT_MODEL } from "@/lib/constants";
 
 export const MODEL_STORAGE_KEY = "story_forge_selected_model";
@@ -45,47 +45,45 @@ export function setStoredModel(modelId: string): void {
   );
 }
 
+function subscribeToModelChanges(callback: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  window.addEventListener(MODEL_CHANGE_EVENT, callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener(MODEL_CHANGE_EVENT, callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+function getModelSnapshot(): string {
+  return getStoredModel();
+}
+
+function getServerModelSnapshot(): string {
+  return DEFAULT_MODEL;
+}
+
 /**
  * React hook to read and update the persisted AI model selection.
+ * Uses useSyncExternalStore to eliminate hydration mismatches between SSR and browser localStorage.
  */
 export function useSelectedModel() {
-  const [model, setModel] = useState<string>(() => getStoredModel());
-  const [isLoaded] = useState<boolean>(true);
-
-  useEffect(() => {
-    const handleModelChange = (e: Event) => {
-      const customEvent = e as CustomEvent<string>;
-      if (customEvent.detail) {
-        setModel(customEvent.detail);
-      } else {
-        setModel(getStoredModel());
-      }
-    };
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === MODEL_STORAGE_KEY) {
-        setModel(e.newValue || DEFAULT_MODEL);
-      }
-    };
-
-    window.addEventListener(MODEL_CHANGE_EVENT, handleModelChange);
-    window.addEventListener("storage", handleStorageChange);
-
-    return () => {
-      window.removeEventListener(MODEL_CHANGE_EVENT, handleModelChange);
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, []);
+  const model = useSyncExternalStore(
+    subscribeToModelChanges,
+    getModelSnapshot,
+    getServerModelSnapshot
+  );
 
   const updateModel = useCallback((newModel: string) => {
     setStoredModel(newModel);
-    setModel(newModel);
   }, []);
 
   return {
     selectedModel: model,
     setSelectedModel: updateModel,
     isDefaultModel: model === DEFAULT_MODEL,
-    isLoaded,
+    isLoaded: true,
   };
 }

@@ -112,7 +112,7 @@ export default function StudioPage() {
         <div className="flex-1 p-4 sm:p-6 w-full mx-auto max-w-full">
           {/* 2-Column Dashboard Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left Column: Input + Settings + Generate Button */}
+            {/* Left Column: Input + Settings + Generate Button + How It Works + Format Info */}
             <div className="space-y-6">
               {/* Story Input Card */}
               <StoryInputCard
@@ -160,9 +160,15 @@ export default function StudioPage() {
                   </>
                 )}
               </Button>
+
+              {/* How it works Card */}
+              <HowItWorksCard />
+
+              {/* Output format Card */}
+              <OutputFormatCard />
             </div>
 
-            {/* Right Column: Output + How It Works + Format Info */}
+            {/* Right Column: Generated Output Card */}
             <div className="space-y-6">
               {/* Generated Output Card */}
               <OutputCard
@@ -171,12 +177,6 @@ export default function StudioPage() {
                 copied={copied}
                 onCopyAll={handleCopyAll}
               />
-
-              {/* How it works Card */}
-              <HowItWorksCard />
-
-              {/* Output format Card */}
-              <OutputFormatCard />
             </div>
           </div>
         </div>

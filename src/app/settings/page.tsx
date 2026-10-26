@@ -280,7 +280,7 @@ export default function SettingsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div className="rounded-lg bg-muted/50 p-2.5">
                           <span className="text-muted-foreground block text-2xs font-medium">Model ID</span>
-                          <span className="font-mono font-semibold text-foreground truncate block mt-0.5" title={selectedModel}>
+                          <span className="font-mono font-semibold text-foreground truncate block mt-0.5" title={selectedModel} suppressHydrationWarning>
                             {selectedModel}
                           </span>
                         </div>
@@ -381,7 +381,7 @@ export default function SettingsPage() {
                       <span className="text-2xs text-muted-foreground uppercase font-semibold tracking-wider">
                         Active Model Identifier
                       </span>
-                      <p className="font-mono font-bold text-sm text-foreground break-all">
+                      <p className="font-mono font-bold text-sm text-foreground break-all" suppressHydrationWarning>
                         {selectedModel}
                       </p>
                       <p className="text-xs text-muted-foreground">

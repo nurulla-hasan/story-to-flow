@@ -1,6 +1,12 @@
 "use client"
 
-import { Card, CardContent } from "@/components/ui/card"
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card"
 import { Field, FieldError } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
@@ -43,23 +49,21 @@ export function StoryInputCard({
 }: StoryInputCardProps) {
   return (
     <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <div className="size-9 rounded-xl bg-brand-subtle flex items-center justify-center shrink-0 border border-brand-border/40">
+            <StoryInputHeaderIcon className="size-5 text-primary" />
+          </div>
+          <div>
+            <CardTitle>Story Input</CardTitle>
+            <CardDescription className="font-bangla">
+              বাংলা বা ইংরেজিতে আপনার গল্প লিখুন
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* Card Header with Icon */}
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-xl bg-brand-subtle flex items-center justify-center shrink-0 border border-brand-border/40">
-              <StoryInputHeaderIcon className="size-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-foreground leading-tight">
-                Story Input
-              </h2>
-              <p className="text-xs text-muted-foreground font-bangla">
-                বাংলা বা ইংরেজিতে আপনার গল্প লিখুন
-              </p>
-            </div>
-          </div>
-
           {/* Text Area using shadcn Field and Textarea */}
           <Field data-invalid={!!validationError}>
             <Textarea

@@ -1,7 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { Card, CardContent } from "@/components/ui/card"
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import {
   Select,
@@ -97,36 +103,34 @@ export function SettingsCard({
 }: SettingsCardProps) {
   return (
     <Card>
-      <CardContent>
-        <div className="space-y-5">
-          {/* Header */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="size-9 rounded-xl bg-brand-subtle flex items-center justify-center shrink-0 border border-brand-border/40">
-                <Settings className="size-5 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-foreground leading-tight">
-                  Production Settings
-                </h2>
-                <p className="text-xs text-muted-foreground font-bangla mt-0.5">
-                  কনটেন্ট অনুযায়ী আপনার পছন্দের সেটিংস নির্বাচন করুন
-                </p>
-              </div>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-xl bg-brand-subtle flex items-center justify-center shrink-0 border border-brand-border/40">
+              <Settings className="size-5 text-primary" />
             </div>
-
-            {activeModel && (
-              <Link
-                href="/settings"
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-                title="Change active model in Settings"
-              >
-                <Cpu className="size-3 text-primary shrink-0" />
-                <span className="truncate max-w-36 font-mono">{activeModel}</span>
-              </Link>
-            )}
+            <div>
+              <CardTitle>Production Settings</CardTitle>
+              <CardDescription className="font-bangla">
+                কনটেন্ট অনুযায়ী আপনার পছন্দের সেটিংস নির্বাচন করুন
+              </CardDescription>
+            </div>
           </div>
 
+          {activeModel && (
+            <Link
+              href="/settings"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+              title="Change active model in Settings"
+            >
+              <Cpu className="size-3 text-primary shrink-0" />
+              <span className="truncate max-w-36 font-mono" suppressHydrationWarning>{activeModel}</span>
+            </Link>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-5">
           {/* 2x2 Grid of Dropdowns */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Visual Style */}

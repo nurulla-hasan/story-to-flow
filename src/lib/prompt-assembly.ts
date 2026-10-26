@@ -22,17 +22,36 @@ import type { ResolvedSettings } from "./settings";
 export function assembleSystemMessage(settings: ResolvedSettings): string {
   const masterPrompt = loadMasterPrompt();
 
+  const isAutoStyle = settings.visualStyle === "Auto";
+
+  // Format visual style for display
+  const visualStyleHeader = isAutoStyle
+    ? "Auto (AI recommends and selects the most fitting visual style based on the story's genre, characters, environment, and emotional tone)"
+    : settings.visualStyle;
+
   // Format duration for display
   const durationText =
     settings.duration === "Auto"
       ? "Auto (AI will recommend appropriate duration)"
-      : `${settings.duration} seconds`;
+    : `${settings.duration} seconds`;
 
   // Format static frame pacing for display
   const pacingText =
     settings.staticFramePacing === "Auto"
       ? "Auto (AI will choose appropriate pacing)"
       : `${settings.staticFramePacing} seconds per static image`;
+
+  const visualStyleDirective = isAutoStyle
+    ? `VISUAL STYLE DIRECTIVE:
+Visual Style is set to Auto. Analyze the story's genre, characters, environment, and emotional tone
+to select the most fitting visual style (such as 3D Animated Cartoon, Cinematic Realism, Painterly
+Storybook, Anime & Manga Style, Warm Rural Drama, etc.). Briefly state your chosen visual style
+in the production package, and apply it with expressive characters, consistent character designs,
+cohesive environments, attractive colors, and cinematic lighting appropriate to the story.
+Maintain this chosen visual style consistently across all scenes.`
+    : `The visual style "${settings.visualStyle}" should use polished animation or illustration,
+expressive characters, consistent character designs, cohesive environments, attractive colors,
+and cinematic lighting appropriate to the story. Maintain consistent style across all scenes.`;
 
   // Production context instruction
   const productionContext = `
@@ -44,7 +63,7 @@ The website has already collected and confirmed all production settings.
 Do NOT display or repeat the Phase 1 settings menu.
 Generate the complete production package immediately using these settings:
 
-VISUAL STYLE: ${settings.visualStyle}
+VISUAL STYLE: ${visualStyleHeader}
 ASPECT RATIO: ${settings.aspectRatio}
 TARGET DURATION: ${durationText}
 STATIC FRAME PACING: ${pacingText}
@@ -57,10 +76,7 @@ Apply these settings while preserving all Master Prompt requirements:
 - Output format with full voiceover and scene blocks (PHASE 9)
 - Quality checks (PHASE 10)
 
-The visual style "${settings.visualStyle}" should use polished animation,
-expressive characters, consistent character designs, cohesive environments,
-attractive colors, and cinematic lighting appropriate to the story.
-Maintain consistent style across all scenes.
+${visualStyleDirective}
 
 Do not invent story facts when processing a complete source story.
 Follow all retention hook, narration, and output format rules exactly.

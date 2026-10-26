@@ -34,6 +34,7 @@ function AspectRatioIcon({ className = "size-3.5" }: { className?: string }) {
 }
 
 const VISUAL_STYLE_OPTIONS = [
+  "Auto",
   "3D Animated Cartoon",
   "Cinematic Realism",
   "Minimalist Stickman Cartoon",
@@ -52,7 +53,7 @@ const ASPECT_RATIO_OPTIONS = [
 ] as const
 
 const DURATION_OPTIONS = [
-  { value: "Auto", label: "Auto" },
+  { value: "Auto", label: "Auto (AI recommends)" },
   { value: "20", label: "20 seconds" },
   { value: "30", label: "30 seconds" },
   { value: "45", label: "45 seconds" },
@@ -62,7 +63,7 @@ const DURATION_OPTIONS = [
 ] as const
 
 const PACING_OPTIONS = [
-  { value: "Auto", label: "Auto" },
+  { value: "Auto", label: "Auto (AI recommends)" },
   { value: "2.5", label: "2.5s per image" },
   { value: "3.0", label: "3.0s per image" },
   { value: "4.0", label: "4.0s per image" },
@@ -147,7 +148,7 @@ export function SettingsCard({
                 <SelectContent>
                   {VISUAL_STYLE_OPTIONS.map((style) => (
                     <SelectItem key={style} value={style}>
-                      {style}
+                      {style === "Auto" ? "Auto (AI recommends)" : style}
                     </SelectItem>
                   ))}
                 </SelectContent>

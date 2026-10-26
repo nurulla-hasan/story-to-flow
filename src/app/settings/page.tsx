@@ -415,8 +415,8 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
                       <span className="text-muted-foreground font-medium text-2xs uppercase">Visual Style</span>
-                      <p className="font-semibold text-foreground text-sm">3D Cartoon</p>
-                      <p className="text-2xs text-muted-foreground">Default aesthetic</p>
+                      <p className="font-semibold text-foreground text-sm">Auto</p>
+                      <p className="text-2xs text-muted-foreground">AI recommends best style</p>
                     </div>
 
                     <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
@@ -428,13 +428,13 @@ export default function SettingsPage() {
                     <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
                       <span className="text-muted-foreground font-medium text-2xs uppercase">Duration</span>
                       <p className="font-semibold text-foreground text-sm">Auto</p>
-                      <p className="text-2xs text-muted-foreground">Dynamic timing</p>
+                      <p className="text-2xs text-muted-foreground">AI recommends duration</p>
                     </div>
 
                     <div className="rounded-xl border border-border p-3 bg-card space-y-0.5">
                       <span className="text-muted-foreground font-medium text-2xs uppercase">Frame Pacing</span>
                       <p className="font-semibold text-foreground text-sm">Auto</p>
-                      <p className="text-2xs text-muted-foreground">Adaptive pacing</p>
+                      <p className="text-2xs text-muted-foreground">AI recommends pacing</p>
                     </div>
                   </div>
 

@@ -26,7 +26,7 @@ export interface ResolvedSettings {
  */
 export const DEFAULT_SETTINGS: ResolvedSettings = {
   model: DEFAULT_MODEL,
-  visualStyle: "3D Animated Cartoon",
+  visualStyle: "Auto",
   aspectRatio: "9:16",
   duration: "Auto",
   staticFramePacing: "Auto",

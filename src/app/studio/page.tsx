@@ -24,7 +24,7 @@ const SAMPLE_STORY = `আজ তোমাদের শোনাবো রীন�
 export default function StudioPage() {
   const { selectedModel } = useSelectedModel();
   const [story, setStory] = useState(SAMPLE_STORY);
-  const [visualStyle, setVisualStyle] = useState("3D Animated Cartoon");
+  const [visualStyle, setVisualStyle] = useState("Auto");
   const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">("9:16");
   const [duration, setDuration] = useState<"Auto" | number>("Auto");
   const [staticFramePacing, setStaticFramePacing] = useState<"Auto" | number>(

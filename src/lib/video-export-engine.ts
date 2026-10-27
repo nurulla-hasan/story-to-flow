@@ -10,6 +10,7 @@ import {
 } from "../types/timeline";
 import type { MediaAssetItem } from "./media-storage";
 import { getTransitionProgress } from "./transition-helpers";
+import { calculateCanvasDrawParams } from "./clip-transform";
 
 export const MAX_SAFE_EXPORT_DURATION = 300; // 5 minutes max safe browser export duration
 export const MAX_VIDEO_QUEUE_SIZE = 5; // Conservative max pending frames in GPU/RAM encoder queue
@@ -435,11 +436,14 @@ export async function exportTimelineToMp4({
           if (img) {
             const imgW = img.naturalWidth || img.width;
             const imgH = img.naturalHeight || img.height;
-            const scale = Math.max(width / imgW, height / imgH);
-            const dw = imgW * scale;
-            const dh = imgH * scale;
-            const dx = (width - dw) / 2 + xOffset;
-            const dy = (height - dh) / 2;
+            const { dx, dy, dw, dh } = calculateCanvasDrawParams({
+              imgWidth: imgW,
+              imgHeight: imgH,
+              canvasWidth: width,
+              canvasHeight: height,
+              transform: clip.transform,
+              xOffset,
+            });
             ctx.drawImage(img, dx, dy, dw, dh);
           }
         } else if (asset.category === "video") {
@@ -449,11 +453,14 @@ export async function exportTimelineToMp4({
             await seekVideoElement(vid, videoTime, signal);
             const vidW = vid.videoWidth || width;
             const vidH = vid.videoHeight || height;
-            const scale = Math.max(width / vidW, height / vidH);
-            const dw = vidW * scale;
-            const dh = vidH * scale;
-            const dx = (width - dw) / 2 + xOffset;
-            const dy = (height - dh) / 2;
+            const { dx, dy, dw, dh } = calculateCanvasDrawParams({
+              imgWidth: vidW,
+              imgHeight: vidH,
+              canvasWidth: width,
+              canvasHeight: height,
+              transform: clip.transform,
+              xOffset,
+            });
             ctx.drawImage(vid, dx, dy, dw, dh);
           }
         }

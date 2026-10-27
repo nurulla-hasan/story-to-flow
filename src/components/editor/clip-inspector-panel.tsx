@@ -17,6 +17,8 @@ import {
   Sparkles,
   CopyCheck,
   CheckCircle2,
+  Move,
+  RotateCcw,
 } from "lucide-react";
 import {
   Card,
@@ -29,6 +31,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { isVisualTrack, isAudioTrack, type TransitionType } from "@/types/timeline";
+import {
+  DEFAULT_CLIP_TRANSFORM,
+  sanitizeClipTransform,
+} from "@/lib/clip-transform";
 import {
   TRANSITION_PRESETS,
   areClipsAdjacentForTransition,
@@ -377,6 +383,126 @@ export function ClipInspectorPanel() {
                 </div>
               </div>
             )}
+
+            {/* Canvas Transform (Position & Scale Gizmo Sync) */}
+            {isVisualTrack(selectedClip.trackId) && (() => {
+              const transform = sanitizeClipTransform(selectedClip.transform);
+              const isDefault =
+                transform.x === DEFAULT_CLIP_TRANSFORM.x &&
+                transform.y === DEFAULT_CLIP_TRANSFORM.y &&
+                transform.scale === DEFAULT_CLIP_TRANSFORM.scale;
+
+              return (
+                <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 font-medium text-foreground">
+                      <Move className="size-3 text-primary" />
+                      <span>Canvas Transform</span>
+                    </span>
+                    {!isDefault && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateClip(selectedClip.id, {
+                            transform: { ...DEFAULT_CLIP_TRANSFORM },
+                          })
+                        }
+                        className="text-3xs text-muted-foreground hover:text-primary flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Reset position and scale to default (100%)"
+                      >
+                        <RotateCcw className="size-2.5" />
+                        <span>Reset</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Scale Slider */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-3xs">
+                      <span className="text-muted-foreground">Scale</span>
+                      <span className="font-mono font-semibold text-primary">
+                        {Math.round(transform.scale * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="300"
+                      step="5"
+                      value={Math.round(transform.scale * 100)}
+                      onChange={(e) => {
+                        const scaleVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
+                        updateClip(selectedClip.id, {
+                          transform: sanitizeClipTransform({
+                            ...transform,
+                            scale: scaleVal,
+                          }),
+                        });
+                      }}
+                      aria-label="Transform scale"
+                      className="w-full accent-primary cursor-pointer h-1"
+                    />
+                  </div>
+
+                  {/* Position X and Y Sliders */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-3xs">
+                        <span className="text-muted-foreground">Pos X</span>
+                        <span className="font-mono text-muted-foreground">
+                          {Math.round(transform.x * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-100"
+                        max="100"
+                        step="2"
+                        value={Math.round(transform.x * 100)}
+                        onChange={(e) => {
+                          const xVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
+                          updateClip(selectedClip.id, {
+                            transform: sanitizeClipTransform({
+                              ...transform,
+                              x: xVal,
+                            }),
+                          });
+                        }}
+                        aria-label="Transform position X"
+                        className="w-full accent-primary cursor-pointer h-1"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-3xs">
+                        <span className="text-muted-foreground">Pos Y</span>
+                        <span className="font-mono text-muted-foreground">
+                          {Math.round(transform.y * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-100"
+                        max="100"
+                        step="2"
+                        value={Math.round(transform.y * 100)}
+                        onChange={(e) => {
+                          const yVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
+                          updateClip(selectedClip.id, {
+                            transform: sanitizeClipTransform({
+                              ...transform,
+                              y: yVal,
+                            }),
+                          });
+                        }}
+                        aria-label="Transform position Y"
+                        className="w-full accent-primary cursor-pointer h-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Start Time Position Display */}
             <div className="flex items-center justify-between text-2xs rounded-md bg-muted/20 p-2 border border-border">

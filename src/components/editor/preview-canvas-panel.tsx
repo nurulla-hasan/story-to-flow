@@ -26,6 +26,8 @@ import { useMediaLibrary } from "@/lib/use-media-library";
 import { isVisualTrack, getVisualTrackLayerIndex } from "@/types/timeline";
 import { getTransitionProgress } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
+import { sanitizeClipTransform } from "@/lib/clip-transform";
+import { PreviewTransformGizmo } from "@/components/editor/preview-transform-gizmo";
 
 function formatTimecode(seconds: number): string {
   return formatFrameTimecode(seconds, 30);
@@ -36,6 +38,12 @@ export function PreviewCanvasPanel() {
     isHydrated,
     clips,
     transitions,
+    selectedClipId,
+    selectClip,
+    updateClip,
+    setClipsTransient,
+    commitClipGesture,
+    cancelClipGesture,
     playhead,
     isPlaying,
     togglePlay,
@@ -45,6 +53,45 @@ export function PreviewCanvasPanel() {
 
   const { assets } = useMediaLibrary();
   const videoRefs = React.useRef<Map<string, HTMLVideoElement>>(new Map());
+
+  // Measure stage dimensions dynamically with ResizeObserver for gizmo coordinate mapping
+  const stageContainerRef = React.useRef<HTMLDivElement>(null);
+  const [stageDimensions, setStageDimensions] = React.useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  React.useEffect(() => {
+    const el = stageContainerRef.current;
+    if (!el) return;
+
+    const updateDimensions = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setStageDimensions({ width: rect.width, height: rect.height });
+      }
+    };
+
+    updateDimensions();
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setStageDimensions({ width, height });
+        }
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Find currently selected visual clip
+  const selectedClip = React.useMemo(() => {
+    if (!selectedClipId) return null;
+    return clips.find((c) => c.id === selectedClipId && isVisualTrack(c.trackId)) || null;
+  }, [clips, selectedClipId]);
 
   // Check if an active transition is currently taking effect at playhead
   let activeTransitionData: {
@@ -117,16 +164,33 @@ export function PreviewCanvasPanel() {
 
   const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
-  // Render a visual clip node (Image or Video)
-  const renderVisualNode = (clip: typeof clips[0], style?: React.CSSProperties) => {
+  // Render a visual clip node (Image or Video) with transform & click selection
+  const renderVisualNode = (clip: typeof clips[0], baseStyle?: React.CSSProperties) => {
     const asset = assets.find((a) => a.id === clip.assetId);
     if (!asset) return null;
+
+    const transform = sanitizeClipTransform(clip.transform);
+    const isSelected = clip.id === selectedClipId;
+
+    const nodeStyle: React.CSSProperties = {
+      ...baseStyle,
+      transform: baseStyle?.transform
+        ? `${baseStyle.transform} translate(${transform.x * 100}%, ${transform.y * 100}%) scale(${transform.scale})`
+        : `translate(${transform.x * 100}%, ${transform.y * 100}%) scale(${transform.scale})`,
+      transformOrigin: "center center",
+    };
 
     return (
       <div
         key={clip.id}
-        style={style}
-        className="absolute inset-0 w-full h-full overflow-hidden transition-all duration-75"
+        onClick={(e) => {
+          e.stopPropagation();
+          selectClip(clip.id);
+        }}
+        style={nodeStyle}
+        className={`absolute inset-0 w-full h-full overflow-hidden select-none cursor-pointer transition-shadow ${
+          isSelected ? "ring-1 ring-primary/40" : ""
+        }`}
       >
         {asset.category === "image" ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -183,102 +247,132 @@ export function PreviewCanvasPanel() {
           {/* Vertical 9:16 Phone Canvas Mockup */}
           <div
             style={{ aspectRatio: "9/16" }}
-            className="relative h-full max-h-72 sm:max-h-84 md:max-h-96 rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-hidden"
+            className="relative h-full max-h-72 sm:max-h-84 md:max-h-96 rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-visible"
           >
             {/* Top Phone Notch / Camera indicator */}
             <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
 
             {/* Stage Media Display Container with transition & multi-track layering */}
-            <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center bg-muted/20">
-              {isHydrated && activeTransitionData ? (
-                /* TRANSITION COMPOSITING RENDERING */
-                (() => {
-                  const { transition, fromClip, toClip, progress } = activeTransitionData;
+            <div
+              ref={stageContainerRef}
+              onClick={() => selectClip(null)}
+              className="relative w-full h-full rounded-xl flex items-center justify-center bg-muted/20 select-none overflow-visible"
+            >
+              {/* Media clips container (clipped to phone boundary) */}
+              <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-auto">
+                {isHydrated && activeTransitionData ? (
+                  /* TRANSITION COMPOSITING RENDERING */
+                  (() => {
+                    const { transition, fromClip, toClip, progress } = activeTransitionData;
 
-                  if (transition.type === "cross-dissolve") {
-                    return (
-                      <>
-                        {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
-                        {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
-                      </>
-                    );
-                  }
+                    if (transition.type === "cross-dissolve") {
+                      return (
+                        <>
+                          {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
+                          {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
+                        </>
+                      );
+                    }
 
-                  if (transition.type === "fade-black") {
-                    const fromOpacity = progress < 0.5 ? 1 - progress * 2 : 0;
-                    const toOpacity = progress >= 0.5 ? (progress - 0.5) * 2 : 0;
-                    return (
-                      <div className="relative w-full h-full bg-black">
-                        {renderVisualNode(fromClip, { opacity: fromOpacity, zIndex: 1 })}
-                        {renderVisualNode(toClip, { opacity: toOpacity, zIndex: 2 })}
-                      </div>
-                    );
-                  }
+                    if (transition.type === "fade-black") {
+                      const fromOpacity = progress < 0.5 ? 1 - progress * 2 : 0;
+                      const toOpacity = progress >= 0.5 ? (progress - 0.5) * 2 : 0;
+                      return (
+                        <div className="relative w-full h-full bg-black">
+                          {renderVisualNode(fromClip, { opacity: fromOpacity, zIndex: 1 })}
+                          {renderVisualNode(toClip, { opacity: toOpacity, zIndex: 2 })}
+                        </div>
+                      );
+                    }
 
-                  if (transition.type === "slide-left") {
-                    return (
-                      <>
-                        {renderVisualNode(fromClip, {
-                          transform: `translateX(${-progress * 100}%)`,
-                          zIndex: 1,
-                        })}
-                        {renderVisualNode(toClip, {
-                          transform: `translateX(${(1 - progress) * 100}%)`,
-                          zIndex: 2,
-                        })}
-                      </>
-                    );
-                  }
+                    if (transition.type === "slide-left") {
+                      return (
+                        <>
+                          {renderVisualNode(fromClip, {
+                            transform: `translateX(${-progress * 100}%)`,
+                            zIndex: 1,
+                          })}
+                          {renderVisualNode(toClip, {
+                            transform: `translateX(${(1 - progress) * 100}%)`,
+                            zIndex: 2,
+                          })}
+                        </>
+                      );
+                    }
 
-                  if (transition.type === "slide-right") {
-                    return (
-                      <>
-                        {renderVisualNode(fromClip, {
-                          transform: `translateX(${progress * 100}%)`,
-                          zIndex: 1,
-                        })}
-                        {renderVisualNode(toClip, {
-                          transform: `translateX(${-(1 - progress) * 100}%)`,
-                          zIndex: 2,
-                        })}
-                      </>
-                    );
-                  }
+                    if (transition.type === "slide-right") {
+                      return (
+                        <>
+                          {renderVisualNode(fromClip, {
+                            transform: `translateX(${progress * 100}%)`,
+                            zIndex: 1,
+                          })}
+                          {renderVisualNode(toClip, {
+                            transform: `translateX(${-(1 - progress) * 100}%)`,
+                            zIndex: 2,
+                          })}
+                        </>
+                      );
+                    }
 
-                  return null;
-                })()
-              ) : isHydrated && activeVisuals.length > 0 ? (
-                activeVisuals.map((clip, index) => {
-                  const isOverlay = index > 0;
-                  return renderVisualNode(clip, {
-                    position: "absolute",
-                    inset: 0,
-                    zIndex: isOverlay ? 10 : 0,
-                  });
-                })
-              ) : (
-                /* Empty Canvas Placeholder */
-                <div className="flex flex-col items-center justify-center text-center space-y-2 p-2">
-                  <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                    <Smartphone className="size-5" />
+                    return null;
+                  })()
+                ) : isHydrated && activeVisuals.length > 0 ? (
+                  activeVisuals.map((clip, index) => {
+                    const isOverlay = index > 0;
+                    return renderVisualNode(clip, {
+                      position: "absolute",
+                      inset: 0,
+                      zIndex: isOverlay ? 10 : 0,
+                    });
+                  })
+                ) : (
+                  /* Empty Canvas Placeholder */
+                  <div className="flex flex-col items-center justify-center text-center space-y-2 p-2 h-full">
+                    <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                      <Smartphone className="size-5" />
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-foreground">
+                        Canvas is empty
+                      </p>
+                      <p className="text-2xs text-muted-foreground max-w-40 leading-tight">
+                        {!isHydrated || clips.length === 0
+                          ? "Add clips to timeline to preview vertical video."
+                          : "Playhead is on an empty timeline space."}
+                      </p>
+                    </div>
+
+                    <Badge variant="secondary">
+                      9:16 • 30 FPS • 1.0x
+                    </Badge>
                   </div>
+                )}
+              </div>
 
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-semibold text-foreground">
-                      Canvas is empty
-                    </p>
-                    <p className="text-2xs text-muted-foreground max-w-40 leading-tight">
-                      {!isHydrated || clips.length === 0
-                        ? "Add clips to timeline to preview vertical video."
-                        : "Playhead is on an empty timeline space."}
-                    </p>
-                  </div>
-
-                  <Badge variant="secondary">
-                    9:16 • 30 FPS • 1.0x
-                  </Badge>
-                </div>
-              )}
+              {/* Interactive Preview Transform Gizmo for selected visual clip (unclipped overlay) */}
+              {isHydrated &&
+                selectedClip &&
+                activeVisuals.some((c) => c.id === selectedClip.id) &&
+                stageDimensions.width > 0 &&
+                stageDimensions.height > 0 && (
+                  <PreviewTransformGizmo
+                    clip={selectedClip}
+                    containerWidth={stageDimensions.width}
+                    containerHeight={stageDimensions.height}
+                    getContainerRect={() => stageContainerRef.current?.getBoundingClientRect() ?? null}
+                    allClips={clips}
+                    setClipsTransient={setClipsTransient}
+                    commitClipGesture={commitClipGesture}
+                    cancelClipGesture={cancelClipGesture}
+                    onReset={() =>
+                      updateClip(selectedClip.id, {
+                        transform: { x: 0, y: 0, scale: 1.0, rotation: 0 },
+                      })
+                    }
+                  />
+                )}
             </div>
 
             {/* Bottom Home Indicator Bar */}

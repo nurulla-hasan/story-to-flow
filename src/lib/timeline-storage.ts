@@ -3,6 +3,8 @@
 import { useSyncExternalStore } from "react";
 import type { TimelineProjectState, TimelineClip, TimelineTransition } from "@/types/timeline";
 
+import { sanitizeClipTransform } from "@/lib/clip-transform";
+
 export const TIMELINE_STORAGE_KEY = "story_forge_timeline_state_v1";
 export const TIMELINE_STORAGE_VERSION = 1;
 export const TIMELINE_STORAGE_EVENT = "story_forge_timeline_storage_change";
@@ -39,7 +41,12 @@ export function getStoredTimelineState(): TimelineProjectState {
       return {
         version: TIMELINE_STORAGE_VERSION,
         projectTitle: typeof parsed.projectTitle === "string" ? parsed.projectTitle : "Untitled Story Video",
-        clips: Array.isArray(parsed.clips) ? (parsed.clips as TimelineClip[]) : [],
+        clips: Array.isArray(parsed.clips)
+          ? (parsed.clips as TimelineClip[]).map((c) => ({
+              ...c,
+              transform: c.transform ? sanitizeClipTransform(c.transform) : undefined,
+            }))
+          : [],
         transitions: Array.isArray(parsed.transitions) ? (parsed.transitions as TimelineTransition[]) : [],
         playhead: typeof parsed.playhead === "number" ? Math.max(0, parsed.playhead) : 0,
         zoom: typeof parsed.zoom === "number" ? Math.min(500, Math.max(10, parsed.zoom)) : 100,

@@ -3,6 +3,7 @@ import { Hind_Siliguri, Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { siteDescription, siteName, siteTitle, siteUrl } from "@/lib/site";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -18,9 +19,39 @@ const hind = Hind_Siliguri({
 });
 
 export const metadata: Metadata = {
-  title: "Story to Flow",
-  description:
-    "Turn a story into a consistent, scene-by-scene production plan for Google Flow.",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: siteTitle,
+    template: `%s · ${siteName}`,
+  },
+  description: siteDescription,
+  applicationName: siteName,
+  keywords: [
+    "Story to Flow",
+    "Google Flow prompts",
+    "AI video series",
+    "Bengali voiceover",
+    "storyboard prompts",
+    "scene continuity",
+    "Cartesia TTS",
+  ],
+  authors: [{ name: siteName, url: siteUrl }],
+  creator: siteName,
+  publisher: siteName,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName,
+    locale: "en_US",
+    url: "/",
+    title: siteTitle,
+    description: siteDescription,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteTitle,
+    description: siteDescription,
+  },
 };
 
 export const viewport: Viewport = {

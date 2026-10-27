@@ -1,3 +1,6 @@
+import type { ClipTransform } from "@/lib/clip-transform";
+export type { ClipTransform };
+
 export type TrackId = "visual" | "visual-1" | "visual-2" | "audio" | "audio-1";
 
 export function isVisualTrack(trackId: TrackId): boolean {
@@ -49,6 +52,7 @@ export interface TimelineClip {
   volume?: number; // default 1.0
   fadeInDuration?: number; // audio fade-in duration in seconds (default 0)
   fadeOutDuration?: number; // audio fade-out duration in seconds (default 0)
+  transform?: ClipTransform;
 }
 
 export interface TimelineTrack {

@@ -436,6 +436,10 @@ export async function exportTimelineToMp4({
       bitrate,
       framerate: fps,
     });
+
+    const assetMap = new Map(assets.map((a) => [a.id, a]));
+    const clipMap = new Map(clips.map((c) => [c.id, c]));
+
     // 1. VISUAL FRAME RENDERING LOOP WITH BOUNDED BACKPRESSURE
     for (let i = 0; i < plan.totalFrames; i++) {
       if (signal?.aborted) throw new Error("Export cancelled by user");
@@ -457,7 +461,7 @@ export async function exportTimelineToMp4({
       ctx.fillRect(0, 0, width, height);
 
       const drawClip = async (clip: TimelineClip, alpha: number = 1.0, xOffset: number = 0) => {
-        const asset = assets.find((a) => a.id === clip.assetId);
+        const asset = assetMap.get(clip.assetId);
         if (!asset) return;
 
         ctx.save();
@@ -519,8 +523,8 @@ export async function exportTimelineToMp4({
 
       if (transitions && transitions.length > 0) {
         for (const trans of transitions) {
-          const fromClip = visualClips.find((c) => c.id === trans.fromClipId);
-          const toClip = visualClips.find((c) => c.id === trans.toClipId);
+          const fromClip = clipMap.get(trans.fromClipId);
+          const toClip = clipMap.get(trans.toClipId);
           if (!fromClip || !toClip) continue;
 
           const progress = getTransitionProgress(currentTime, trans, fromClip, toClip);

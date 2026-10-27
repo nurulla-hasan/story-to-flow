@@ -535,10 +535,14 @@ export function TimelineDock() {
     window.addEventListener("keydown", onKeyDown);
   };
 
-  // Multi-Track Layers Separation
-  const visualLayer2Clips = clips.filter((c) => c.trackId === "visual-2");
-  const visualLayer1Clips = clips.filter((c) => c.trackId === "visual-1" || c.trackId === "visual");
-  const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  // Multi-Track Layers Separation (Memoized to prevent allocations on every playhead update)
+  const visualLayer2Clips = React.useMemo(() => clips.filter((c) => c.trackId === "visual-2"), [clips]);
+  const visualLayer1Clips = React.useMemo(
+    () => clips.filter((c) => c.trackId === "visual-1" || c.trackId === "visual"),
+    [clips]
+  );
+  const audioClips = React.useMemo(() => clips.filter((c) => isAudioTrack(c.trackId)), [clips]);
+  const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 
   const hasAudio = audioClips.length > 0;
   const hasVisual = visualLayer1Clips.length > 0 || visualLayer2Clips.length > 0;
@@ -578,7 +582,7 @@ export function TimelineDock() {
               const isSelected = clip.id === selectedClipId;
               const leftPos = clip.startTime * pxPerSec;
               const widthPx = Math.max(4, clip.duration * pxPerSec);
-              const asset = assets.find((a) => a.id === clip.assetId);
+              const asset = assetMap.get(clip.assetId);
 
               return (
                 <div
@@ -1037,7 +1041,7 @@ export function TimelineDock() {
                       const isSelected = clip.id === selectedClipId;
                       const leftPos = clip.startTime * pxPerSec;
                       const widthPx = Math.max(4, clip.duration * pxPerSec);
-                      const asset = assets.find((a) => a.id === clip.assetId);
+                      const asset = assetMap.get(clip.assetId);
 
                       return (
                         <div

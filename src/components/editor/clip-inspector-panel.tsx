@@ -52,7 +52,6 @@ export function ClipInspectorPanel() {
     transitions,
     selectedClip,
     selectedTransition,
-    trimClip,
     updateClip,
     splitClipAtPlayhead,
     deleteClip,
@@ -61,7 +60,23 @@ export function ClipInspectorPanel() {
     updateTransition,
     deleteTransition,
     applyToAllTransitions,
+    setClipsTransient,
+    commitClipGesture,
   } = useTimeline();
+
+  // Gesture snapshot tracking for inspector sliders to ensure exactly 1 history commit per drag
+  const initialClipsRef = React.useRef<TimelineClip[] | null>(null);
+
+  const handleSliderPointerDown = () => {
+    initialClipsRef.current = JSON.parse(JSON.stringify(clips));
+  };
+
+  const handleSliderPointerUp = () => {
+    if (initialClipsRef.current) {
+      commitClipGesture(initialClipsRef.current, clips);
+      initialClipsRef.current = null;
+    }
+  };
 
   const [applyFeedback, setApplyFeedback] = React.useState<string | null>(null);
 
@@ -71,34 +86,52 @@ export function ClipInspectorPanel() {
     setTimeout(() => setApplyFeedback(null), 4000);
   };
 
-  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Intermediate transient handler for smooth slider scrubbing without pushing history snapshot per tick
+  const handleTransientDurationChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
-    const val = parseFloat(e.target.value);
+    const val = parseFloat((e.target as HTMLInputElement).value);
     if (!isNaN(val) && val >= 0.5) {
-      trimClip(selectedClip.id, val);
+      const speed = selectedClip.speed && selectedClip.speed > 0 ? selectedClip.speed : 1.0;
+      let clampedDur = val;
+      if (selectedClip.sourceDuration && selectedClip.sourceDuration > 0) {
+        const remaining = (selectedClip.sourceDuration - selectedClip.inPoint) / speed;
+        clampedDur = Math.min(clampedDur, remaining);
+      }
+      const transientClips = clips.map((c) =>
+        c.id === selectedClip.id
+          ? { ...c, duration: clampedDur, outPoint: c.inPoint + clampedDur * speed }
+          : c
+      );
+      setClipsTransient(transientClips);
     }
   };
 
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTransientVolumeChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
-    const val = parseFloat(e.target.value);
+    const val = parseFloat((e.target as HTMLInputElement).value);
     if (!isNaN(val)) {
-      updateClip(selectedClip.id, { volume: val });
+      setClipsTransient(
+        clips.map((c) => (c.id === selectedClip.id ? { ...c, volume: val } : c))
+      );
     }
   };
 
-  const handleFadeInChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTransientFadeInChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
-    const val = parseFloat(e.target.value);
+    const val = parseFloat((e.target as HTMLInputElement).value);
     const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeOutDuration ?? 0);
-    updateClip(selectedClip.id, { fadeInDuration: safeFade });
+    setClipsTransient(
+      clips.map((c) => (c.id === selectedClip.id ? { ...c, fadeInDuration: safeFade } : c))
+    );
   };
 
-  const handleFadeOutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTransientFadeOutChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
-    const val = parseFloat(e.target.value);
+    const val = parseFloat((e.target as HTMLInputElement).value);
     const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
-    updateClip(selectedClip.id, { fadeOutDuration: safeFade });
+    setClipsTransient(
+      clips.map((c) => (c.id === selectedClip.id ? { ...c, fadeOutDuration: safeFade } : c))
+    );
   };
 
   // Check if moving to layer 1 or layer 2 would cause a same-track collision
@@ -433,14 +466,23 @@ export function ClipInspectorPanel() {
                       max="300"
                       step="5"
                       value={Math.round(transform.scale * 100)}
+                      onPointerDown={handleSliderPointerDown}
+                      onPointerUp={handleSliderPointerUp}
+                      onPointerCancel={handleSliderPointerUp}
+                      onKeyDown={handleSliderPointerDown}
+                      onKeyUp={handleSliderPointerUp}
                       onChange={(e) => {
                         const scaleVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
-                        updateClip(selectedClip.id, {
-                          transform: sanitizeClipTransform({
-                            ...transform,
-                            scale: scaleVal,
-                          }),
-                        });
+                        setClipsTransient(
+                          clips.map((c) =>
+                            c.id === selectedClip.id
+                              ? {
+                                  ...c,
+                                  transform: sanitizeClipTransform({ ...transform, scale: scaleVal }),
+                                }
+                              : c
+                          )
+                        );
                       }}
                       aria-label="Transform scale"
                       className="w-full accent-primary cursor-pointer h-1"
@@ -462,14 +504,20 @@ export function ClipInspectorPanel() {
                         max="100"
                         step="2"
                         value={Math.round(transform.x * 100)}
+                        onPointerDown={handleSliderPointerDown}
+                        onPointerUp={handleSliderPointerUp}
+                        onPointerCancel={handleSliderPointerUp}
+                        onKeyDown={handleSliderPointerDown}
+                        onKeyUp={handleSliderPointerUp}
                         onChange={(e) => {
                           const xVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
-                          updateClip(selectedClip.id, {
-                            transform: sanitizeClipTransform({
-                              ...transform,
-                              x: xVal,
-                            }),
-                          });
+                          setClipsTransient(
+                            clips.map((c) =>
+                              c.id === selectedClip.id
+                                ? { ...c, transform: sanitizeClipTransform({ ...transform, x: xVal }) }
+                                : c
+                            )
+                          );
                         }}
                         aria-label="Transform position X"
                         className="w-full accent-primary cursor-pointer h-1"
@@ -489,14 +537,20 @@ export function ClipInspectorPanel() {
                         max="100"
                         step="2"
                         value={Math.round(transform.y * 100)}
+                        onPointerDown={handleSliderPointerDown}
+                        onPointerUp={handleSliderPointerUp}
+                        onPointerCancel={handleSliderPointerUp}
+                        onKeyDown={handleSliderPointerDown}
+                        onKeyUp={handleSliderPointerUp}
                         onChange={(e) => {
                           const yVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
-                          updateClip(selectedClip.id, {
-                            transform: sanitizeClipTransform({
-                              ...transform,
-                              y: yVal,
-                            }),
-                          });
+                          setClipsTransient(
+                            clips.map((c) =>
+                              c.id === selectedClip.id
+                                ? { ...c, transform: sanitizeClipTransform({ ...transform, y: yVal }) }
+                                : c
+                            )
+                          );
                         }}
                         aria-label="Transform position Y"
                         className="w-full accent-primary cursor-pointer h-1"
@@ -519,14 +573,20 @@ export function ClipInspectorPanel() {
                         max="180"
                         step="1"
                         value={Math.round(transform.rotation || 0)}
+                        onPointerDown={handleSliderPointerDown}
+                        onPointerUp={handleSliderPointerUp}
+                        onPointerCancel={handleSliderPointerUp}
+                        onKeyDown={handleSliderPointerDown}
+                        onKeyUp={handleSliderPointerUp}
                         onChange={(e) => {
                           const rotVal = Number(e.target.value);
-                          updateClip(selectedClip.id, {
-                            transform: sanitizeClipTransform({
-                              ...transform,
-                              rotation: rotVal,
-                            }),
-                          });
+                          setClipsTransient(
+                            clips.map((c) =>
+                              c.id === selectedClip.id
+                                ? { ...c, transform: sanitizeClipTransform({ ...transform, rotation: rotVal }) }
+                                : c
+                            )
+                          );
                         }}
                         aria-label="Transform rotation"
                         className="w-full accent-primary cursor-pointer h-1"
@@ -588,7 +648,12 @@ export function ClipInspectorPanel() {
                 }
                 step="0.1"
                 value={selectedClip.duration}
-                onChange={handleDurationChange}
+                onPointerDown={handleSliderPointerDown}
+                onPointerUp={handleSliderPointerUp}
+                onPointerCancel={handleSliderPointerUp}
+                onKeyDown={handleSliderPointerDown}
+                onKeyUp={handleSliderPointerUp}
+                onChange={handleTransientDurationChange}
                 aria-label="Clip duration"
                 className="w-full accent-primary cursor-pointer"
               />
@@ -747,7 +812,12 @@ export function ClipInspectorPanel() {
                   max="1"
                   step="0.05"
                   value={selectedClip.volume ?? 1.0}
-                  onChange={handleVolumeChange}
+                  onPointerDown={handleSliderPointerDown}
+                  onPointerUp={handleSliderPointerUp}
+                  onPointerCancel={handleSliderPointerUp}
+                  onKeyDown={handleSliderPointerDown}
+                  onKeyUp={handleSliderPointerUp}
+                  onChange={handleTransientVolumeChange}
                   aria-label="Audio clip volume"
                   className="w-full accent-primary cursor-pointer"
                 />
@@ -793,7 +863,12 @@ export function ClipInspectorPanel() {
                     max={Math.min(5.0, selectedClip.duration / 2)}
                     step="0.05"
                     value={selectedClip.fadeInDuration || 0}
-                    onChange={handleFadeInChange}
+                    onPointerDown={handleSliderPointerDown}
+                    onPointerUp={handleSliderPointerUp}
+                    onPointerCancel={handleSliderPointerUp}
+                    onKeyDown={handleSliderPointerDown}
+                    onKeyUp={handleSliderPointerUp}
+                    onChange={handleTransientFadeInChange}
                     aria-label="Audio fade-in duration"
                     className="w-full accent-primary cursor-pointer"
                   />
@@ -813,7 +888,12 @@ export function ClipInspectorPanel() {
                     max={Math.min(5.0, selectedClip.duration / 2)}
                     step="0.05"
                     value={selectedClip.fadeOutDuration || 0}
-                    onChange={handleFadeOutChange}
+                    onPointerDown={handleSliderPointerDown}
+                    onPointerUp={handleSliderPointerUp}
+                    onPointerCancel={handleSliderPointerUp}
+                    onKeyDown={handleSliderPointerDown}
+                    onKeyUp={handleSliderPointerUp}
+                    onChange={handleTransientFadeOutChange}
                     aria-label="Audio fade-out duration"
                     className="w-full accent-primary cursor-pointer"
                   />

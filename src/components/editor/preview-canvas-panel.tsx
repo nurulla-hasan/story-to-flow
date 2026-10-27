@@ -94,6 +94,9 @@ export function PreviewCanvasPanel() {
     return clips.find((c) => c.id === selectedClipId && isVisualTrack(c.trackId)) || null;
   }, [clips, selectedClipId]);
 
+  const clipMap = React.useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
+  const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+
   // Check if an active transition is currently taking effect at playhead
   let activeTransitionData: {
     transition: typeof transitions[0];
@@ -104,8 +107,8 @@ export function PreviewCanvasPanel() {
 
   if (isHydrated && transitions.length > 0) {
     for (const trans of transitions) {
-      const fromClip = clips.find((c) => c.id === trans.fromClipId);
-      const toClip = clips.find((c) => c.id === trans.toClipId);
+      const fromClip = clipMap.get(trans.fromClipId);
+      const toClip = clipMap.get(trans.toClipId);
       if (!fromClip || !toClip) continue;
 
       const progress = getTransitionProgress(playhead, trans, fromClip, toClip);
@@ -175,7 +178,7 @@ export function PreviewCanvasPanel() {
 
   // Render a visual clip node (Image or Video) with transform & click selection
   const renderVisualNode = (clip: typeof clips[0], baseStyle?: React.CSSProperties) => {
-    const asset = assets.find((a) => a.id === clip.assetId);
+    const asset = assetMap.get(clip.assetId);
     if (!asset) return null;
 
     const transform = sanitizeClipTransform(clip.transform);

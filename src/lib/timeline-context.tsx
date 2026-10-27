@@ -324,6 +324,12 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isPlaying, isHydrated, playhead, commitPlayhead]);
 
+  // Keep a ref to the latest playhead so the animation frame loop never needs to restart
+  const playheadRef = React.useRef(playhead);
+  React.useEffect(() => {
+    playheadRef.current = playhead;
+  }, [playhead]);
+
   // Real-time playback loop for timeline clock
   React.useEffect(() => {
     if (!isPlaying) return;
@@ -332,11 +338,11 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     let animId: number;
 
     const tick = (now: number) => {
-      const dt = (now - lastTime) / 1000;
+      const dt = Math.max(0, (now - lastTime) / 1000);
       lastTime = now;
 
       setLocalPlayhead((prev) => {
-        const current = prev ?? playhead;
+        const current = prev ?? playheadRef.current;
         const next = current + dt;
         if (next >= totalDuration) {
           setIsPlaying(false);
@@ -350,7 +356,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, totalDuration, playhead]);
+  }, [isPlaying, totalDuration]);
 
   // Synchronize multi-track audio playback with timeline clock
   React.useEffect(() => {

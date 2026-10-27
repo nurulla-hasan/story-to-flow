@@ -87,7 +87,7 @@ export function TimelineDock() {
   const pxPerSec = getPixelsPerSecond(zoom);
 
   // Minimum 1200px or duration-based width so ruler & tracks span full viewport
-  const tracksContentWidth = Math.max(1200, (totalDuration + 10) * pxPerSec);
+  const tracksContentWidth = Math.max(1200, (Math.max(10, totalDuration) + 10) * pxPerSec);
 
   const rulerRef = React.useRef<HTMLDivElement>(null);
   const tracksScrollRef = React.useRef<HTMLDivElement>(null);
@@ -132,7 +132,7 @@ export function TimelineDock() {
 
   // Adaptive ruler ticks: frame notation at deep zoom (>=500%), seconds at medium zoom, wider at low zoom
   const rulerTicks = React.useMemo(() => {
-    const span = Math.max(totalDuration + 10, tracksContentWidth / pxPerSec);
+    const span = Math.max(Math.max(10, totalDuration) + 10, tracksContentWidth / pxPerSec);
     return generateAdaptiveRulerTicks(zoom, span, 30);
   }, [zoom, totalDuration, tracksContentWidth, pxPerSec]);
 

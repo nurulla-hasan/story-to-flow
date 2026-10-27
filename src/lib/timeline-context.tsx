@@ -9,6 +9,7 @@ import type {
 } from "@/types/timeline";
 import {
   isVisualTrack,
+  isAudioTrack,
   areClipsOnSameTrack,
   normalizeVisualTrackId,
 } from "@/types/timeline";
@@ -161,18 +162,18 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
   const [canRedo, setCanRedo] = React.useState<boolean>(false);
 
-  // Dedicated Audio Element for synchronized timeline playback
-  const audioElementRef = React.useRef<HTMLAudioElement | null>(null);
+  // Dedicated Audio Elements Pool for multi-track synchronized timeline playback
+  const audioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
 
   React.useEffect(() => {
-    const audio = new Audio();
-    audio.preload = "auto";
-    audioElementRef.current = audio;
-
+    const pool = audioElementsRef.current;
     return () => {
-      audio.pause();
-      audio.src = "";
-      audioElementRef.current = null;
+      for (const el of pool.values()) {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      }
+      pool.clear();
     };
   }, []);
 
@@ -272,9 +273,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   const totalDuration = React.useMemo(() => {
     const activeClips = isHydrated ? clips : DEFAULT_TIMELINE_STATE.clips;
-    if (activeClips.length === 0) return 10;
+    if (activeClips.length === 0) return 0;
     const maxEnd = Math.max(...activeClips.map((c) => c.startTime + c.duration));
-    return Math.max(10, Math.ceil(maxEnd + 2));
+    return parseFloat(maxEnd.toFixed(3));
   }, [isHydrated, clips]);
 
   const setPlayhead = React.useCallback((time: number) => {
@@ -351,49 +352,63 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, totalDuration, playhead]);
 
-  // Synchronize audio playback with timeline clock
+  // Synchronize multi-track audio playback with timeline clock
   React.useEffect(() => {
-    const audio = audioElementRef.current;
-    if (!audio) return;
-
-    const audioClips = clips.filter((c) => c.trackId === "audio");
-    const activeAudioClip = audioClips.find(
+    const pool = audioElementsRef.current;
+    const allAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
+    const activeAudioClips = allAudioClips.filter(
       (c) => playhead >= c.startTime && playhead < c.startTime + c.duration
     );
+    const activeClipIds = new Set(activeAudioClips.map((c) => c.id));
 
-    if (activeAudioClip) {
-      const asset = assets.find((a) => a.id === activeAudioClip.assetId);
-      if (asset && asset.url) {
-        if (audio.src !== asset.url) {
-          audio.src = asset.url;
-        }
-
-        const targetTime = (playhead - activeAudioClip.startTime) + activeAudioClip.inPoint;
-        if (Math.abs(audio.currentTime - targetTime) > 0.15) {
-          audio.currentTime = Math.max(0, targetTime);
-        }
-
-        const clipRelativeTime = playhead - activeAudioClip.startTime;
-        const currentGain = calculateAudioGain(
-          clipRelativeTime,
-          activeAudioClip.duration,
-          activeAudioClip.volume ?? 1.0,
-          activeAudioClip.fadeInDuration ?? 0,
-          activeAudioClip.fadeOutDuration ?? 0
-        );
-
-        audio.volume = Math.max(0, Math.min(1.0, currentGain));
-
-        if (isPlaying) {
-          audio.play().catch(() => {});
-        } else {
-          audio.pause();
-        }
-        return;
+    // Pause and remove audio elements for clips that are no longer active
+    for (const [clipId, audioEl] of pool.entries()) {
+      if (!activeClipIds.has(clipId)) {
+        audioEl.pause();
+        audioEl.removeAttribute("src");
+        audioEl.load();
+        pool.delete(clipId);
       }
     }
 
-    audio.pause();
+    // Synchronize and mix each active audio clip concurrently
+    for (const clip of activeAudioClips) {
+      const asset = assets.find((a) => a.id === clip.assetId);
+      if (!asset || !asset.url) continue;
+
+      let audioEl = pool.get(clip.id);
+      if (!audioEl) {
+        audioEl = new Audio();
+        audioEl.preload = "auto";
+        pool.set(clip.id, audioEl);
+      }
+
+      if (audioEl.src !== asset.url) {
+        audioEl.src = asset.url;
+      }
+
+      const targetTime = (playhead - clip.startTime) + clip.inPoint;
+      if (Math.abs(audioEl.currentTime - targetTime) > 0.15) {
+        audioEl.currentTime = Math.max(0, targetTime);
+      }
+
+      const clipRelativeTime = playhead - clip.startTime;
+      const currentGain = calculateAudioGain(
+        clipRelativeTime,
+        clip.duration,
+        clip.volume ?? 1.0,
+        clip.fadeInDuration ?? 0,
+        clip.fadeOutDuration ?? 0
+      );
+
+      audioEl.volume = Math.max(0, Math.min(1.0, currentGain));
+
+      if (isPlaying) {
+        audioEl.play().catch(() => {});
+      } else {
+        audioEl.pause();
+      }
+    }
   }, [playhead, isPlaying, clips, assets]);
 
   const selectClip = React.useCallback(
@@ -681,10 +696,36 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       };
 
       const updatedClips = clips.flatMap((c) => (c.id === idToSplit ? [part1, part2] : [c]));
+      const clipMap = new Map(updatedClips.map((c) => [c.id, c]));
+
+      // Reconcile transitions:
+      // - Incoming transition to the original clip stays on part1 with revalidated duration
+      // - Outgoing transition from the original clip shifts its fromClipId to part2 with revalidated duration
+      // - Stale transitions that are no longer adjacent are safely pruned
+      const reconciledTransitions: TimelineTransition[] = [];
+      for (const t of transitions) {
+        if (t.toClipId === idToSplit) {
+          const from = clipMap.get(t.fromClipId);
+          if (from && areClipsAdjacentForTransition(from, part1)) {
+            const safeDur = validateTransitionDuration(t.duration, from, part1);
+            reconciledTransitions.push({ ...t, duration: safeDur });
+          }
+        } else if (t.fromClipId === idToSplit) {
+          const to = clipMap.get(t.toClipId);
+          if (to && areClipsAdjacentForTransition(part2, to)) {
+            const safeDur = validateTransitionDuration(t.duration, part2, to);
+            reconciledTransitions.push({ ...t, fromClipId: part2.id, duration: safeDur });
+          }
+        } else {
+          reconciledTransitions.push(t);
+        }
+      }
+
       setLocalClips(updatedClips);
+      setLocalTransitions(reconciledTransitions);
       setLocalSelectedClipId(part2.id);
       setLocalSelectedTransitionId(null);
-      persistTimeline(updatedClips, transitions, part2.id, null);
+      persistTimeline(updatedClips, reconciledTransitions, part2.id, null);
     },
     [clips, transitions, selectedClipId, playhead, pushHistorySnapshot, persistTimeline]
   );

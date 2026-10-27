@@ -271,61 +271,88 @@ export function PreviewCanvasPanel() {
               {/* Media clips container (clipped to phone boundary) */}
               <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-auto">
                 {isHydrated && activeTransitionData ? (
-                  /* TRANSITION COMPOSITING RENDERING */
+                  /* TRANSITION COMPOSITING RENDERING (Layer-Aware: preserves overlays & other tracks) */
                   (() => {
                     const { transition, fromClip, toClip, progress } = activeTransitionData;
+                    const transitionTrackIndex = getVisualTrackLayerIndex(fromClip.trackId);
+                    const otherVisuals = activeVisuals.filter(
+                      (c) => c.id !== fromClip.id && c.id !== toClip.id
+                    );
 
-                    if (transition.type === "cross-dissolve") {
-                      return (
-                        <>
-                          {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
-                          {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
-                        </>
-                      );
-                    }
+                    const renderTransitionContent = () => {
+                      if (transition.type === "cross-dissolve") {
+                        return (
+                          <>
+                            {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
+                            {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
+                          </>
+                        );
+                      }
 
-                    if (transition.type === "fade-black") {
-                      const fromOpacity = progress < 0.5 ? 1 - progress * 2 : 0;
-                      const toOpacity = progress >= 0.5 ? (progress - 0.5) * 2 : 0;
-                      return (
-                        <div className="relative w-full h-full bg-black">
-                          {renderVisualNode(fromClip, { opacity: fromOpacity, zIndex: 1 })}
-                          {renderVisualNode(toClip, { opacity: toOpacity, zIndex: 2 })}
-                        </div>
-                      );
-                    }
+                      if (transition.type === "fade-black") {
+                        const fromOpacity = progress < 0.5 ? 1 - progress * 2 : 0;
+                        const toOpacity = progress >= 0.5 ? (progress - 0.5) * 2 : 0;
+                        return (
+                          <div className="relative w-full h-full bg-black z-1">
+                            {renderVisualNode(fromClip, { opacity: fromOpacity, zIndex: 1 })}
+                            {renderVisualNode(toClip, { opacity: toOpacity, zIndex: 2 })}
+                          </div>
+                        );
+                      }
 
-                    if (transition.type === "slide-left") {
-                      return (
-                        <>
-                          {renderVisualNode(fromClip, {
-                            transform: `translateX(${-progress * 100}%)`,
-                            zIndex: 1,
-                          })}
-                          {renderVisualNode(toClip, {
-                            transform: `translateX(${(1 - progress) * 100}%)`,
-                            zIndex: 2,
-                          })}
-                        </>
-                      );
-                    }
+                      if (transition.type === "slide-left") {
+                        return (
+                          <>
+                            {renderVisualNode(fromClip, {
+                              transform: `translateX(${-progress * 100}%)`,
+                              zIndex: 1,
+                            })}
+                            {renderVisualNode(toClip, {
+                              transform: `translateX(${(1 - progress) * 100}%)`,
+                              zIndex: 2,
+                            })}
+                          </>
+                        );
+                      }
 
-                    if (transition.type === "slide-right") {
-                      return (
-                        <>
-                          {renderVisualNode(fromClip, {
-                            transform: `translateX(${progress * 100}%)`,
-                            zIndex: 1,
-                          })}
-                          {renderVisualNode(toClip, {
-                            transform: `translateX(${-(1 - progress) * 100}%)`,
-                            zIndex: 2,
-                          })}
-                        </>
-                      );
-                    }
+                      if (transition.type === "slide-right") {
+                        return (
+                          <>
+                            {renderVisualNode(fromClip, {
+                              transform: `translateX(${progress * 100}%)`,
+                              zIndex: 1,
+                            })}
+                            {renderVisualNode(toClip, {
+                              transform: `translateX(${-(1 - progress) * 100}%)`,
+                              zIndex: 2,
+                            })}
+                          </>
+                        );
+                      }
 
-                    return null;
+                      return null;
+                    };
+
+                    return (
+                      <>
+                        {/* 1. Layers below the transition layer */}
+                        {otherVisuals
+                          .filter((c) => getVisualTrackLayerIndex(c.trackId) < transitionTrackIndex)
+                          .map((c) =>
+                            renderVisualNode(c, { position: "absolute", inset: 0, zIndex: 0 })
+                          )}
+
+                        {/* 2. Transition content on its layer */}
+                        {renderTransitionContent()}
+
+                        {/* 3. Overlay layers above the transition layer */}
+                        {otherVisuals
+                          .filter((c) => getVisualTrackLayerIndex(c.trackId) > transitionTrackIndex)
+                          .map((c) =>
+                            renderVisualNode(c, { position: "absolute", inset: 0, zIndex: 10 })
+                          )}
+                      </>
+                    );
                   })()
                 ) : isHydrated && activeVisuals.length > 0 ? (
                   activeVisuals.map((clip, index) => {
@@ -435,7 +462,7 @@ export function PreviewCanvasPanel() {
 
             {/* Timecode Counter */}
             <div className="ml-1 font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-              {formatTimecode(isHydrated ? playhead : 0)} / {formatTimecode(isHydrated ? totalDuration : 10)}
+              {formatTimecode(isHydrated ? playhead : 0)} / {formatTimecode(isHydrated ? totalDuration : 0)}
             </div>
           </div>
 

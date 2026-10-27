@@ -39,6 +39,8 @@ import {
   TRANSITION_PRESETS,
   areClipsAdjacentForTransition,
   validateTransitionDuration,
+  MAX_TRANSITION_DURATION,
+  MIN_TRANSITION_DURATION,
 } from "@/lib/transition-helpers";
 import { validateFadeDuration } from "@/lib/audio-fade-helpers";
 import { hasVisualOverlap } from "@/lib/timeline-overlap";
@@ -656,8 +658,12 @@ export function ClipInspectorPanel() {
 
                     <input
                       type="range"
-                      min="0.2"
-                      max={validateTransitionDuration(1.5, selectedClip, transitionToNext.nextClip)}
+                      min={MIN_TRANSITION_DURATION}
+                      max={validateTransitionDuration(
+                        MAX_TRANSITION_DURATION,
+                        selectedClip,
+                        transitionToNext.nextClip
+                      )}
                       step="0.05"
                       value={transitionToNext.existing.duration}
                       onChange={(e) =>

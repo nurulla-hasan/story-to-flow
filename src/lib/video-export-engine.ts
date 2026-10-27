@@ -531,8 +531,27 @@ export async function exportTimelineToMp4({
         }
       }
 
+      // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
+      const activeVisuals = visualClips
+        .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
+        .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
+
       if (activeTransitionData) {
         const { transition, fromClip, toClip, progress } = activeTransitionData;
+        const transitionLayerIndex = getVisualTrackLayerIndex(fromClip.trackId);
+
+        // 1. Draw any active visual clips on tracks below the transition layer
+        for (const activeClip of activeVisuals) {
+          if (
+            activeClip.id !== fromClip.id &&
+            activeClip.id !== toClip.id &&
+            getVisualTrackLayerIndex(activeClip.trackId) < transitionLayerIndex
+          ) {
+            await drawClip(activeClip, 1.0, 0);
+          }
+        }
+
+        // 2. Draw the transition on its track layer
         if (transition.type === "cross-dissolve") {
           await drawClip(fromClip, 1 - progress, 0);
           await drawClip(toClip, progress, 0);
@@ -549,12 +568,18 @@ export async function exportTimelineToMp4({
           await drawClip(fromClip, 1, progress * width);
           await drawClip(toClip, 1, -(1 - progress) * width);
         }
-      } else {
-        // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
-        const activeVisuals = visualClips
-          .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
-          .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
 
+        // 3. Draw any active visual clips (e.g. overlays) on tracks above the transition layer
+        for (const activeClip of activeVisuals) {
+          if (
+            activeClip.id !== fromClip.id &&
+            activeClip.id !== toClip.id &&
+            getVisualTrackLayerIndex(activeClip.trackId) > transitionLayerIndex
+          ) {
+            await drawClip(activeClip, 1.0, 0);
+          }
+        }
+      } else {
         for (const activeClip of activeVisuals) {
           await drawClip(activeClip, 1.0, 0);
         }

@@ -46,7 +46,7 @@ type ResolutionPreset = "720p" | "1080p";
 
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const { clips, transitions, projectTitle } = useTimeline();
-  const { assets } = useMediaLibrary();
+  const { assets, acquireAssetLease } = useMediaLibrary();
 
   // Conservative default: 720p for memory safety on laptops and mobile devices
   const [preset, setPreset] = React.useState<ResolutionPreset>("720p");
@@ -57,6 +57,16 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const [error, setError] = React.useState<string | null>(null);
 
   const abortControllerRef = React.useRef<AbortController | null>(null);
+  const leaseReleaseRef = React.useRef<(() => void) | null>(null);
+
+  // Route changes must cancel the render, but the release of Object URL leases
+  // is owned by the export's finally block so URLs cannot disappear underneath
+  // an operation that is still finishing.
+  React.useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const plan = React.useMemo(() => calculateExportPlan(clips, 30), [clips]);
   const webCodecsStatus = React.useMemo(() => checkWebCodecsSupport(), []);
@@ -90,6 +100,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       setError(safety.error || "Timeline exceeds safe export limits.");
       return;
     }
+
+    // Keep every media Object URL referenced by the timeline alive for the
+    // entire export, including during a route change or provider unmount.
+    const referencedAssetIds = Array.from(new Set(clips.map((clip) => clip.assetId)));
+    leaseReleaseRef.current = acquireAssetLease(referencedAssetIds);
 
     setError(null);
     setExportedBlob(null);
@@ -138,6 +153,10 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       setIsExporting(false);
     } finally {
       abortControllerRef.current = null;
+      if (leaseReleaseRef.current) {
+        leaseReleaseRef.current();
+        leaseReleaseRef.current = null;
+      }
     }
   };
 

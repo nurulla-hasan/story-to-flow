@@ -27,6 +27,17 @@ const DB_NAME = "story_forge_media_db_v1";
 const DB_VERSION = 1;
 const STORE_NAME = "assets";
 
+function toError(value: unknown, fallbackMessage: string): Error {
+  if (value instanceof Error) return value;
+  if (value && typeof value === "object" && "message" in value) {
+    const message = (value as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return new Error(message);
+    }
+  }
+  return new Error(fallbackMessage);
+}
+
 /**
  * Check if IndexedDB is available in the current environment
  */
@@ -44,7 +55,21 @@ export function openMediaDatabase(): Promise<IDBDatabase> {
       return;
     }
 
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    let request: IDBOpenDBRequest;
+    try {
+      request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (error) {
+      reject(toError(error, "Failed to open IndexedDB"));
+      return;
+    }
+
+    let settled = false;
+
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(toError(error, "Failed to open IndexedDB"));
+    };
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
@@ -56,88 +81,179 @@ export function openMediaDatabase(): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
+      if (settled) {
+        try {
+          request.result.close();
+        } catch {
+          // Ignore close failures on an already-rejected open request.
+        }
+        return;
+      }
+      settled = true;
       resolve(request.result);
     };
 
     request.onerror = () => {
-      reject(request.error || new Error("Failed to open IndexedDB"));
+      fail(request.error || new Error("Failed to open IndexedDB"));
+    };
+
+    request.onblocked = () => {
+      fail(new Error("IndexedDB is blocked by another open connection. Close other tabs and try again."));
     };
   });
 }
 
 /**
- * Persist a media record containing binary File/Blob into IndexedDB
+ * Run an IndexedDB transaction and settle only once the whole transaction has
+ * committed. Request-level errors abort the transaction, so quota failures and
+ * write failures are reported after IndexedDB finishes aborting.
  */
-export async function saveMediaAssetToDb(record: PersistedMediaRecord): Promise<void> {
-  const db = await openMediaDatabase();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.put(record);
+function runMediaTransaction<T>(
+  mode: IDBTransactionMode,
+  perform: (store: IDBObjectStore, trackRequest: <R extends IDBRequest>(request: R) => R) => void,
+  readResult: () => T
+): Promise<T> {
+  return openMediaDatabase().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        let settled = false;
+        let closed = false;
+        let requestError: Error | null = null;
 
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error || new Error("Failed to save media asset"));
+        const closeDatabase = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            db.close();
+          } catch {
+            // Closing an already-closed database is harmless.
+          }
+        };
 
-      tx.oncomplete = () => db.close();
-      tx.onerror = () => reject(tx.error || new Error("Transaction failed"));
-    } catch (err) {
-      db.close();
-      reject(err);
-    }
-  });
+        const settle = (fn: (value: T) => void, value: T) => {
+          if (settled) return;
+          settled = true;
+          closeDatabase();
+          fn(value);
+        };
+
+        const fail = (error: unknown, fallbackMessage: string) => {
+          if (settled) return;
+          settled = true;
+          closeDatabase();
+          reject(toError(error, fallbackMessage));
+        };
+
+        let tx: IDBTransaction;
+        try {
+          tx = db.transaction(STORE_NAME, mode);
+        } catch (error) {
+          fail(error, "Failed to start media transaction");
+          return;
+        }
+
+        const trackRequest = <R extends IDBRequest>(request: R): R => {
+          request.onerror = () => {
+            requestError = toError(request.error, "Media transaction request failed");
+            // In normal IndexedDB behavior the error already aborts the
+            // transaction. Abort explicitly when a browser needs a nudge.
+            try {
+              tx.abort();
+            } catch {
+              // The transaction may already be aborting/finished.
+            }
+          };
+          return request;
+        };
+
+        tx.oncomplete = () => {
+          if (requestError) {
+            fail(requestError, "Media transaction failed");
+            return;
+          }
+          let result: T;
+          try {
+            result = readResult();
+          } catch (error) {
+            fail(error, "Failed to read media transaction result");
+            return;
+          }
+          settle(resolve, result);
+        };
+
+        tx.onerror = () => {
+          fail(requestError || tx.error, "Media transaction failed");
+        };
+
+        tx.onabort = () => {
+          fail(
+            requestError || tx.error || new Error("Media transaction was aborted"),
+            "Media transaction was aborted"
+          );
+        };
+
+        try {
+          perform(tx.objectStore(STORE_NAME), trackRequest);
+        } catch (error) {
+          requestError = requestError ?? toError(error, "Media transaction failed");
+          try {
+            tx.abort();
+          } catch {
+            fail(requestError, "Media transaction failed");
+          }
+        }
+      })
+  );
 }
 
 /**
- * Retrieve all persisted media records from IndexedDB
+ * Persist a media record containing binary File/Blob into IndexedDB.
+ * Resolves only after the readwrite transaction commits.
  */
-export async function loadAllMediaAssetsFromDb(): Promise<PersistedMediaRecord[]> {
-  const db = await openMediaDatabase();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.getAll();
+export function saveMediaAssetToDb(record: PersistedMediaRecord): Promise<void> {
+  return runMediaTransaction<void>(
+    "readwrite",
+    (store, trackRequest) => {
+      trackRequest(store.put(record));
+    },
+    () => undefined
+  );
+}
 
-      req.onsuccess = () => {
-        const results = req.result as PersistedMediaRecord[];
-        // Sort descending by importedAt (newest first)
-        results.sort((a, b) => b.importedAt - a.importedAt);
-        resolve(results);
+/**
+ * Retrieve all persisted media records from IndexedDB.
+ * Resolves only after the readonly transaction completes.
+ */
+export function loadAllMediaAssetsFromDb(): Promise<PersistedMediaRecord[]> {
+  let results: PersistedMediaRecord[] = [];
+
+  return runMediaTransaction<PersistedMediaRecord[]>(
+    "readonly",
+    (store, trackRequest) => {
+      const request = trackRequest(store.getAll());
+      request.onsuccess = () => {
+        results = (request.result as PersistedMediaRecord[]) || [];
       };
-
-      req.onerror = () => reject(req.error || new Error("Failed to load media assets"));
-
-      tx.oncomplete = () => db.close();
-      tx.onerror = () => reject(tx.error || new Error("Transaction failed"));
-    } catch (err) {
-      db.close();
-      reject(err);
+    },
+    () => {
+      results.sort((a, b) => b.importedAt - a.importedAt);
+      return results;
     }
-  });
+  );
 }
 
 /**
- * Delete a specific media asset from IndexedDB by its ID
+ * Delete a specific media asset from IndexedDB by its ID.
+ * Resolves only after the readwrite transaction commits.
  */
-export async function deleteMediaAssetFromDb(id: string): Promise<void> {
-  const db = await openMediaDatabase();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.delete(id);
-
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error || new Error(`Failed to delete media asset ${id}`));
-
-      tx.oncomplete = () => db.close();
-      tx.onerror = () => reject(tx.error || new Error("Transaction failed"));
-    } catch (err) {
-      db.close();
-      reject(err);
-    }
-  });
+export function deleteMediaAssetFromDb(id: string): Promise<void> {
+  return runMediaTransaction<void>(
+    "readwrite",
+    (store, trackRequest) => {
+      trackRequest(store.delete(id));
+    },
+    () => undefined
+  );
 }
 
 /**

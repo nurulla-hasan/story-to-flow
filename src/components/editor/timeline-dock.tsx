@@ -68,6 +68,7 @@ export function TimelineDock() {
     deleteTransition,
     playhead,
     seek,
+    commitPlayhead,
     pause,
     zoom,
     setZoom,
@@ -208,10 +209,12 @@ export function TimelineDock() {
       // Immediate seek on pointerdown (click-to-seek responsiveness)
       const initialTime = getTimeFromClientX(e.clientX);
       seek(initialTime);
+      let lastSeekTime = initialTime;
 
       const onPointerMove = (moveEvent: PointerEvent) => {
         moveEvent.preventDefault();
         const newTime = getTimeFromClientX(moveEvent.clientX);
+        lastSeekTime = newTime;
         seek(newTime);
       };
 
@@ -221,6 +224,8 @@ export function TimelineDock() {
         window.removeEventListener("pointercancel", onPointerCancel);
         window.removeEventListener("keydown", onKeyDown);
         playheadCleanupRef.current = null;
+        // Persist once at the end of the scrub, never on each pointer frame.
+        commitPlayhead(lastSeekTime);
       };
 
       const onPointerUp = (upEvent: PointerEvent) => {
@@ -244,7 +249,7 @@ export function TimelineDock() {
       window.addEventListener("pointercancel", onPointerCancel);
       window.addEventListener("keydown", onKeyDown);
     },
-    [pause, getTimeFromClientX, seek]
+    [pause, getTimeFromClientX, seek, commitPlayhead]
   );
 
   // Drag-and-drop from Media Library onto tracks with unified coordinate mapping

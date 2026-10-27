@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,9 @@ export function EditorHeader() {
     setProjectTitle,
     canUndo,
     canRedo,
+    saveError,
+    isDirty,
+    dismissSaveError,
     undo,
     redo,
     clips,
@@ -138,8 +142,28 @@ export function EditorHeader() {
 
         {/* Right: Aspect ratio, Smart Auto-fit, Export & Theme Toggle */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Feedback pill */}
-          {feedback && (
+          {/* Persistence feedback: failed writes are persistent and dismissible */}
+          {saveError ? (
+            <div
+              role="status"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-2xs font-medium bg-destructive/10 text-destructive border border-destructive/20"
+            >
+              <AlertCircle className="size-3.5 shrink-0" />
+              <span className="max-w-72 leading-tight">{saveError}</span>
+              <button
+                type="button"
+                onClick={dismissSaveError}
+                className="text-destructive/70 hover:text-destructive cursor-pointer"
+                aria-label="Dismiss save error"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : isDirty ? (
+            <Badge variant="destructive" title="Changes are not saved to browser storage">
+              Unsaved changes
+            </Badge>
+          ) : feedback ? (
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-2xs font-medium animate-in fade-in duration-200 ${
                 feedback.type === "success"
@@ -154,7 +178,7 @@ export function EditorHeader() {
               )}
               <span className="truncate max-w-56">{feedback.message}</span>
             </div>
-          )}
+          ) : null}
 
           <Badge variant="secondary" className="gap-1.5">
             <Smartphone className="size-3" />

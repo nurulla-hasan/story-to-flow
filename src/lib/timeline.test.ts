@@ -215,7 +215,7 @@ describe("Fit Visuals to Voiceover Algorithm", () => {
       },
     ];
 
-    const result = calculateFitVisualsToVoiceover(visualClips);
+    const result = calculateFitVisualsToVoiceover(visualClips, []);
     expect(result.success).toBe(false);
     expect(result.message).toContain("No voiceover audio found");
   });
@@ -229,7 +229,7 @@ describe("Fit Visuals to Voiceover Algorithm", () => {
       { id: "img-4", assetId: "a4", name: "4.png", type: "image", trackId: "visual-1", startTime: 7.5, duration: 2.5, inPoint: 0, outPoint: 2.5 },
     ];
 
-    const result = calculateFitVisualsToVoiceover(clips);
+    const result = calculateFitVisualsToVoiceover(clips, []);
     expect(result.success).toBe(true);
 
     const fittedVisuals = result.updatedClips.filter((c) => isVisualTrack(c.trackId));
@@ -259,7 +259,7 @@ describe("Fit Visuals to Voiceover Algorithm", () => {
       { id: "img-2", assetId: "i2", name: "2.png", type: "image", trackId: "visual-1", startTime: 7.0, duration: 3.0, inPoint: 0, outPoint: 3.0 },
     ];
 
-    const result = calculateFitVisualsToVoiceover(clips);
+    const result = calculateFitVisualsToVoiceover(clips, []);
     expect(result.success).toBe(true);
 
     const fittedVisuals = result.updatedClips.filter((c) => isVisualTrack(c.trackId));

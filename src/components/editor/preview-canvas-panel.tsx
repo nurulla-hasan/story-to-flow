@@ -48,6 +48,7 @@ export function PreviewCanvasPanel() {
     isPlaying,
     togglePlay,
     seek,
+    commitPlayhead,
     totalDuration,
   } = useTimeline();
 
@@ -387,7 +388,10 @@ export function PreviewCanvasPanel() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => seek(0)}
+              onClick={() => {
+                seek(0);
+                commitPlayhead(0);
+              }}
               title="Jump to timeline start (Home)"
               aria-label="Jump to timeline start"
             >
@@ -410,7 +414,10 @@ export function PreviewCanvasPanel() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => seek(totalDuration)}
+              onClick={() => {
+                seek(totalDuration);
+                commitPlayhead(totalDuration);
+              }}
               title="Jump to timeline end (End)"
               aria-label="Jump to timeline end"
             >

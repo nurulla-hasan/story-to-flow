@@ -15,9 +15,18 @@ import {
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
   DEFAULT_TIMELINE_STATE,
+  INITIAL_TIMELINE_SAVE_STATUS,
+  createPlayheadCommitGate,
+  formatTimelineSaveError,
+  resolveTimelineSelection,
   saveStoredTimelineState,
+  timelineSaveStatusReducer,
   useTimelineStorage,
 } from "@/lib/timeline-storage";
+import {
+  clearRegisteredTimelineAssetReferences,
+  registerTimelineAssetReferences,
+} from "@/lib/media-references";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
 import {
   validateTransitionDuration,
@@ -47,9 +56,13 @@ export interface TimelineContextType {
   projectTitle: string;
   canUndo: boolean;
   canRedo: boolean;
+  saveError: string | null;
+  isDirty: boolean;
   setProjectTitle: (title: string) => void;
   setPlayhead: (time: number) => void;
+  commitPlayhead: (time?: number) => void;
   seek: (time: number) => void;
+  dismissSaveError: () => void;
   stepFrameForward: () => void;
   stepFrameBackward: () => void;
   togglePlay: () => void;
@@ -104,11 +117,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [localTitle, setLocalTitle] = React.useState<string | null>(null);
   const [localClips, setLocalClips] = React.useState<TimelineClip[] | null>(null);
   const [localTransitions, setLocalTransitions] = React.useState<TimelineTransition[] | null>(null);
-  const [localSelectedClipId, setLocalSelectedClipId] = React.useState<string | null>(null);
-  const [localSelectedTransitionId, setLocalSelectedTransitionId] = React.useState<string | null>(null);
+  // undefined means "inherit the stored selection"; null means "explicitly cleared".
+  const [localSelectedClipId, setLocalSelectedClipId] = React.useState<string | null | undefined>(undefined);
+  const [localSelectedTransitionId, setLocalSelectedTransitionId] = React.useState<string | null | undefined>(undefined);
   const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
   const [localPlayhead, setLocalPlayhead] = React.useState<number | null>(null);
   const [localZoom, setLocalZoom] = React.useState<number | null>(null);
+  const [saveStatus, dispatchSaveStatus] = React.useReducer(
+    timelineSaveStatusReducer,
+    INITIAL_TIMELINE_SAVE_STATUS
+  );
 
   // Derived active state: perfectly identical between server and client first render
   const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
@@ -116,8 +134,26 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const transitions = localTransitions ?? (isHydrated ? storedState.transitions : DEFAULT_TIMELINE_STATE.transitions);
   const playhead = localPlayhead ?? (isHydrated ? storedState.playhead : DEFAULT_TIMELINE_STATE.playhead);
   const zoom = localZoom ?? (isHydrated ? storedState.zoom : DEFAULT_TIMELINE_STATE.zoom);
-  const selectedClipId = localSelectedClipId ?? (isHydrated ? storedState.selectedClipId : null);
-  const selectedTransitionId = localSelectedTransitionId ?? (isHydrated ? storedState.selectedTransitionId : null);
+  const storedSelection = resolveTimelineSelection(
+    storedState.selectedClipId,
+    storedState.selectedTransitionId,
+    clips,
+    transitions
+  );
+  const selectedClipId = React.useMemo(() => {
+    const candidate =
+      localSelectedClipId !== undefined ? localSelectedClipId : storedSelection.selectedClipId;
+    return candidate && clips.some((clip) => clip.id === candidate) ? candidate : null;
+  }, [localSelectedClipId, storedSelection.selectedClipId, clips]);
+  const selectedTransitionId = React.useMemo(() => {
+    const candidate =
+      localSelectedTransitionId !== undefined
+        ? localSelectedTransitionId
+        : storedSelection.selectedTransitionId;
+    return candidate && transitions.some((transition) => transition.id === candidate)
+      ? candidate
+      : null;
+  }, [localSelectedTransitionId, storedSelection.selectedTransitionId, transitions]);
 
   // Undo / Redo Stacks storing both clips and transitions atomically
   const undoStackRef = React.useRef<HistorySnapshot[]>([]);
@@ -145,6 +181,25 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     setCanRedo(redoStackRef.current.length > 0);
   }, []);
 
+  // Persist a partial patch and feed success/failure back into visible state.
+  const persistPartial = React.useCallback(
+    (patch: Partial<typeof DEFAULT_TIMELINE_STATE>): boolean => {
+      if (!isHydrated) return false;
+
+      dispatchSaveStatus({ type: "attempt" });
+      const result = saveStoredTimelineState(patch);
+      if (result.ok) {
+        dispatchSaveStatus({ type: "success" });
+        return true;
+      }
+
+      console.error("Failed to persist timeline state:", result.error);
+      dispatchSaveStatus({ type: "failure", message: formatTimelineSaveError(result.error) });
+      return false;
+    },
+    [isHydrated]
+  );
+
   // Save changes to localStorage with hydration guard
   const persistTimeline = React.useCallback(
     (
@@ -153,8 +208,8 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       newSelectedClipId?: string | null,
       newSelectedTransitionId?: string | null
     ) => {
-      if (!isHydrated) return;
-      saveStoredTimelineState({
+      if (!isHydrated) return false;
+      return persistPartial({
         clips: newClips,
         transitions: newTransitions,
         selectedClipId: newSelectedClipId !== undefined ? newSelectedClipId : selectedClipId,
@@ -162,7 +217,24 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           newSelectedTransitionId !== undefined ? newSelectedTransitionId : selectedTransitionId,
       });
     },
-    [isHydrated, selectedClipId, selectedTransitionId]
+    [isHydrated, persistPartial, selectedClipId, selectedTransitionId]
+  );
+
+  const dismissSaveError = React.useCallback(() => {
+    dispatchSaveStatus({ type: "dismiss" });
+  }, []);
+
+  // Persist playhead only at explicit boundaries (seek end, pause, frame step).
+  const playheadCommitGateRef = React.useRef(createPlayheadCommitGate());
+  const commitPlayhead = React.useCallback(
+    (time?: number) => {
+      if (!isHydrated) return;
+      const next = Math.max(0, time ?? playhead);
+      playheadCommitGateRef.current.commit(next, (seconds) => {
+        persistPartial({ playhead: seconds });
+      });
+    },
+    [isHydrated, persistPartial, playhead]
   );
 
   // Push current snapshot to undo stack before a mutation
@@ -184,22 +256,18 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const setProjectTitle = React.useCallback(
     (title: string) => {
       setLocalTitle(title);
-      if (isHydrated) {
-        saveStoredTimelineState({ projectTitle: title });
-      }
+      persistPartial({ projectTitle: title });
     },
-    [isHydrated]
+    [persistPartial]
   );
 
   const setZoom = React.useCallback(
     (newZoom: number) => {
       const clamped = Math.min(500, Math.max(10, newZoom));
       setLocalZoom(clamped);
-      if (isHydrated) {
-        saveStoredTimelineState({ zoom: clamped });
-      }
+      persistPartial({ zoom: clamped });
     },
-    [isHydrated]
+    [persistPartial]
   );
 
   const totalDuration = React.useMemo(() => {
@@ -224,14 +292,18 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   // Step playhead forward by exactly 1 frame at 30 fps
   const stepFrameForward = React.useCallback(() => {
     setIsPlaying(false);
-    setLocalPlayhead((prev) => stepFrame(prev ?? playhead, 1, totalDuration, TIMELINE_FPS));
-  }, [totalDuration, playhead]);
+    const next = stepFrame(playhead, 1, totalDuration, TIMELINE_FPS);
+    setLocalPlayhead(next);
+    commitPlayhead(next);
+  }, [totalDuration, playhead, commitPlayhead]);
 
   // Step playhead backward by exactly 1 frame at 30 fps
   const stepFrameBackward = React.useCallback(() => {
     setIsPlaying(false);
-    setLocalPlayhead((prev) => stepFrame(prev ?? playhead, -1, totalDuration, TIMELINE_FPS));
-  }, [totalDuration, playhead]);
+    const next = stepFrame(playhead, -1, totalDuration, TIMELINE_FPS);
+    setLocalPlayhead(next);
+    commitPlayhead(next);
+  }, [totalDuration, playhead, commitPlayhead]);
 
   const togglePlay = React.useCallback(() => {
     setIsPlaying((prev) => !prev);
@@ -240,6 +312,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const pause = React.useCallback(() => {
     setIsPlaying(false);
   }, []);
+
+  // Persist the final playhead when playback pauses or reaches the end.
+  const wasPlayingRef = React.useRef(false);
+  React.useEffect(() => {
+    const wasPlaying = wasPlayingRef.current;
+    wasPlayingRef.current = isPlaying;
+    if (isHydrated && wasPlaying && !isPlaying) {
+      commitPlayhead(playhead);
+    }
+  }, [isPlaying, isHydrated, playhead, commitPlayhead]);
 
   // Real-time playback loop for timeline clock
   React.useEffect(() => {
@@ -318,17 +400,70 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (clipId: string | null) => {
       setLocalSelectedClipId(clipId);
       if (clipId) setLocalSelectedTransitionId(null);
+      persistPartial(
+        clipId
+          ? { selectedClipId: clipId, selectedTransitionId: null }
+          : { selectedClipId: null }
+      );
     },
-    []
+    [persistPartial]
   );
 
   const selectTransition = React.useCallback(
     (transitionId: string | null) => {
       setLocalSelectedTransitionId(transitionId);
       if (transitionId) setLocalSelectedClipId(null);
+      persistPartial(
+        transitionId
+          ? { selectedClipId: null, selectedTransitionId: transitionId }
+          : { selectedTransitionId: null }
+      );
     },
-    []
+    [persistPartial]
   );
+
+  // Clear selections that refer to clips/transitions removed while the editor
+  // was closed, so stale IDs do not reappear after hydration.
+  React.useEffect(() => {
+    if (!isHydrated) return;
+
+    if (
+      storedState.selectedClipId &&
+      !clips.some((clip) => clip.id === storedState.selectedClipId)
+    ) {
+      persistPartial({ selectedClipId: null });
+    }
+
+    if (
+      storedState.selectedTransitionId &&
+      !transitions.some(
+        (transition) =>
+          transition.id === storedState.selectedTransitionId &&
+          clips.some((clip) => clip.id === transition.fromClipId) &&
+          clips.some((clip) => clip.id === transition.toClipId)
+      )
+    ) {
+      persistPartial({ selectedTransitionId: null });
+    }
+  }, [
+    isHydrated,
+    storedState.selectedClipId,
+    storedState.selectedTransitionId,
+    clips,
+    transitions,
+    persistPartial,
+  ]);
+
+  // Register asset references for safe media deletion without importing the
+  // timeline context from the media library.
+  React.useEffect(() => {
+    if (!isHydrated) return;
+    registerTimelineAssetReferences(clips);
+  }, [isHydrated, clips]);
+
+  React.useEffect(() => {
+    return () => clearRegisteredTimelineAssetReferences();
+  }, []);
 
   const selectedClip = React.useMemo(() => {
     if (!selectedClipId) return null;
@@ -711,11 +846,12 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   // 12. FIT VISUALS TO VOICEOVER ACTION
   const fitVisualsToVoiceover = React.useCallback(() => {
-    const result = calculateFitVisualsToVoiceover(clips);
+    const result = calculateFitVisualsToVoiceover(clips, transitions);
     if (result.success) {
       pushHistorySnapshot(clips, transitions);
       setLocalClips(result.updatedClips);
-      persistTimeline(result.updatedClips, transitions);
+      setLocalTransitions(result.updatedTransitions);
+      persistTimeline(result.updatedClips, result.updatedTransitions);
     }
     return { success: result.success, message: result.message };
   }, [clips, transitions, pushHistorySnapshot, persistTimeline]);
@@ -851,9 +987,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         projectTitle,
         canUndo,
         canRedo,
+        saveError: saveStatus.error,
+        isDirty: saveStatus.isDirty,
         setProjectTitle,
         setPlayhead,
+        commitPlayhead,
         seek,
+        dismissSaveError,
         stepFrameForward,
         stepFrameBackward,
         togglePlay,

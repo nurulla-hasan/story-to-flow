@@ -34,6 +34,50 @@ export function classifyMediaFile(file: File): MediaCategory | null {
 }
 
 /**
+ * Build the identity used for duplicate detection. This intentionally mirrors
+ * the existing sequential-import rule (name + size + lastModified) instead of
+ * hashing file bytes.
+ */
+export function getMediaFingerprint(file: {
+  name: string;
+  size: number;
+  lastModified: number;
+}): string {
+  return `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+}
+
+export interface MediaFingerprintRegistry {
+  /** Reserve a fingerprint. Returns false when it was already present. */
+  reserve: (file: { name: string; size: number; lastModified: number }) => boolean;
+  /** Release a failed import so an identical later file can retry. */
+  release: (file: { name: string; size: number; lastModified: number }) => void;
+}
+
+/**
+ * Per-batch duplicate guard. Existing library items are seeded synchronously,
+ * then each file is reserved before any asynchronous metadata/storage work so
+ * two identical files in one selection cannot both be imported.
+ */
+export function createMediaFingerprintRegistry(
+  existingFiles: Iterable<{ name: string; size: number; lastModified: number }> = []
+): MediaFingerprintRegistry {
+  const seen = new Set(Array.from(existingFiles, getMediaFingerprint));
+
+  return {
+    reserve(file) {
+      const fingerprint = getMediaFingerprint(file);
+      if (seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    },
+    release(file) {
+      seen.delete(getMediaFingerprint(file));
+    },
+  };
+}
+
+
+/**
  * Format raw byte size into human readable string (KB, MB, GB)
  */
 export function formatBytes(bytes: number): string {

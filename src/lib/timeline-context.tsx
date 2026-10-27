@@ -22,6 +22,7 @@ import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
 import {
   validateTransitionDuration,
   areClipsAdjacentForTransition,
+  applyToAllTransitions as executeApplyToAll,
 } from "@/lib/transition-helpers";
 import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
 
@@ -62,6 +63,7 @@ export interface TimelineContextType {
   addTransition: (fromClipId: string, toClipId: string, type?: TransitionType, duration?: number) => void;
   updateTransition: (transitionId: string, updates: Partial<TimelineTransition>) => void;
   deleteTransition: (transitionId: string) => void;
+  applyToAllTransitions: (sourceTransitionId: string) => { success: boolean; message: string; count: number };
   fitVisualsToVoiceover: () => { success: boolean; message: string };
   undo: () => void;
   redo: () => void;
@@ -652,7 +654,26 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, transitions, selectedTransitionId, selectedClipId, pushHistorySnapshot, persistTimeline]
   );
 
-  // 11. FIT VISUALS TO VOICEOVER ACTION
+  // 11. APPLY TO ALL TRANSITIONS
+  const applyAllTransitions = React.useCallback(
+    (sourceTransitionId: string) => {
+      const source = transitions.find((t) => t.id === sourceTransitionId);
+      if (!source) {
+        return { success: false, message: "Selected transition not found.", count: 0 };
+      }
+
+      pushHistorySnapshot(clips, transitions);
+
+      const result = executeApplyToAll(source, transitions, clips);
+      setLocalTransitions(result.updatedTransitions);
+      persistTimeline(clips, result.updatedTransitions);
+
+      return { success: true, message: result.message, count: result.count };
+    },
+    [transitions, clips, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 12. FIT VISUALS TO VOICEOVER ACTION
   const fitVisualsToVoiceover = React.useCallback(() => {
     const result = calculateFitVisualsToVoiceover(clips);
     if (result.success) {
@@ -816,6 +837,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         addTransition,
         updateTransition,
         deleteTransition,
+        applyToAllTransitions: applyAllTransitions,
         fitVisualsToVoiceover,
         undo,
         redo,

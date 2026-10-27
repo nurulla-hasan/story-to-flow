@@ -15,6 +15,8 @@ import {
   Volume2,
   Layers,
   Sparkles,
+  CopyCheck,
+  CheckCircle2,
 } from "lucide-react";
 import {
   Card,
@@ -48,7 +50,16 @@ export function ClipInspectorPanel() {
     addTransition,
     updateTransition,
     deleteTransition,
+    applyToAllTransitions,
   } = useTimeline();
+
+  const [applyFeedback, setApplyFeedback] = React.useState<string | null>(null);
+
+  const handleApplyToAll = (transitionId: string) => {
+    const res = applyToAllTransitions(transitionId);
+    setApplyFeedback(res.message);
+    setTimeout(() => setApplyFeedback(null), 4000);
+  };
 
   const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
@@ -219,6 +230,32 @@ export function ClipInspectorPanel() {
                 <span>0.2s</span>
                 <span>Max: 1.5s</span>
               </div>
+            </div>
+
+            {/* Apply to All Transitions Action Button */}
+            <div className="space-y-1.5 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleApplyToAll(selectedTransition.id)}
+                disabled={transitions.length <= 1}
+                className="w-full gap-1.5 text-xs"
+                title={
+                  transitions.length <= 1
+                    ? "Only 1 transition on timeline"
+                    : `Apply ${selectedTransition.type.replace("-", " ")} (${selectedTransition.duration.toFixed(2)}s) to all ${transitions.length} transitions`
+                }
+              >
+                <CopyCheck className="size-3.5" />
+                <span>Apply to All Transitions ({transitions.length})</span>
+              </Button>
+
+              {applyFeedback && (
+                <div className="flex items-start gap-1.5 p-2 rounded-md bg-primary/10 border border-primary/20 text-3xs text-primary font-medium animate-in fade-in leading-relaxed">
+                  <CheckCircle2 className="size-3.5 shrink-0 mt-0.5" />
+                  <span>{applyFeedback}</span>
+                </div>
+              )}
             </div>
 
             {/* Remove Transition Button */}
@@ -404,6 +441,30 @@ export function ClipInspectorPanel() {
                       }
                       className="w-full accent-primary cursor-pointer"
                     />
+
+                    {/* Apply to All Transitions Action Button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleApplyToAll(transitionToNext.existing!.id)}
+                      disabled={transitions.length <= 1}
+                      className="w-full gap-1 text-xs"
+                      title={
+                        transitions.length <= 1
+                          ? "Only 1 transition on timeline"
+                          : `Apply ${transitionToNext.existing.type.replace("-", " ")} (${transitionToNext.existing.duration.toFixed(2)}s) to all ${transitions.length} transitions`
+                      }
+                    >
+                      <CopyCheck className="size-3" />
+                      <span>Apply to All Transitions ({transitions.length})</span>
+                    </Button>
+
+                    {applyFeedback && (
+                      <div className="flex items-start gap-1 p-1.5 rounded-md bg-primary/10 border border-primary/20 text-3xs text-primary font-medium animate-in fade-in leading-relaxed">
+                        <CheckCircle2 className="size-3 shrink-0 mt-0.5" />
+                        <span>{applyFeedback}</span>
+                      </div>
+                    )}
 
                     <Button
                       variant="outline"

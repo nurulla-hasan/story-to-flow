@@ -114,6 +114,70 @@ export function findAdjacentClipPairs(
   return pairs;
 }
 
+export interface ApplyToAllTransitionsResult {
+  updatedTransitions: TimelineTransition[];
+  count: number;
+  clampedCount: number;
+  message: string;
+}
+
+/**
+ * Apply a source transition's type and duration to all eligible existing transitions.
+ * - Preserves transition IDs and clip associations.
+ * - Validates each duration against the specific connecting clips' boundaries.
+ * - Returns updated transitions and a user-facing summary message.
+ */
+export function applyToAllTransitions(
+  sourceTransition: TimelineTransition,
+  allTransitions: TimelineTransition[],
+  allClips: TimelineClip[]
+): ApplyToAllTransitionsResult {
+  if (allTransitions.length === 0) {
+    return {
+      updatedTransitions: allTransitions,
+      count: 0,
+      clampedCount: 0,
+      message: "No transitions found to update.",
+    };
+  }
+
+  let clampedCount = 0;
+  const updatedTransitions = allTransitions.map((t) => {
+    // If it's the source transition itself, keep its current validated parameters
+    if (t.id === sourceTransition.id) {
+      return { ...t, type: sourceTransition.type, duration: sourceTransition.duration };
+    }
+
+    const fromClip = allClips.find((c) => c.id === t.fromClipId);
+    const toClip = allClips.find((c) => c.id === t.toClipId);
+
+    const safeDuration = validateTransitionDuration(sourceTransition.duration, fromClip, toClip);
+    if (safeDuration !== sourceTransition.duration) {
+      clampedCount++;
+    }
+
+    return {
+      ...t,
+      type: sourceTransition.type,
+      duration: safeDuration,
+    };
+  });
+
+  const count = updatedTransitions.length;
+  const typeLabel = sourceTransition.type.replace("-", " ");
+  let message = `Applied ${typeLabel} (${sourceTransition.duration.toFixed(2)}s) to all ${count} transitions.`;
+  if (clampedCount > 0) {
+    message += ` (${clampedCount} were clamped to fit shorter clips).`;
+  }
+
+  return {
+    updatedTransitions,
+    count,
+    clampedCount,
+    message,
+  };
+}
+
 export const TRANSITION_PRESETS: Array<{
   type: TransitionType;
   label: string;

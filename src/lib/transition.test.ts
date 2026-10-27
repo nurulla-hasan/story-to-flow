@@ -6,6 +6,7 @@ import {
   getTransitionWindow,
   getTransitionProgress,
   findAdjacentClipPairs,
+  applyToAllTransitions,
   TRANSITION_PRESETS,
   MIN_TRANSITION_DURATION,
 } from "./transition-helpers";
@@ -193,5 +194,50 @@ describe("Visual Transitions Validation & Math", () => {
     expect(types).toContain("fade-black");
     expect(types).toContain("slide-left");
     expect(types).toContain("slide-right");
+  });
+});
+
+describe("Apply to All Transitions Engine", () => {
+  const c1: TimelineClip = { id: "c1", assetId: "a1", name: "1.png", type: "image", trackId: "visual-1", startTime: 0, duration: 4.0, inPoint: 0, outPoint: 4.0 };
+  const c2: TimelineClip = { id: "c2", assetId: "a2", name: "2.png", type: "image", trackId: "visual-1", startTime: 4.0, duration: 4.0, inPoint: 0, outPoint: 4.0 };
+  const c3: TimelineClip = { id: "c3", assetId: "a3", name: "3.png", type: "image", trackId: "visual-1", startTime: 8.0, duration: 1.0, inPoint: 0, outPoint: 1.0 }; // Short clip! (1.0s -> max transition 0.5s)
+  const allClips = [c1, c2, c3];
+
+  const t1: TimelineTransition = { id: "t1", type: "cross-dissolve", duration: 0.5, fromClipId: "c1", toClipId: "c2", trackId: "visual-1" };
+  const t2: TimelineTransition = { id: "t2", type: "fade-black", duration: 0.3, fromClipId: "c2", toClipId: "c3", trackId: "visual-1" };
+  const initialTransitions = [t1, t2];
+
+  it("applies source transition type and duration to all existing transitions", () => {
+    const source: TimelineTransition = { ...t1, type: "slide-left", duration: 0.4 };
+    const res = applyToAllTransitions(source, initialTransitions, allClips);
+
+    expect(res.count).toBe(2);
+    expect(res.clampedCount).toBe(0);
+    expect(res.updatedTransitions[0].type).toBe("slide-left");
+    expect(res.updatedTransitions[0].duration).toBe(0.4);
+    expect(res.updatedTransitions[1].type).toBe("slide-left");
+    expect(res.updatedTransitions[1].duration).toBe(0.4);
+    expect(res.updatedTransitions[0].id).toBe("t1"); // Preserves ID!
+    expect(res.updatedTransitions[1].id).toBe("t2"); // Preserves ID!
+  });
+
+  it("clamps duration for transitions connecting shorter clips and reports clamped count", () => {
+    // Attempt to apply 1.2s transition:
+    // For t2 (c2: 4.0s, c3: 1.0s), max allowed duration is 0.5s (half of c3)
+    const source: TimelineTransition = { ...t1, type: "fade-black", duration: 1.2 };
+    const res = applyToAllTransitions(source, initialTransitions, allClips);
+
+    expect(res.count).toBe(2);
+    expect(res.clampedCount).toBe(1); // t2 was clamped
+    expect(res.updatedTransitions[0].duration).toBe(1.2);
+    expect(res.updatedTransitions[1].duration).toBe(0.5); // Clamped at 0.5s!
+    expect(res.message).toContain("1 were clamped");
+  });
+
+  it("handles empty transition list gracefully", () => {
+    const source: TimelineTransition = t1;
+    const res = applyToAllTransitions(source, [], allClips);
+    expect(res.count).toBe(0);
+    expect(res.updatedTransitions.length).toBe(0);
   });
 });

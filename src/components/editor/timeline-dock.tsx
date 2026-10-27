@@ -34,6 +34,7 @@ import {
   isAudioTrack,
 } from "@/types/timeline";
 import { findAdjacentClipPairs } from "@/lib/transition-helpers";
+import { calculateLeftTrim, calculateRightTrim } from "@/lib/timeline-trim";
 
 export function TimelineDock() {
   const {
@@ -44,8 +45,9 @@ export function TimelineDock() {
     selectedTransitionId,
     selectClip,
     selectTransition,
-    moveClip,
-    trimClip,
+    setClipsTransient,
+    commitClipGesture,
+    cancelClipGesture,
     splitClipAtPlayhead,
     deleteClip,
     duplicateClip,
@@ -72,6 +74,44 @@ export function TimelineDock() {
 
   const rulerRef = React.useRef<HTMLDivElement>(null);
   const tracksScrollRef = React.useRef<HTMLDivElement>(null);
+
+  // CapCut-style horizontal mouse wheel and trackpad panning over timeline container
+  React.useEffect(() => {
+    const scrollEl = tracksScrollRef.current;
+    if (!scrollEl) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Do not hijack browser zoom or pinch-to-zoom (Ctrl/Cmd)
+      if (e.ctrlKey || e.metaKey) return;
+
+      // Detect horizontal delta (trackpad / Shift+wheel) or convert standard mouse-wheel deltaY to horizontal pan
+      let delta = 0;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        delta = e.deltaX;
+      } else {
+        delta = e.deltaY;
+      }
+
+      if (delta === 0) return;
+
+      const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth;
+      if (maxScrollLeft <= 0) return;
+
+      const currentScroll = scrollEl.scrollLeft;
+      const canScrollLeft = delta < 0 && currentScroll > 0;
+      const canScrollRight = delta > 0 && currentScroll < maxScrollLeft;
+
+      if (canScrollLeft || canScrollRight) {
+        e.preventDefault();
+        scrollEl.scrollLeft += delta;
+      }
+    };
+
+    scrollEl.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      scrollEl.removeEventListener("wheel", handleWheel);
+    };
+  }, []);
 
   // Ruler tick intervals: step by 1s, 2s, or 5s depending on zoom
   const step = zoom >= 140 ? 1 : zoom <= 75 ? 5 : 2;
@@ -126,25 +166,25 @@ export function TimelineDock() {
     [clips, playhead]
   );
 
-  // Interactive Clip Move Dragging Handler with Magnetic Snapping
+  // Interactive Clip Move Dragging Handler with Magnetic Snapping & Single Undo History Entry
   const startMoveDrag = (e: React.PointerEvent, clip: TimelineClip) => {
     e.stopPropagation();
     selectClip(clip.id);
 
     const startX = e.clientX;
+    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
     const initialStart = clip.startTime;
-    const snapThresholdSec = 10 / pxPerSec; // 10px snap window
+    const snapThresholdSec = 10 / pxPerSec;
     const snapPoints = getSnapPoints(clip.id);
+    let latestClips = initialClips;
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       let rawStart = Math.max(0, initialStart + deltaX / pxPerSec);
       let snapped = false;
 
-      // Magnetic Snapping (can be bypassed by holding Shift)
       if (snapEnabled && !moveEvent.shiftKey) {
         const rawEnd = rawStart + clip.duration;
-
         for (const pt of snapPoints) {
           if (Math.abs(rawStart - pt) <= snapThresholdSec) {
             rawStart = pt;
@@ -165,39 +205,65 @@ export function TimelineDock() {
         setActiveSnapGuide(null);
       }
 
-      moveClip(clip.id, rawStart);
+      latestClips = initialClips.map((c) =>
+        c.id === clip.id ? { ...c, startTime: rawStart } : c
+      );
+      setClipsTransient(latestClips);
     };
 
-    const onPointerUp = () => {
+    const cleanup = () => {
       setActiveSnapGuide(null);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+
+    const onPointerUp = () => {
+      cleanup();
+      commitClipGesture(initialClips, latestClips);
+    };
+
+    const onPointerCancel = () => {
+      cleanup();
+      cancelClipGesture(initialClips);
+    };
+
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") {
+        cleanup();
+        cancelClipGesture(initialClips);
+      }
     };
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onKeyDown);
   };
 
-  // Interactive Clip Trim Dragging Handler with Magnetic Snapping
-  const startTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
+  // Interactive Clip LEFT-EDGE Trim Dragging Handler (In-Point & Anchored Right Edge)
+  const startLeftTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
     e.stopPropagation();
     selectClip(clip.id);
 
     const startX = e.clientX;
-    const initialDuration = clip.duration;
+    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
+    const initialStartTime = clip.startTime;
     const snapThresholdSec = 10 / pxPerSec;
     const snapPoints = getSnapPoints(clip.id);
+    let latestClips = initialClips;
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      let rawDuration = Math.max(0.5, initialDuration + deltaX / pxPerSec);
-      const rawEnd = clip.startTime + rawDuration;
+      let deltaSec = deltaX / pxPerSec;
       let snapped = false;
 
       if (snapEnabled && !moveEvent.shiftKey) {
+        const proposedStart = initialStartTime + deltaSec;
         for (const pt of snapPoints) {
-          if (pt > clip.startTime && Math.abs(rawEnd - pt) <= snapThresholdSec) {
-            rawDuration = Math.max(0.5, pt - clip.startTime);
+          if (Math.abs(proposedStart - pt) <= snapThresholdSec) {
+            deltaSec = pt - initialStartTime;
             setActiveSnapGuide(pt);
             snapped = true;
             break;
@@ -209,17 +275,129 @@ export function TimelineDock() {
         setActiveSnapGuide(null);
       }
 
-      trimClip(clip.id, rawDuration);
+      const trimResult = calculateLeftTrim(clip, deltaSec);
+      latestClips = initialClips.map((c) =>
+        c.id === clip.id
+          ? {
+              ...c,
+              startTime: trimResult.startTime,
+              duration: trimResult.duration,
+              inPoint: trimResult.inPoint,
+              outPoint: trimResult.outPoint,
+            }
+          : c
+      );
+      setClipsTransient(latestClips);
     };
 
-    const onPointerUp = () => {
+    const cleanup = () => {
       setActiveSnapGuide(null);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+
+    const onPointerUp = () => {
+      cleanup();
+      commitClipGesture(initialClips, latestClips);
+    };
+
+    const onPointerCancel = () => {
+      cleanup();
+      cancelClipGesture(initialClips);
+    };
+
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") {
+        cleanup();
+        cancelClipGesture(initialClips);
+      }
     };
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onKeyDown);
+  };
+
+  // Interactive Clip RIGHT-EDGE Trim Dragging Handler (Duration & Anchored Start Time)
+  const startRightTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
+    e.stopPropagation();
+    selectClip(clip.id);
+
+    const startX = e.clientX;
+    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
+    const initialEndTime = clip.startTime + clip.duration;
+    const snapThresholdSec = 10 / pxPerSec;
+    const snapPoints = getSnapPoints(clip.id);
+    let latestClips = initialClips;
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      let deltaSec = deltaX / pxPerSec;
+      let snapped = false;
+
+      if (snapEnabled && !moveEvent.shiftKey) {
+        const proposedEnd = initialEndTime + deltaSec;
+        for (const pt of snapPoints) {
+          if (pt > clip.startTime && Math.abs(proposedEnd - pt) <= snapThresholdSec) {
+            deltaSec = pt - initialEndTime;
+            setActiveSnapGuide(pt);
+            snapped = true;
+            break;
+          }
+        }
+      }
+
+      if (!snapped) {
+        setActiveSnapGuide(null);
+      }
+
+      const trimResult = calculateRightTrim(clip, deltaSec);
+      latestClips = initialClips.map((c) =>
+        c.id === clip.id
+          ? {
+              ...c,
+              startTime: trimResult.startTime,
+              duration: trimResult.duration,
+              inPoint: trimResult.inPoint,
+              outPoint: trimResult.outPoint,
+            }
+          : c
+      );
+      setClipsTransient(latestClips);
+    };
+
+    const cleanup = () => {
+      setActiveSnapGuide(null);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+
+    const onPointerUp = () => {
+      cleanup();
+      commitClipGesture(initialClips, latestClips);
+    };
+
+    const onPointerCancel = () => {
+      cleanup();
+      cancelClipGesture(initialClips);
+    };
+
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") {
+        cleanup();
+        cancelClipGesture(initialClips);
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onKeyDown);
   };
 
   // Multi-Track Layers Separation
@@ -230,7 +408,7 @@ export function TimelineDock() {
   const hasAudio = audioClips.length > 0;
   const hasVisual = visualLayer1Clips.length > 0 || visualLayer2Clips.length > 0;
 
-  // Render a visual track lane with clips and transition seam badges
+  // Render a visual track lane with dual-edge trim handles, clips, and transition seam badges
   const renderVisualTrackLane = (trackId: "visual-1" | "visual-2", trackClips: TimelineClip[]) => {
     const adjacentPairs = findAdjacentClipPairs(trackClips);
 
@@ -251,11 +429,11 @@ export function TimelineDock() {
           </div>
         ) : (
           <>
-            {/* Visual Clips on Track */}
+            {/* Visual Clips on Track with Dual-Edge Trim Handles */}
             {trackClips.map((clip) => {
               const isSelected = clip.id === selectedClipId;
               const leftPos = clip.startTime * pxPerSec;
-              const widthPx = Math.max(20, clip.duration * pxPerSec);
+              const widthPx = Math.max(24, clip.duration * pxPerSec);
               const asset = assets.find((a) => a.id === clip.assetId);
 
               return (
@@ -266,13 +444,23 @@ export function TimelineDock() {
                     width: `${widthPx}px`,
                   }}
                   onPointerDown={(e) => startMoveDrag(e, clip)}
-                  className={`group absolute h-8 rounded-md border flex items-center justify-between px-1.5 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
+                  className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
                     isSelected
                       ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
                       : "border-border bg-card hover:border-primary/50"
                   }`}
                 >
-                  <div className="flex items-center gap-1 min-w-0 pointer-events-none">
+                  {/* Left-edge trim handle (in-point & anchored right edge) */}
+                  <div
+                    onPointerDown={(e) => startLeftTrimDrag(e, clip)}
+                    className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
+                    title="Drag to trim start (in-point)"
+                  >
+                    <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                  </div>
+
+                  {/* Clip info & thumbnail */}
+                  <div className="flex items-center gap-1 min-w-0 pointer-events-none px-1">
                     {asset?.thumbnailUrl || asset?.url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -288,15 +476,18 @@ export function TimelineDock() {
                     </span>
                   </div>
 
-                  <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none">
+                  <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none pr-1">
                     {clip.duration.toFixed(1)}s
                   </span>
 
+                  {/* Right-edge trim handle (duration & anchored start time) */}
                   <div
-                    onPointerDown={(e) => startTrimDrag(e, clip)}
-                    className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r"
-                    title="Drag to trim duration"
-                  />
+                    onPointerDown={(e) => startRightTrimDrag(e, clip)}
+                    className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
+                    title="Drag to trim end (duration)"
+                  >
+                    <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                  </div>
                 </div>
               );
             })}
@@ -319,7 +510,7 @@ export function TimelineDock() {
                     top: "50%",
                     transform: "translate(-50%, -50%)",
                   }}
-                  className="absolute z-20 flex items-center justify-center pointer-events-auto"
+                  className="absolute z-30 flex items-center justify-center pointer-events-auto"
                 >
                   {existingTrans ? (
                     /* Active Transition Indicator Button (CapCut style 20x20) */
@@ -538,7 +729,7 @@ export function TimelineDock() {
               {/* Dynamic Playhead Scrubber Line */}
               <div
                 style={{ left: `${144 + playhead * pxPerSec}px` }}
-                className="absolute top-0 bottom-0 z-30 flex flex-col items-center pointer-events-none transition-transform duration-75"
+                className="absolute top-0 bottom-0 z-40 flex flex-col items-center pointer-events-none transition-transform duration-75"
               >
                 <div className="size-2.5 rotate-45 bg-primary -mt-1 shadow-sm" />
                 <div className="w-0.5 flex-1 bg-primary" />
@@ -548,7 +739,7 @@ export function TimelineDock() {
               {activeSnapGuide !== null && (
                 <div
                   style={{ left: `${144 + activeSnapGuide * pxPerSec}px` }}
-                  className="absolute top-0 bottom-0 z-40 w-px bg-info pointer-events-none shadow-sm"
+                  className="absolute top-0 bottom-0 z-50 w-px bg-info pointer-events-none shadow-sm"
                 />
               )}
 
@@ -637,7 +828,7 @@ export function TimelineDock() {
                     audioClips.map((clip) => {
                       const isSelected = clip.id === selectedClipId;
                       const leftPos = clip.startTime * pxPerSec;
-                      const widthPx = Math.max(20, clip.duration * pxPerSec);
+                      const widthPx = Math.max(24, clip.duration * pxPerSec);
                       const asset = assets.find((a) => a.id === clip.assetId);
 
                       return (
@@ -654,27 +845,39 @@ export function TimelineDock() {
                               : "border-border bg-card hover:border-primary/50"
                           }`}
                         >
+                          {/* Left-edge trim handle */}
+                          <div
+                            onPointerDown={(e) => startLeftTrimDrag(e, clip)}
+                            className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
+                            title="Drag to trim start (in-point)"
+                          >
+                            <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                          </div>
+
                           {/* Real Audio Waveform Visualization in background */}
                           <div className="absolute inset-0 flex items-center justify-center px-1 overflow-hidden pointer-events-none opacity-30">
                             <AudioWaveformView blob={asset?.blob || null} clipDuration={clip.duration} />
                           </div>
 
-                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10">
+                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10 px-1">
                             <Mic className="size-3 text-primary shrink-0" />
                             <span className="text-3xs font-medium text-foreground truncate">
                               {clip.name}
                             </span>
                           </div>
 
-                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10">
+                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10 pr-1">
                             {clip.duration.toFixed(1)}s
                           </span>
 
+                          {/* Right-edge trim handle */}
                           <div
-                            onPointerDown={(e) => startTrimDrag(e, clip)}
-                            className="absolute right-0 top-0 bottom-0 w-2 hover:w-3 bg-primary/30 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20"
+                            onPointerDown={(e) => startRightTrimDrag(e, clip)}
+                            className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
                             title="Drag to trim duration"
-                          />
+                          >
+                            <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                          </div>
                         </div>
                       );
                     })

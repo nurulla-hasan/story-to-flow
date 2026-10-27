@@ -49,6 +49,9 @@ export interface TimelineContextType {
   addAssetToTimeline: (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, trackId?: TrackId, startTime?: number) => void;
   moveClip: (clipId: string, newStartTime: number) => void;
   trimClip: (clipId: string, newDuration: number) => void;
+  setClipsTransient: (newClips: TimelineClip[]) => void;
+  commitClipGesture: (originalClips: TimelineClip[], finalClips: TimelineClip[]) => void;
+  cancelClipGesture: (originalClips: TimelineClip[]) => void;
   updateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   splitClipAtPlayhead: (clipId?: string) => void;
   deleteClip: (clipId: string) => void;
@@ -422,6 +425,39 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
+  // Transient clip update (during real-time drag gestures, without pushing history)
+  const setClipsTransient = React.useCallback((newClips: TimelineClip[]) => {
+    setLocalClips(newClips);
+  }, []);
+
+  // Commit completed drag gesture as one single undoable history snapshot
+  const commitClipGesture = React.useCallback(
+    (originalClips: TimelineClip[], finalClips: TimelineClip[]) => {
+      const changed = JSON.stringify(originalClips) !== JSON.stringify(finalClips);
+      if (!changed) return;
+
+      pushHistorySnapshot(originalClips, transitions);
+
+      // Validate transitions after move or trim
+      const validTransitions = transitions.filter((t) => {
+        const from = finalClips.find((c) => c.id === t.fromClipId);
+        const to = finalClips.find((c) => c.id === t.toClipId);
+        if (!from || !to) return false;
+        return areClipsAdjacentForTransition(from, to);
+      });
+
+      setLocalClips(finalClips);
+      setLocalTransitions(validTransitions);
+      persistTimeline(finalClips, validTransitions);
+    },
+    [transitions, pushHistorySnapshot, persistTimeline]
+  );
+
+  // Safely cancel in-progress gesture without corrupting state
+  const cancelClipGesture = React.useCallback((originalClips: TimelineClip[]) => {
+    setLocalClips(originalClips);
+  }, []);
+
   // 4. UPDATE CLIP GENERAL PROPERTIES
   const updateClip = React.useCallback(
     (clipId: string, updates: Partial<TimelineClip>) => {
@@ -736,6 +772,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         addAssetToTimeline,
         moveClip,
         trimClip,
+        setClipsTransient,
+        commitClipGesture,
+        cancelClipGesture,
         updateClip,
         splitClipAtPlayhead,
         deleteClip,

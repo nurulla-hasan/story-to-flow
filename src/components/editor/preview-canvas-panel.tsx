@@ -133,9 +133,13 @@ export function PreviewCanvasPanel() {
       [fromClip, toClip].forEach((clip) => {
         const vid = videoRefs.current.get(clip.id);
         if (vid) {
-          const targetTime = (playhead - clip.startTime) + clip.inPoint;
+          const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+          const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
           if (Math.abs(vid.currentTime - targetTime) > 0.15) {
             vid.currentTime = Math.max(0, targetTime);
+          }
+          if (vid.playbackRate !== speed) {
+            vid.playbackRate = speed;
           }
           if (isPlaying) {
             vid.play().catch(() => {});
@@ -150,9 +154,13 @@ export function PreviewCanvasPanel() {
     activeVisuals.forEach((clip) => {
       const vid = videoRefs.current.get(clip.id);
       if (vid) {
-        const targetTime = (playhead - clip.startTime) + clip.inPoint;
+        const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+        const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
         if (Math.abs(vid.currentTime - targetTime) > 0.15) {
           vid.currentTime = Math.max(0, targetTime);
+        }
+        if (vid.playbackRate !== speed) {
+          vid.playbackRate = speed;
         }
         if (isPlaying) {
           vid.play().catch(() => {});
@@ -173,11 +181,12 @@ export function PreviewCanvasPanel() {
     const transform = sanitizeClipTransform(clip.transform);
     const isSelected = clip.id === selectedClipId;
 
+    const transformStr = `translate(${transform.x * 100}%, ${transform.y * 100}%) scale(${transform.scale}) rotate(${transform.rotation || 0}deg)`;
     const nodeStyle: React.CSSProperties = {
       ...baseStyle,
       transform: baseStyle?.transform
-        ? `${baseStyle.transform} translate(${transform.x * 100}%, ${transform.y * 100}%) scale(${transform.scale})`
-        : `translate(${transform.x * 100}%, ${transform.y * 100}%) scale(${transform.scale})`,
+        ? `${baseStyle.transform} ${transformStr}`
+        : transformStr,
       transformOrigin: "center center",
     };
 

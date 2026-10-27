@@ -554,9 +554,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       pushHistorySnapshot(clips, transitions);
 
+      const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
       let clampedDuration = Math.max(MIN_CLIP_DURATION, newDuration);
       if (target.sourceDuration && target.sourceDuration > 0) {
-        const remaining = target.sourceDuration - target.inPoint;
+        const remaining = (target.sourceDuration - target.inPoint) / speed;
         clampedDuration = Math.min(clampedDuration, remaining);
       }
 
@@ -565,7 +566,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           ? {
               ...c,
               duration: clampedDuration,
-              outPoint: c.inPoint + clampedDuration,
+              outPoint: c.inPoint + clampedDuration * speed,
             }
           : c
       );
@@ -659,6 +660,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       pushHistorySnapshot(clips, transitions);
 
+      const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
       const splitOffset = playhead - clip.startTime;
       const part1Duration = splitOffset;
       const part2Duration = clip.duration - splitOffset;
@@ -666,7 +668,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const part1: TimelineClip = {
         ...clip,
         duration: part1Duration,
-        outPoint: clip.inPoint + part1Duration,
+        outPoint: clip.inPoint + part1Duration * speed,
       };
 
       const part2: TimelineClip = {
@@ -674,7 +676,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         startTime: playhead,
         duration: part2Duration,
-        inPoint: clip.inPoint + splitOffset,
+        inPoint: clip.inPoint + splitOffset * speed,
         outPoint: clip.outPoint,
       };
 

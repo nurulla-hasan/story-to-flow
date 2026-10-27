@@ -30,7 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
-import { isVisualTrack, isAudioTrack, type TransitionType } from "@/types/timeline";
+import { isVisualTrack, isAudioTrack, type TransitionType, type TimelineClip } from "@/types/timeline";
 import {
   DEFAULT_CLIP_TRANSFORM,
   sanitizeClipTransform,
@@ -390,7 +390,8 @@ export function ClipInspectorPanel() {
               const isDefault =
                 transform.x === DEFAULT_CLIP_TRANSFORM.x &&
                 transform.y === DEFAULT_CLIP_TRANSFORM.y &&
-                transform.scale === DEFAULT_CLIP_TRANSFORM.scale;
+                transform.scale === DEFAULT_CLIP_TRANSFORM.scale &&
+                (transform.rotation || 0) === (DEFAULT_CLIP_TRANSFORM.rotation || 0);
 
               return (
                 <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
@@ -408,7 +409,7 @@ export function ClipInspectorPanel() {
                           })
                         }
                         className="text-3xs text-muted-foreground hover:text-primary flex items-center gap-1 cursor-pointer transition-colors"
-                        title="Reset position and scale to default (100%)"
+                        title="Reset position, scale, and rotation to default"
                       >
                         <RotateCcw className="size-2.5" />
                         <span>Reset</span>
@@ -500,6 +501,53 @@ export function ClipInspectorPanel() {
                       />
                     </div>
                   </div>
+
+                  {/* Rotation Slider & Quick 90° Rotate */}
+                  <div className="space-y-1 pt-1">
+                    <div className="flex items-center justify-between text-3xs">
+                      <span className="text-muted-foreground">Rotation</span>
+                      <span className="font-mono text-muted-foreground">
+                        {Math.round(transform.rotation || 0)}°
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="-180"
+                        max="180"
+                        step="1"
+                        value={Math.round(transform.rotation || 0)}
+                        onChange={(e) => {
+                          const rotVal = Number(e.target.value);
+                          updateClip(selectedClip.id, {
+                            transform: sanitizeClipTransform({
+                              ...transform,
+                              rotation: rotVal,
+                            }),
+                          });
+                        }}
+                        aria-label="Transform rotation"
+                        className="w-full accent-primary cursor-pointer h-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentRot = transform.rotation || 0;
+                          const nextRot = (((currentRot + 90 + 180) % 360) - 180);
+                          updateClip(selectedClip.id, {
+                            transform: sanitizeClipTransform({
+                              ...transform,
+                              rotation: nextRot,
+                            }),
+                          });
+                        }}
+                        className="px-1.5 py-0.5 text-3xs rounded border border-border bg-secondary hover:bg-muted font-mono cursor-pointer transition-colors shrink-0"
+                        title="Rotate 90 degrees clockwise"
+                      >
+                        +90°
+                      </button>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
@@ -529,7 +577,11 @@ export function ClipInspectorPanel() {
                 min="0.5"
                 max={
                   selectedClip.sourceDuration && selectedClip.sourceDuration > 0
-                    ? Math.max(0.5, selectedClip.sourceDuration - selectedClip.inPoint)
+                    ? Math.max(
+                        0.5,
+                        (selectedClip.sourceDuration - selectedClip.inPoint) /
+                          (selectedClip.speed || 1.0)
+                      )
                     : 30
                 }
                 step="0.1"
@@ -544,7 +596,10 @@ export function ClipInspectorPanel() {
                 <span>
                   Max:{" "}
                   {selectedClip.sourceDuration && selectedClip.sourceDuration > 0
-                    ? `${selectedClip.sourceDuration.toFixed(1)}s`
+                    ? `${(
+                        (selectedClip.sourceDuration - selectedClip.inPoint) /
+                        (selectedClip.speed || 1.0)
+                      ).toFixed(1)}s`
                     : "30.0s"}
                 </span>
               </div>
@@ -781,7 +836,25 @@ export function ClipInspectorPanel() {
                         key={s}
                         type="button"
                         onClick={() => {
-                          updateClip(selectedClip.id, { speed: s });
+                          const speedVal = s;
+                          const updates: Partial<TimelineClip> = { speed: speedVal };
+                          if (
+                            selectedClip.sourceDuration &&
+                            selectedClip.sourceDuration > 0 &&
+                            (selectedClip.type === "video" || selectedClip.type === "audio")
+                          ) {
+                            const maxDur =
+                              (selectedClip.sourceDuration - selectedClip.inPoint) / speedVal;
+                            if (selectedClip.duration > maxDur) {
+                              const clampedDur = Math.max(0.5, parseFloat(maxDur.toFixed(3)));
+                              updates.duration = clampedDur;
+                              updates.outPoint = selectedClip.inPoint + clampedDur * speedVal;
+                            } else {
+                              updates.outPoint =
+                                selectedClip.inPoint + selectedClip.duration * speedVal;
+                            }
+                          }
+                          updateClip(selectedClip.id, updates);
                         }}
                         className={`py-1 text-2xs font-mono rounded-md border transition-colors cursor-pointer ${
                           isCurrent

@@ -144,12 +144,14 @@ export function calculateResizeFromHandle({
   initialBounds,
   containerWidth,
   containerHeight,
+  initialTransform,
 }: {
   handle: ResizeHandleCorner;
   currentPointer: { x: number; y: number };
   initialBounds: TransformBounds;
   containerWidth: number;
   containerHeight: number;
+  initialTransform?: ClipTransform;
 }): ClipTransform {
   if (containerWidth <= 0 || containerHeight <= 0) {
     return { ...DEFAULT_CLIP_TRANSFORM };
@@ -244,6 +246,7 @@ export function calculateResizeFromHandle({
     x: newNormX,
     y: newNormY,
     scale: clampedScale,
+    rotation: initialTransform?.rotation,
   });
 }
 
@@ -252,6 +255,9 @@ export interface CanvasDrawParams {
   dy: number;
   dw: number;
   dh: number;
+  centerX: number;
+  centerY: number;
+  rotation: number;
 }
 
 /**
@@ -291,5 +297,8 @@ export function calculateCanvasDrawParams({
     dy: parseFloat(dy.toFixed(2)),
     dw: parseFloat(dw.toFixed(2)),
     dh: parseFloat(dh.toFixed(2)),
+    centerX: parseFloat(centerX.toFixed(2)),
+    centerY: parseFloat(centerY.toFixed(2)),
+    rotation: t.rotation ?? 0,
   };
 }

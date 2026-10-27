@@ -29,10 +29,11 @@ export function calculateLeftTrim(
   deltaSeconds: number,
   minDuration: number = MIN_CLIP_DURATION
 ): TrimResult {
+  const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
   const originalStartTime = clip.startTime;
   const originalDuration = clip.duration;
   const originalInPoint = clip.inPoint;
-  const originalOutPoint = clip.outPoint || originalInPoint + originalDuration;
+  const originalOutPoint = clip.outPoint || originalInPoint + originalDuration * speed;
   const isMediaWithSource =
     (clip.type === "video" || clip.type === "audio") &&
     typeof clip.sourceDuration === "number" &&
@@ -47,7 +48,7 @@ export function calculateLeftTrim(
 
   // 2. For video/audio, cannot reduce inPoint below 0 in source media
   if (isMediaWithSource) {
-    minDelta = Math.max(minDelta, -originalInPoint);
+    minDelta = Math.max(minDelta, -originalInPoint / speed);
   }
 
   // Clamp deltaSeconds within [minDelta, maxDelta]
@@ -56,7 +57,7 @@ export function calculateLeftTrim(
   const newStartTime = parseFloat((originalStartTime + clampedDelta).toFixed(3));
   const newDuration = parseFloat((originalDuration - clampedDelta).toFixed(3));
   const newInPoint = isMediaWithSource
-    ? parseFloat((originalInPoint + clampedDelta).toFixed(3))
+    ? parseFloat((originalInPoint + clampedDelta * speed).toFixed(3))
     : 0;
   const newOutPoint = isMediaWithSource ? originalOutPoint : newDuration;
 
@@ -76,6 +77,7 @@ export function calculateRightTrim(
   deltaSeconds: number,
   minDuration: number = MIN_CLIP_DURATION
 ): TrimResult {
+  const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
   const originalDuration = clip.duration;
   const isMediaWithSource =
     (clip.type === "video" || clip.type === "audio") &&
@@ -84,7 +86,7 @@ export function calculateRightTrim(
 
   let maxDuration = 9999;
   if (isMediaWithSource && clip.sourceDuration) {
-    maxDuration = clip.sourceDuration - clip.inPoint;
+    maxDuration = (clip.sourceDuration - clip.inPoint) / speed;
   }
 
   const requestedDuration = originalDuration + deltaSeconds;
@@ -96,7 +98,7 @@ export function calculateRightTrim(
     startTime: clip.startTime,
     duration: clampedDuration,
     inPoint: clip.inPoint,
-    outPoint: clip.inPoint + clampedDuration,
+    outPoint: clip.inPoint + clampedDuration * speed,
   };
 }
 

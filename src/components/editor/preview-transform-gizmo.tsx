@@ -145,6 +145,7 @@ export function PreviewTransformGizmo({
         initialBounds,
         containerWidth,
         containerHeight,
+        initialTransform: clip.transform,
       });
 
       latestClips = initialClips.map((c) =>
@@ -188,7 +189,8 @@ export function PreviewTransformGizmo({
   const isDefault =
     transform.x === DEFAULT_CLIP_TRANSFORM.x &&
     transform.y === DEFAULT_CLIP_TRANSFORM.y &&
-    transform.scale === DEFAULT_CLIP_TRANSFORM.scale;
+    transform.scale === DEFAULT_CLIP_TRANSFORM.scale &&
+    (transform.rotation || 0) === (DEFAULT_CLIP_TRANSFORM.rotation || 0);
 
   return (
     <div
@@ -197,6 +199,8 @@ export function PreviewTransformGizmo({
         top: `${bounds.top}px`,
         width: `${bounds.width}px`,
         height: `${bounds.height}px`,
+        transform: transform.rotation ? `rotate(${transform.rotation}deg)` : undefined,
+        transformOrigin: "center center",
       }}
       className="absolute z-30 pointer-events-auto border-2 border-primary ring-1 ring-primary/40 rounded-lg select-none group/gizmo"
       role="region"

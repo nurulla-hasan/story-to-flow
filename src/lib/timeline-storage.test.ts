@@ -312,6 +312,27 @@ describe("legacy saved-state compatibility", () => {
     });
   });
 
+  it("sanitizes saved clip speed and preserves rotation", () => {
+    const parsed = deserializeTimelineState({
+      version: 1,
+      clips: [
+        createClip({
+          speed: -2,
+          transform: { x: 0, y: 0, scale: 1, rotation: 120 },
+        }),
+      ],
+    });
+
+    expect(parsed?.clips[0].speed).toBe(1.0);
+    expect(parsed?.clips[0].transform?.rotation).toBe(120);
+
+    const validFast = deserializeTimelineState({
+      version: 1,
+      clips: [createClip({ speed: 1.5 })],
+    });
+    expect(validFast?.clips[0].speed).toBe(1.5);
+  });
+
   it("rejects non-object and newer payloads", () => {
     expect(deserializeTimelineState(null)).toBeNull();
     expect(deserializeTimelineState("nope")).toBeNull();

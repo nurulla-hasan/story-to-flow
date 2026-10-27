@@ -185,6 +185,12 @@ export async function waitForEncoderQueue(
         reject(currentErr);
       } else if (signal?.aborted) {
         reject(new Error("Export cancelled by user"));
+      } else if (encoder.encodeQueueSize >= maxQueue) {
+        reject(
+          new Error(
+            `Encoder stalled: queue failed to drain below ${maxQueue} within 4000ms (${encoder.encodeQueueSize} pending).`
+          )
+        );
       } else {
         resolve();
       }
@@ -193,14 +199,40 @@ export async function waitForEncoderQueue(
 }
 
 /**
- * Preload HTMLImageElement from Object URL
+ * Preload HTMLImageElement from Object URL with abort support
  */
-function preloadImage(url: string): Promise<HTMLImageElement> {
+function preloadImage(url: string, signal?: AbortSignal): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Export cancelled by user"));
+      return;
+    }
+
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+
+    const cleanup = () => {
+      img.onload = null;
+      img.onerror = null;
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    const onAbort = () => {
+      cleanup();
+      img.src = "";
+      reject(new Error("Export cancelled by user"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    img.onload = () => {
+      cleanup();
+      resolve(img);
+    };
+    img.onerror = () => {
+      cleanup();
+      reject(new Error(`Failed to load image: ${url}`));
+    };
     img.src = url;
   });
 }
@@ -319,91 +351,91 @@ export async function exportTimelineToMp4({
   // Preload visual image and video elements
   const imageElements = new Map<string, HTMLImageElement>();
   const videoElements = new Map<string, HTMLVideoElement>();
-
-  for (const clip of visualClips) {
-    if (signal?.aborted) throw new Error("Export cancelled by user");
-
-    const asset = assets.find((a) => a.id === clip.assetId);
-    if (!asset) continue;
-
-    if (asset.category === "image" && !imageElements.has(asset.id)) {
-      try {
-        const img = await preloadImage(asset.url);
-        imageElements.set(asset.id, img);
-      } catch (err) {
-        console.warn(`Could not preload image ${asset.name}:`, err);
-      }
-    } else if (asset.category === "video" && !videoElements.has(asset.id)) {
-      const vid = document.createElement("video");
-      vid.crossOrigin = "anonymous";
-      vid.src = asset.url;
-      vid.muted = true;
-      vid.playsInline = true;
-      videoElements.set(asset.id, vid);
-    }
-  }
-
-  // Setup Canvas for composition
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("Failed to get 2D rendering context for video canvas.");
-
-  // Setup MP4 Muxer with fastStart: false to prevent caching all chunks in duplicate RAM arrays
-  const muxer = new Muxer({
-    target: new ArrayBufferTarget(),
-    video: {
-      codec: "avc",
-      width,
-      height,
-    },
-    audio: hasAudio
-      ? {
-          codec: "aac",
-          numberOfChannels: 2,
-          sampleRate: 48000,
-        }
-      : undefined,
-    fastStart: false,
-    firstTimestampBehavior: "offset",
-  });
-
-  // Error trackers that propagate failures properly instead of swallowing
-  let videoEncoderError: Error | null = null;
-  let audioEncoderError: Error | null = null;
-  let muxerError: Error | null = null;
-
-  const checkAllErrors = (): Error | null => {
-    return videoEncoderError || audioEncoderError || muxerError;
-  };
-
-  // Setup VideoEncoder
-  const videoEncoder = new VideoEncoder({
-    output: (chunk, meta) => {
-      try {
-        muxer.addVideoChunk(chunk, meta);
-      } catch (err) {
-        muxerError = err instanceof Error ? err : new Error(String(err));
-      }
-    },
-    error: (e) => {
-      console.error("VideoEncoder error:", e);
-      videoEncoderError = new Error(e.message || "VideoEncoder failed");
-    },
-  });
-
-  videoEncoder.configure({
-    codec: "avc1.4d002a", // H.264 Main Profile Level 4.2
-    width,
-    height,
-    bitrate,
-    framerate: fps,
-  });
-
+  let videoEncoder: VideoEncoder | null = null;
   let audioEncoder: AudioEncoder | null = null;
 
   try {
+    for (const clip of visualClips) {
+      if (signal?.aborted) throw new Error("Export cancelled by user");
+
+      const asset = assets.find((a) => a.id === clip.assetId);
+      if (!asset) continue;
+
+      if (asset.category === "image" && !imageElements.has(asset.id)) {
+        try {
+          const img = await preloadImage(asset.url, signal);
+          imageElements.set(asset.id, img);
+        } catch (err) {
+          if (signal?.aborted) throw err;
+          console.warn(`Could not preload image ${asset.name}:`, err);
+        }
+      } else if (asset.category === "video" && !videoElements.has(asset.id)) {
+        const vid = document.createElement("video");
+        vid.crossOrigin = "anonymous";
+        vid.src = asset.url;
+        vid.muted = true;
+        vid.playsInline = true;
+        videoElements.set(asset.id, vid);
+      }
+    }
+
+    // Setup Canvas for composition
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) throw new Error("Failed to get 2D rendering context for video canvas.");
+
+    // Setup MP4 Muxer with fastStart: false to prevent caching all chunks in duplicate RAM arrays
+    const muxer = new Muxer({
+      target: new ArrayBufferTarget(),
+      video: {
+        codec: "avc",
+        width,
+        height,
+      },
+      audio: hasAudio
+        ? {
+            codec: "aac",
+            numberOfChannels: 2,
+            sampleRate: 48000,
+          }
+        : undefined,
+      fastStart: false,
+      firstTimestampBehavior: "offset",
+    });
+
+    // Error trackers that propagate failures properly instead of swallowing
+    let videoEncoderError: Error | null = null;
+    let audioEncoderError: Error | null = null;
+    let muxerError: Error | null = null;
+
+    const checkAllErrors = (): Error | null => {
+      return videoEncoderError || audioEncoderError || muxerError;
+    };
+
+    // Setup VideoEncoder
+    videoEncoder = new VideoEncoder({
+      output: (chunk, meta) => {
+        try {
+          muxer.addVideoChunk(chunk, meta);
+        } catch (err) {
+          muxerError = err instanceof Error ? err : new Error(String(err));
+        }
+      },
+      error: (e) => {
+        console.error("VideoEncoder error:", e);
+        videoEncoderError = new Error(e.message || "VideoEncoder failed");
+      },
+    });
+
+    videoEncoder.configure({
+      codec: "avc1.4d002a", // H.264 Main Profile Level 4.2
+      width,
+      height,
+      bitrate,
+      framerate: fps,
+    });
     // 1. VISUAL FRAME RENDERING LOOP WITH BOUNDED BACKPRESSURE
     for (let i = 0; i < plan.totalFrames; i++) {
       if (signal?.aborted) throw new Error("Export cancelled by user");
@@ -436,7 +468,7 @@ export async function exportTimelineToMp4({
           if (img) {
             const imgW = img.naturalWidth || img.width;
             const imgH = img.naturalHeight || img.height;
-            const { dx, dy, dw, dh } = calculateCanvasDrawParams({
+            const { dw, dh, centerX, centerY, rotation } = calculateCanvasDrawParams({
               imgWidth: imgW,
               imgHeight: imgH,
               canvasWidth: width,
@@ -444,16 +476,21 @@ export async function exportTimelineToMp4({
               transform: clip.transform,
               xOffset,
             });
-            ctx.drawImage(img, dx, dy, dw, dh);
+            ctx.translate(centerX, centerY);
+            if (rotation) {
+              ctx.rotate((rotation * Math.PI) / 180);
+            }
+            ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
           }
         } else if (asset.category === "video") {
           const vid = videoElements.get(asset.id);
           if (vid) {
-            const videoTime = (currentTime - clip.startTime) + clip.inPoint;
+            const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+            const videoTime = (currentTime - clip.startTime) * speed + clip.inPoint;
             await seekVideoElement(vid, videoTime, signal);
             const vidW = vid.videoWidth || width;
             const vidH = vid.videoHeight || height;
-            const { dx, dy, dw, dh } = calculateCanvasDrawParams({
+            const { dw, dh, centerX, centerY, rotation } = calculateCanvasDrawParams({
               imgWidth: vidW,
               imgHeight: vidH,
               canvasWidth: width,
@@ -461,7 +498,11 @@ export async function exportTimelineToMp4({
               transform: clip.transform,
               xOffset,
             });
-            ctx.drawImage(vid, dx, dy, dw, dh);
+            ctx.translate(centerX, centerY);
+            if (rotation) {
+              ctx.rotate((rotation * Math.PI) / 180);
+            }
+            ctx.drawImage(vid, -dw / 2, -dh / 2, dw, dh);
           }
         }
 
@@ -522,8 +563,11 @@ export async function exportTimelineToMp4({
       // Construct and encode VideoFrame
       const frameTimestampUs = Math.round(i * (1_000_000 / fps));
       const videoFrame = new VideoFrame(canvas, { timestamp: frameTimestampUs });
-      videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
-      videoFrame.close(); // Free GPU/RAM frame resource immediately
+      try {
+        videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
+      } finally {
+        videoFrame.close(); // Free GPU/RAM frame resource immediately
+      }
 
       // Yield event loop every 3 frames to keep UI responsive
       if (i % 3 === 0 || i === plan.totalFrames - 1) {
@@ -541,8 +585,23 @@ export async function exportTimelineToMp4({
 
     // Flush remaining video chunks
     await videoEncoder.flush();
+    if (signal?.aborted) throw new Error("Export cancelled by user");
     const postVideoErr = checkAllErrors();
     if (postVideoErr) throw postVideoErr;
+
+    // RELEASE VIDEO-PHASE MEMORY: Video frames are completely flushed.
+    // Clean up temporary video and image elements and zero canvas before audio mixing begins!
+    for (const vid of videoElements.values()) {
+      try {
+        vid.pause();
+        vid.removeAttribute("src");
+        vid.load();
+      } catch {}
+    }
+    videoElements.clear();
+    imageElements.clear();
+    canvas.width = 0;
+    canvas.height = 0;
 
     // 2. AUDIO ENCODING (IF AUDIO TRACKS EXIST)
     if (hasAudio && audioClips.length > 0) {
@@ -564,7 +623,9 @@ export async function exportTimelineToMp4({
         if (signal?.aborted) throw new Error("Export cancelled by user");
 
         const asset = assets.find((a) => a.id === clip.assetId);
-        if (!asset || !asset.blob) continue;
+        if (!asset || !asset.blob) {
+          throw new Error(`Audio asset for "${clip.name}" is missing or unavailable.`);
+        }
 
         try {
           const arrayBuffer = await asset.blob.arrayBuffer();
@@ -598,7 +659,11 @@ export async function exportTimelineToMp4({
 
           source.start(clip.startTime, clip.inPoint, clip.duration);
         } catch (err) {
-          console.warn(`Could not composite audio clip ${clip.name}:`, err);
+          throw new Error(
+            `Failed to decode audio track "${clip.name}": ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
         }
       }
 
@@ -664,14 +729,22 @@ export async function exportTimelineToMp4({
           data: planarData,
         });
 
-        audioEncoder.encode(audioData);
-        audioData.close();
+        try {
+          audioEncoder.encode(audioData);
+        } finally {
+          audioData.close();
+        }
       }
 
       await audioEncoder.flush();
+      if (signal?.aborted) throw new Error("Export cancelled by user");
       const postAudioErr = checkAllErrors();
       if (postAudioErr) throw postAudioErr;
     }
+
+    if (signal?.aborted) throw new Error("Export cancelled by user");
+    const preMuxErr = checkAllErrors();
+    if (preMuxErr) throw preMuxErr;
 
     // 3. FINALIZE MP4 CONTAINER
     onProgress({
@@ -683,6 +756,8 @@ export async function exportTimelineToMp4({
     });
 
     muxer.finalize();
+
+    if (signal?.aborted) throw new Error("Export cancelled by user");
     const outputBlob = new Blob([muxer.target.buffer], { type: "video/mp4" });
 
     onProgress({
@@ -696,7 +771,7 @@ export async function exportTimelineToMp4({
     return outputBlob;
   } finally {
     // Guaranteed Resource cleanup on all exit paths (success, error, cancel)
-    if (videoEncoder.state !== "closed") {
+    if (videoEncoder && videoEncoder.state !== "closed") {
       try {
         videoEncoder.close();
       } catch {}

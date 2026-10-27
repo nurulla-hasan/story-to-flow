@@ -139,6 +139,12 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         signal: controller.signal,
       });
 
+      if (controller.signal.aborted) {
+        setIsExporting(false);
+        setError("Export was cancelled.");
+        return;
+      }
+
       setExportedBlob(blob);
       setIsExporting(false);
       // Auto-trigger browser download
@@ -211,6 +217,17 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <div>
               <p className="font-semibold">Export Safety Guard</p>
               <p className="mt-0.5 leading-relaxed">{safety.error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Safety warning for high resolution / long duration */}
+        {safety.safe && safety.warning && (
+          <div className="flex items-start gap-2 rounded-lg bg-warning-subtle border border-warning/20 p-3 text-2xs text-warning-foreground">
+            <AlertTriangle className="size-4 shrink-0 text-warning mt-0.5" />
+            <div>
+              <p className="font-semibold text-warning">Export Memory Warning</p>
+              <p className="mt-0.5 leading-relaxed">{safety.warning}</p>
             </div>
           </div>
         )}

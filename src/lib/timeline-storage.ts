@@ -181,6 +181,10 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
     clips: Array.isArray(record.clips)
       ? (record.clips as TimelineClip[]).map((clip) => ({
           ...clip,
+          speed:
+            typeof clip.speed === "number" && Number.isFinite(clip.speed) && clip.speed > 0
+              ? clip.speed
+              : 1.0,
           transform: clip.transform ? sanitizeClipTransform(clip.transform) : undefined,
         }))
       : [],

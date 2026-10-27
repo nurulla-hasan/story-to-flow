@@ -197,7 +197,55 @@ describe("Clip Transform Core Logic & Gizmo Calculations", () => {
     expect(resetClip.transform?.x).toBe(0);
     expect(resetClip.transform?.y).toBe(0);
     expect(resetClip.transform?.scale).toBe(1.0);
+    expect(resetClip.transform?.rotation).toBe(0);
     expect(resetClip.startTime).toBe(0);
     expect(resetClip.duration).toBe(5.0); // Timeline timing strictly preserved!
+  });
+
+  it("calculates canvas draw parameters including centerX, centerY, and rotation for export", () => {
+    const transform: ClipTransform = {
+      x: 0.1,
+      y: -0.15,
+      scale: 0.75,
+      rotation: 45,
+    };
+    const params = calculateCanvasDrawParams({
+      imgWidth: 1080,
+      imgHeight: 1920,
+      canvasWidth: 720,
+      canvasHeight: 1280,
+      transform,
+      xOffset: 50,
+    });
+
+    expect(params.rotation).toBe(45);
+    // centerX = 720 * (0.5 + 0.1) + 50 = 720 * 0.6 + 50 = 432 + 50 = 482
+    expect(params.centerX).toBe(482);
+    // centerY = 1280 * (0.5 - 0.15) = 1280 * 0.35 = 448
+    expect(params.centerY).toBe(448);
+  });
+
+  it("preserves rotation during corner resize gestures", () => {
+    const initialTransform: ClipTransform = {
+      x: 0,
+      y: 0,
+      scale: 1.0,
+      rotation: 90,
+    };
+    const containerW = 360;
+    const containerH = 640;
+    const initialBounds = calculateTransformBounds(initialTransform, containerW, containerH);
+
+    const resized = calculateResizeFromHandle({
+      handle: "se",
+      currentPointer: { x: 180, y: 320 },
+      initialBounds,
+      containerWidth: containerW,
+      containerHeight: containerH,
+      initialTransform,
+    });
+
+    expect(resized.rotation).toBe(90);
+    expect(resized.scale).toBe(0.5);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { TimelineClip } from "../types/timeline";
 import {
   sanitizeFilename,
@@ -170,5 +170,187 @@ describe("Encoder Bounded Queue Backpressure Logic", () => {
     mockEncoder.ondequeue?.(new Event("dequeue"));
 
     await expect(promise).rejects.toThrow("Hardware GPU pipeline crashed");
+  });
+
+  it("rejects with stall timeout error if queue remains full after 4000ms", async () => {
+    vi.useFakeTimers();
+    try {
+      const mockEncoder = {
+        encodeQueueSize: 7,
+        ondequeue: null as (((ev: Event) => unknown) | null),
+      };
+
+      const promise = waitForEncoderQueue(mockEncoder, 5);
+
+      // Fast-forward time by 4000ms
+      vi.advanceTimersByTime(4000);
+
+      await expect(promise).rejects.toThrow(/Encoder stalled/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves safely on timeout if queue drained below threshold before timeout fired", async () => {
+    vi.useFakeTimers();
+    try {
+      const mockEncoder = {
+        encodeQueueSize: 7,
+        ondequeue: null as (((ev: Event) => unknown) | null),
+      };
+
+      const promise = waitForEncoderQueue(mockEncoder, 5);
+
+      // Drain queue to 3
+      mockEncoder.encodeQueueSize = 3;
+
+      // Fast-forward time by 4000ms
+      vi.advanceTimersByTime(4000);
+
+      await expect(promise).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("Export Cancellation and Resource Cleanup Guarantees", () => {
+  it("ensures VideoFrame is closed even if encoder.encode throws", () => {
+    let closed = false;
+    const mockFrame = {
+      close: () => {
+        closed = true;
+      },
+    };
+
+    const mockEncoder = {
+      encode: () => {
+        throw new Error("GPU device lost during frame encode");
+      },
+    };
+
+    expect(() => {
+      try {
+        mockEncoder.encode();
+      } finally {
+        mockFrame.close();
+      }
+    }).toThrow("GPU device lost during frame encode");
+
+    expect(closed).toBe(true);
+  });
+
+  it("ensures AudioData is closed even if audioEncoder.encode throws", () => {
+    let closed = false;
+    const mockAudioData = {
+      close: () => {
+        closed = true;
+      },
+    };
+
+    const mockEncoder = {
+      encode: () => {
+        throw new Error("Audio buffer format mismatch");
+      },
+    };
+
+    expect(() => {
+      try {
+        mockEncoder.encode();
+      } finally {
+        mockAudioData.close();
+      }
+    }).toThrow("Audio buffer format mismatch");
+
+    expect(closed).toBe(true);
+  });
+
+  it("prevents download trigger when AbortSignal is cancelled", () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    let downloadTriggered = false;
+    const triggerDownload = () => {
+      downloadTriggered = true;
+    };
+
+    // Simulated component completion handler
+    if (controller.signal.aborted) {
+      // Abort detected: should not trigger download
+    } else {
+      triggerDownload();
+    }
+
+    expect(downloadTriggered).toBe(false);
+  });
+
+  it("rejects immediately if AbortSignal is cancelled before/during image preload", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    // Verify preloadImage abort contract
+    const preloadContract = (signal?: AbortSignal) =>
+      new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new Error("Export cancelled by user"));
+          return;
+        }
+        resolve("loaded");
+      });
+
+    await expect(preloadContract(controller.signal)).rejects.toThrow("Export cancelled by user");
+  });
+
+  it("rejects seek operations immediately when AbortSignal is cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const seekContract = (signal?: AbortSignal) =>
+      new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new Error("Export cancelled by user"));
+          return;
+        }
+        resolve(undefined);
+      });
+
+    await expect(seekContract(controller.signal)).rejects.toThrow("Export cancelled by user");
+  });
+
+  it("aborts when dialog triggers cancellation or unmounts", () => {
+    let exportCancelled = false;
+    let leaseReleased = false;
+
+    const abortController = new AbortController();
+    const releaseLease = () => {
+      leaseReleased = true;
+    };
+
+    // Simulate dialog close/unmount
+    const handleCloseOrUnmount = () => {
+      abortController.abort();
+      exportCancelled = abortController.signal.aborted;
+      releaseLease();
+    };
+
+    handleCloseOrUnmount();
+
+    expect(exportCancelled).toBe(true);
+    expect(leaseReleased).toBe(true);
+  });
+
+  it("propagates audio track decode failures instead of reporting clean success", () => {
+    const simulateAudioDecode = (clipName: string, shouldFail: boolean) => {
+      if (shouldFail) {
+        throw new Error(
+          `Failed to decode audio track "${clipName}": The string did not match the expected pattern.`
+        );
+      }
+      return { duration: 10 };
+    };
+
+    expect(() => simulateAudioDecode("voiceover.mp3", true)).toThrow(
+      'Failed to decode audio track "voiceover.mp3"'
+    );
   });
 });

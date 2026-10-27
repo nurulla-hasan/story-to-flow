@@ -144,6 +144,34 @@ describe("Right-Edge Trim Math", () => {
     const result = calculateRightTrim(sampleVideoClip, -3.9);
     expect(result.duration).toBe(MIN_CLIP_DURATION);
   });
+
+  it("scales max right-trim duration and calculates outPoint according to clip speed", () => {
+    // 2x speed: 8.0 sourceDuration, 2.0 inPoint -> 6.0 remaining source.
+    // At 2x speed, remaining timeline duration is 6.0 / 2.0 = 3.0s!
+    const fastClip: TimelineClip = {
+      ...sampleVideoClip,
+      duration: 2.0,
+      speed: 2.0,
+    };
+    const result = calculateRightTrim(fastClip, 5.0);
+    expect(result.duration).toBe(3.0);
+    // outPoint = inPoint + duration * speed = 2.0 + 3.0 * 2.0 = 8.0
+    expect(result.outPoint).toBe(8.0);
+  });
+
+  it("scales left-trim delta and inPoint according to clip speed", () => {
+    // 2x speed: 8.0 sourceDuration, 2.0 inPoint, 2.0 duration.
+    // Extending leftward: inPoint is 2.0, so at 2x speed max left extension is 2.0 / 2.0 = 1.0s.
+    const fastClip: TimelineClip = {
+      ...sampleVideoClip,
+      duration: 2.0,
+      speed: 2.0,
+    };
+    const result = calculateLeftTrim(fastClip, -5.0);
+    expect(result.inPoint).toBe(0);
+    expect(result.startTime).toBe(1.0); // 2.0 - 1.0
+    expect(result.duration).toBe(3.0); // 2.0 + 1.0
+  });
 });
 
 describe("Snap Timestamp Helper", () => {

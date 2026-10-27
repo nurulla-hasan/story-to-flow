@@ -20,6 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTimeline } from "@/lib/timeline-context";
+import { isAudioTrack, isVisualTrack } from "@/types/timeline";
 import { ExportDialog } from "@/components/editor/export-dialog";
 
 export function EditorHeader() {
@@ -56,8 +57,8 @@ export function EditorHeader() {
     }, 4000);
   };
 
-  const hasAudio = isHydrated && clips.some((c) => c.trackId === "audio");
-  const hasVisual = isHydrated && clips.some((c) => c.trackId === "visual");
+  const hasAudio = isHydrated && clips.some((c) => isAudioTrack(c.trackId));
+  const hasVisual = isHydrated && clips.some((c) => isVisualTrack(c.trackId));
   const canExport = isHydrated && clips.length > 0;
 
   return (

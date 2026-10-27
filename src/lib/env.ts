@@ -4,10 +4,11 @@ import * as path from "node:path";
 export interface EnvConfig {
   baseUrl: string;
   apiKey: string;
+  generationTimeoutMs: number;
 }
 
-// Application-level default model (re-exported from client-safe constants)
-export { DEFAULT_MODEL } from "./constants";
+// Application-level default model and timeout (re-exported from client-safe constants)
+export { DEFAULT_MODEL, DEFAULT_GENERATION_TIMEOUT_MS } from "./constants";
 
 let fileEnvLoaded = false;
 
@@ -76,9 +77,16 @@ export function getEnv(): EnvConfig {
   }
 
   const apiKey = process.env.AI_API_KEY || "";
+  const rawTimeout = process.env.AI_GENERATION_TIMEOUT_MS;
+  const parsedTimeout = rawTimeout ? parseInt(rawTimeout, 10) : NaN;
+  const generationTimeoutMs =
+    Number.isFinite(parsedTimeout) && parsedTimeout > 0
+      ? parsedTimeout
+      : 300_000; // 300 seconds (5 minutes) default for deep long-story generation
 
   return {
     baseUrl: normalizeBaseUrl(rawUrl),
     apiKey,
+    generationTimeoutMs,
   };
 }

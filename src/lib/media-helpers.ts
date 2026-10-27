@@ -105,13 +105,21 @@ async function extractImageMetadata(blob: Blob): Promise<{ width: number; height
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
+
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      resolve({ width: 0, height: 0 });
+    }, 5000);
+
     img.onload = () => {
+      clearTimeout(timer);
       const width = img.naturalWidth || img.width;
       const height = img.naturalHeight || img.height;
       URL.revokeObjectURL(url);
       resolve({ width, height });
     };
     img.onerror = () => {
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
       resolve({ width: 0, height: 0 });
     };
@@ -128,13 +136,20 @@ async function extractAudioMetadata(blob: Blob): Promise<{ duration: number }> {
     const audio = new Audio();
     audio.preload = "metadata";
 
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      resolve({ duration: 0 });
+    }, 5000);
+
     audio.onloadedmetadata = () => {
+      clearTimeout(timer);
       const duration = audio.duration || 0;
       URL.revokeObjectURL(url);
       resolve({ duration });
     };
 
     audio.onerror = () => {
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
       resolve({ duration: 0 });
     };

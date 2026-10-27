@@ -32,15 +32,17 @@ export interface ExportProgress {
 }
 
 /**
- * Sanitize a project title to form a clean, safe filename
+ * Sanitize a project title to form a clean, safe filename.
+ * Preserves alphanumeric characters and marks across Unicode scripts (including Bengali, Japanese, etc.),
+ * while stripping punctuation and filesystem-reserved characters.
  */
 export function sanitizeFilename(title: string): string {
   return (
     title
       .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/[\s-]+/g, "_")
-      .substring(0, 50) || "Story_Video"
+      .replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, "") // Preserves letters, marks/vowels, and numbers across all Unicode scripts
+      .replace(/[\s\u00A0\t\r\n-]+/g, "_") // Replace whitespace and dashes with underscores
+      .substring(0, 80) || "Story_Video"
   );
 }
 
@@ -238,12 +240,14 @@ function preloadImage(url: string, signal?: AbortSignal): Promise<HTMLImageEleme
 }
 
 /**
- * Seek HTMLVideoElement with safe timeout, error handling, and abort signal to prevent freezing
+ * Seek HTMLVideoElement with safe timeout, error rejection, and abort signal.
+ * Ensures an unresolved seek or decoding failure does not silently proceed and export a stale frame.
  */
-function seekVideoElement(
+export function seekVideoElement(
   video: HTMLVideoElement,
   time: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs: number = 2000
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -272,7 +276,7 @@ function seekVideoElement(
 
     const onError = () => {
       cleanup();
-      resolve(); // Proceed gracefully with current frame rather than hanging
+      reject(new Error(`Failed to decode video frame at ${time.toFixed(2)}s.`));
     };
 
     const onAbort = () => {
@@ -284,17 +288,22 @@ function seekVideoElement(
     video.addEventListener("error", onError, { once: true });
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    // 1500ms max seek wait to prevent deadlock
     timer = setTimeout(() => {
       cleanup();
-      resolve();
-    }, 1500);
+      reject(new Error(`Video seek timed out at ${time.toFixed(2)}s (${timeoutMs}ms elapsed).`));
+    }, timeoutMs);
 
     try {
       video.currentTime = Math.max(0, time);
-    } catch {
+    } catch (err) {
       cleanup();
-      resolve();
+      reject(
+        new Error(
+          `Video seek failed at ${time.toFixed(2)}s: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        )
+      );
     }
   });
 }

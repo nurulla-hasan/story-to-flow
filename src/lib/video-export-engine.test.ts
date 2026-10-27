@@ -6,14 +6,18 @@ import {
   checkWebCodecsSupport,
   validateExportSafety,
   waitForEncoderQueue,
+  seekVideoElement,
   MAX_SAFE_EXPORT_DURATION,
 } from "./video-export-engine";
 
 describe("Video Export Engine Plan & Helpers", () => {
-  it("sanitizes project titles into clean file names", () => {
+  it("sanitizes project titles into clean file names while preserving Unicode scripts", () => {
     expect(sanitizeFilename("My Epic Bengali Story! #1")).toBe("My_Epic_Bengali_Story_1");
     expect(sanitizeFilename("   ")).toBe("Story_Video");
     expect(sanitizeFilename("Village-Horror-Story_Part2")).toBe("Village_Horror_Story_Part2");
+    // Bengali Unicode support:
+    expect(sanitizeFilename("রূপকথার গল্প: পর্ব ১")).toBe("রূপকথার_গল্প_পর্ব_১");
+    expect(sanitizeFilename("ভুতুড়ে বাড়ি? / পর্ব *২")).toBe("ভুতুড়ে_বাড়ি_পর্ব_২");
   });
 
   it("calculates export plan correctly for an empty timeline", () => {
@@ -305,16 +309,80 @@ describe("Export Cancellation and Resource Cleanup Guarantees", () => {
     const controller = new AbortController();
     controller.abort();
 
-    const seekContract = (signal?: AbortSignal) =>
-      new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-          reject(new Error("Export cancelled by user"));
-          return;
-        }
-        resolve(undefined);
-      });
+    const mockVideo = {
+      currentTime: 0,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as HTMLVideoElement;
 
-    await expect(seekContract(controller.signal)).rejects.toThrow("Export cancelled by user");
+    await expect(seekVideoElement(mockVideo, 5.0, controller.signal)).rejects.toThrow(
+      "Export cancelled by user"
+    );
+  });
+
+  it("M-08: rejects with explicit error if video seek times out (does not export stale frame)", async () => {
+    vi.useFakeTimers();
+    try {
+      const listeners: Record<string, (() => void) | undefined> = {};
+      const mockVideo = {
+        currentTime: 0,
+        addEventListener: (event: string, cb: () => void) => {
+          listeners[event] = cb;
+        },
+        removeEventListener: (event: string) => {
+          delete listeners[event];
+        },
+      } as unknown as HTMLVideoElement;
+
+      const promise = seekVideoElement(mockVideo, 4.0, undefined, 1000);
+
+      // Fast forward past the 1000ms seek timeout
+      vi.advanceTimersByTime(1000);
+
+      await expect(promise).rejects.toThrow("Video seek timed out at 4.00s (1000ms elapsed).");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("M-08: rejects with explicit error if video element emits error during seek", async () => {
+    const listeners: Record<string, (() => void) | undefined> = {};
+    const mockVideo = {
+      currentTime: 0,
+      addEventListener: (event: string, cb: () => void) => {
+        listeners[event] = cb;
+      },
+      removeEventListener: (event: string) => {
+        delete listeners[event];
+      },
+    } as unknown as HTMLVideoElement;
+
+    const promise = seekVideoElement(mockVideo, 2.5);
+
+    // Simulate video element error event
+    listeners["error"]?.();
+
+    await expect(promise).rejects.toThrow("Failed to decode video frame at 2.50s.");
+  });
+
+  it("resolves promptly when video emits seeked event", async () => {
+    const listeners: Record<string, (() => void) | undefined> = {};
+    const mockVideo = {
+      currentTime: 0,
+      addEventListener: (event: string, cb: () => void) => {
+        listeners[event] = cb;
+      },
+      removeEventListener: (event: string) => {
+        delete listeners[event];
+      },
+    } as unknown as HTMLVideoElement;
+
+    const promise = seekVideoElement(mockVideo, 3.0);
+
+    // Simulate successful seeked event
+    listeners["seeked"]?.();
+
+    await expect(promise).resolves.toBeUndefined();
   });
 
   it("aborts when dialog triggers cancellation or unmounts", () => {

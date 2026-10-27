@@ -22,6 +22,7 @@ export class LlmError extends Error {
     | "server"
     | "invalid_json"
     | "bad_request"
+    | "timeout"
     | "unknown";
   status?: number;
   model?: string;
@@ -111,9 +112,29 @@ async function requestOnce(
       signal: effectiveSignal,
     });
   } catch (error) {
-    if (options.signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+    // 1. Explicit user cancellation: the user aborted the client-supplied signal
+    if (options.signal?.aborted) {
       throw new LlmError("Request was cancelled", "unknown");
     }
+
+    // 2. Deadline expiration: the timeout signal aborted
+    if (
+      timeoutSignal.aborted ||
+      (error instanceof Error && (error.name === "TimeoutError" || error.message.includes("timed out")))
+    ) {
+      const seconds = Math.round(options.timeoutMs / 1000);
+      throw new LlmError(
+        `AI generation timed out after ${seconds}s while generating scenes. You can retry with a shorter story or select a faster model in Settings.`,
+        "timeout",
+        { model }
+      );
+    }
+
+    // 3. Fallback check if AbortError was thrown without options.signal aborted
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new LlmError("Request was cancelled", "unknown");
+    }
+
     throw friendlyFetchFailure(env.baseUrl, error);
   }
 
@@ -246,13 +267,14 @@ export async function chat(opts: {
   // For now, use DEFAULT_MODEL for all roles
   // Future: implement role-based defaults if needed
   const model = DEFAULT_MODEL;
+  const env = getEnv();
   
   try {
     const result = await requestOnce(model, opts.messages, {
       json: false,
       temperature: opts.temperature ?? 0.2,
       responseFormat: false,
-      timeoutMs: opts.timeoutMs ?? 180_000,
+      timeoutMs: opts.timeoutMs ?? env.generationTimeoutMs,
       signal: opts.signal,
     });
     return { content: result.raw, model: result.model };
@@ -279,12 +301,14 @@ export async function chatWithModel(opts: {
     throw new LlmError("Request was cancelled", "unknown");
   }
   
+  const env = getEnv();
+
   try {
     const result = await requestOnce(opts.model, opts.messages, {
       json: false,
       temperature: opts.temperature ?? 0.2,
       responseFormat: false,
-      timeoutMs: opts.timeoutMs ?? 180_000,
+      timeoutMs: opts.timeoutMs ?? env.generationTimeoutMs,
       signal: opts.signal,
     });
     return { content: result.raw, model: result.model };

@@ -14,6 +14,9 @@ import { assembleSystemMessage } from "@/lib/prompt-assembly";
 import { MASTER_PROMPT_VERSION } from "@/prompts/loader";
 import type { StoryProcessResponse } from "@/lib/validation";
 
+// Set maximum execution duration for long story production on supported Node/Vercel runtimes (300 seconds)
+export const maxDuration = 300;
+
 /**
  * POST /api/story/process
  * 
@@ -65,8 +68,7 @@ export async function POST(request: NextRequest) {
     // Assemble system message with Master Prompt + production context
     const systemMessage = assembleSystemMessage(resolvedSettings);
 
-    // Call LLM with story and assembled prompt
-    // Timeout: 180 seconds for long prompt + scene generation
+    // Call LLM with story and assembled prompt (using unified configurable long-generation timeout)
     const result = await chatWithModel({
       model: resolvedSettings.model,
       messages: [
@@ -80,7 +82,6 @@ export async function POST(request: NextRequest) {
         },
       ],
       temperature: 0.7,
-      timeoutMs: 180_000,
       signal: request.signal,
     });
 
@@ -130,9 +131,11 @@ export async function POST(request: NextRequest) {
             ? 429
             : error.code === "not_found"
               ? 404
-              : error.code === "network" || error.code === "server"
-                ? 502
-                : 500;
+              : error.code === "timeout"
+                ? 504
+                : error.code === "network" || error.code === "server"
+                  ? 502
+                  : 500;
 
       return NextResponse.json(
         {

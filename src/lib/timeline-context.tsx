@@ -23,6 +23,7 @@ import {
   validateTransitionDuration,
   areClipsAdjacentForTransition,
 } from "@/lib/transition-helpers";
+import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
 
 export interface TimelineContextType {
   isHydrated: boolean;
@@ -42,6 +43,8 @@ export interface TimelineContextType {
   setProjectTitle: (title: string) => void;
   setPlayhead: (time: number) => void;
   seek: (time: number) => void;
+  stepFrameForward: () => void;
+  stepFrameBackward: () => void;
   togglePlay: () => void;
   setZoom: (zoom: number) => void;
   selectClip: (clipId: string | null) => void;
@@ -204,12 +207,21 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (time: number) => {
       const clamped = Math.max(0, Math.min(totalDuration, time));
       setPlayheadState(clamped);
-      if (isHydrated) {
-        saveStoredTimelineState({ playhead: clamped });
-      }
     },
-    [isHydrated, totalDuration]
+    [totalDuration]
   );
+
+  // Step playhead forward by exactly 1 frame at 30 fps
+  const stepFrameForward = React.useCallback(() => {
+    setIsPlaying(false);
+    setPlayheadState((prev) => stepFrame(prev, 1, totalDuration, TIMELINE_FPS));
+  }, [totalDuration]);
+
+  // Step playhead backward by exactly 1 frame at 30 fps
+  const stepFrameBackward = React.useCallback(() => {
+    setIsPlaying(false);
+    setPlayheadState((prev) => stepFrame(prev, -1, totalDuration, TIMELINE_FPS));
+  }, [totalDuration]);
 
   const togglePlay = React.useCallback(() => {
     setIsPlaying((prev) => !prev);
@@ -282,22 +294,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (clipId: string | null) => {
       setLocalSelectedClipId(clipId);
       if (clipId) setLocalSelectedTransitionId(null);
-      if (isHydrated) {
-        saveStoredTimelineState({ selectedClipId: clipId, selectedTransitionId: null });
-      }
     },
-    [isHydrated]
+    []
   );
 
   const selectTransition = React.useCallback(
     (transitionId: string | null) => {
       setLocalSelectedTransitionId(transitionId);
       if (transitionId) setLocalSelectedClipId(null);
-      if (isHydrated) {
-        saveStoredTimelineState({ selectedTransitionId: transitionId, selectedClipId: null });
-      }
     },
-    [isHydrated]
+    []
   );
 
   const selectedClip = React.useMemo(() => {
@@ -695,12 +701,36 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const isInput =
         activeEl?.tagName === "INPUT" ||
         activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.getAttribute("contenteditable") === "true";
+        activeEl?.tagName === "SELECT" ||
+        activeEl?.getAttribute("contenteditable") === "true" ||
+        activeEl?.getAttribute("role") === "slider";
 
+      // Guard: do not intercept if typing in an input, textarea, or slider
       if (isInput) return;
+
+      // Guard: do not intercept if a modal or dialog owns focus
+      const isInsideDialog = Boolean(
+        activeEl?.closest('[role="dialog"]') ||
+        activeEl?.closest('[role="alertdialog"]')
+      );
+      if (isInsideDialog) return;
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+      // Single-Frame Step Backward (Left Arrow)
+      if (!modifier && !e.altKey && (e.key === "ArrowLeft" || e.key === "Left")) {
+        e.preventDefault();
+        stepFrameBackward();
+        return;
+      }
+
+      // Single-Frame Step Forward (Right Arrow)
+      if (!modifier && !e.altKey && (e.key === "ArrowRight" || e.key === "Right")) {
+        e.preventDefault();
+        stepFrameForward();
+        return;
+      }
 
       if (modifier && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -736,6 +766,8 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   }, [
     undo,
     redo,
+    stepFrameForward,
+    stepFrameBackward,
     splitClipAtPlayhead,
     duplicateClip,
     deleteClip,
@@ -765,6 +797,8 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         setProjectTitle,
         setPlayhead,
         seek,
+        stepFrameForward,
+        stepFrameBackward,
         togglePlay,
         setZoom,
         selectClip,

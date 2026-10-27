@@ -25,13 +25,10 @@ import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import { isVisualTrack, getVisualTrackLayerIndex } from "@/types/timeline";
 import { getTransitionProgress } from "@/lib/transition-helpers";
+import { formatFrameTimecode } from "@/lib/frame-navigation";
 
 function formatTimecode(seconds: number): string {
-  if (isNaN(seconds) || seconds < 0) return "00:00:00";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  const frames = Math.floor((seconds % 1) * 30);
-  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;
+  return formatFrameTimecode(seconds, 30);
 }
 
 export function PreviewCanvasPanel() {

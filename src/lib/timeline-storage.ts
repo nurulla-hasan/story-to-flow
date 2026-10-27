@@ -42,7 +42,7 @@ export function getStoredTimelineState(): TimelineProjectState {
         clips: Array.isArray(parsed.clips) ? (parsed.clips as TimelineClip[]) : [],
         transitions: Array.isArray(parsed.transitions) ? (parsed.transitions as TimelineTransition[]) : [],
         playhead: typeof parsed.playhead === "number" ? Math.max(0, parsed.playhead) : 0,
-        zoom: typeof parsed.zoom === "number" ? Math.min(200, Math.max(50, parsed.zoom)) : 100,
+        zoom: typeof parsed.zoom === "number" ? Math.min(500, Math.max(10, parsed.zoom)) : 100,
         selectedClipId: typeof parsed.selectedClipId === "string" ? parsed.selectedClipId : null,
         selectedTransitionId: typeof parsed.selectedTransitionId === "string" ? parsed.selectedTransitionId : null,
         updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),

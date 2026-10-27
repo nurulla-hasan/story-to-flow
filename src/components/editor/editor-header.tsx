@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTimeline } from "@/lib/timeline-context";
 import { ExportDialog } from "@/components/editor/export-dialog";
 
@@ -93,29 +94,45 @@ export function EditorHeader() {
 
           <Separator orientation="vertical" className="h-4 hidden md:block" />
 
-          {/* Undo / Redo controls */}
+          {/* Undo / Redo controls with shadcn Tooltips */}
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={undo}
-              disabled={!canUndo}
-              title={canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}
-              aria-label="Undo"
-            >
-              <RotateCcw className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={undo}
+                    disabled={!canUndo}
+                    aria-label="Undo"
+                  >
+                    <RotateCcw className="size-4" />
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                <span>{canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}</span>
+              </TooltipContent>
+            </Tooltip>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={redo}
-              disabled={!canRedo}
-              title={canRedo ? "Redo (Ctrl+Y)" : "Nothing to redo"}
-              aria-label="Redo"
-            >
-              <RotateCw className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={redo}
+                    disabled={!canRedo}
+                    aria-label="Redo"
+                  >
+                    <RotateCw className="size-4" />
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                <span>{canRedo ? "Redo (Ctrl+Y)" : "Nothing to redo"}</span>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

@@ -264,6 +264,24 @@
   --banner-ribbon-text: oklch(0.9 0.05 220);
 }
 
+/* Landing page motion + interaction */
+.landing-marquee {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    var(--foreground) 10%,
+    var(--foreground) 90%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    var(--foreground) 10%,
+    var(--foreground) 90%,
+    transparent 100%
+  );
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -280,7 +298,6 @@
   summary {
     cursor: pointer;
   }
-
   /* Scrollbar Styles */
   *::-webkit-scrollbar {
     width: 6px;

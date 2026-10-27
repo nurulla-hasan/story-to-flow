@@ -23,7 +23,7 @@ export function ThemeToggle({ className = "", showLabel = false }: ThemeTogglePr
     return (
       <button
         type="button"
-        className={`size-9 rounded-xl border border-border/60 bg-card/80 backdrop-blur-xs text-muted-foreground flex items-center justify-center transition-all ${className}`}
+        className={`size-7 rounded-xl border border-border/60 bg-card/80 backdrop-blur-xs text-muted-foreground flex items-center justify-center transition-all ${className}`}
         aria-label="Toggle theme"
       >
         <span className="size-4" />

@@ -47,6 +47,8 @@ export interface TimelineClip {
   sourceDuration?: number | null; // total duration of source media (for video/audio)
   speed?: number; // default 1.0
   volume?: number; // default 1.0
+  fadeInDuration?: number; // audio fade-in duration in seconds (default 0)
+  fadeOutDuration?: number; // audio fade-out duration in seconds (default 0)
 }
 
 export interface TimelineTrack {

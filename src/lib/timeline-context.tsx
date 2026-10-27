@@ -25,6 +25,12 @@ import {
   applyToAllTransitions as executeApplyToAll,
 } from "@/lib/transition-helpers";
 import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
+import { calculateAudioGain } from "@/lib/audio-fade-helpers";
+import {
+  hasVisualOverlap,
+  clampMoveToPreventOverlap,
+  findNextNonOverlappingStartTime,
+} from "@/lib/timeline-overlap";
 
 export interface TimelineContextType {
   isHydrated: boolean;
@@ -47,6 +53,7 @@ export interface TimelineContextType {
   stepFrameForward: () => void;
   stepFrameBackward: () => void;
   togglePlay: () => void;
+  pause: () => void;
   setZoom: (zoom: number) => void;
   selectClip: (clipId: string | null) => void;
   selectTransition: (transitionId: string | null) => void;
@@ -99,14 +106,15 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [localTransitions, setLocalTransitions] = React.useState<TimelineTransition[] | null>(null);
   const [localSelectedClipId, setLocalSelectedClipId] = React.useState<string | null>(null);
   const [localSelectedTransitionId, setLocalSelectedTransitionId] = React.useState<string | null>(null);
-  const [playhead, setPlayheadState] = React.useState<number>(0);
   const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
+  const [localPlayhead, setLocalPlayhead] = React.useState<number | null>(null);
   const [localZoom, setLocalZoom] = React.useState<number | null>(null);
 
   // Derived active state: perfectly identical between server and client first render
   const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
   const clips = localClips ?? (isHydrated ? storedState.clips : DEFAULT_TIMELINE_STATE.clips);
   const transitions = localTransitions ?? (isHydrated ? storedState.transitions : DEFAULT_TIMELINE_STATE.transitions);
+  const playhead = localPlayhead ?? (isHydrated ? storedState.playhead : DEFAULT_TIMELINE_STATE.playhead);
   const zoom = localZoom ?? (isHydrated ? storedState.zoom : DEFAULT_TIMELINE_STATE.zoom);
   const selectedClipId = localSelectedClipId ?? (isHydrated ? storedState.selectedClipId : null);
   const selectedTransitionId = localSelectedTransitionId ?? (isHydrated ? storedState.selectedTransitionId : null);
@@ -185,7 +193,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   const setZoom = React.useCallback(
     (newZoom: number) => {
-      const clamped = Math.min(200, Math.max(50, newZoom));
+      const clamped = Math.min(500, Math.max(10, newZoom));
       setLocalZoom(clamped);
       if (isHydrated) {
         saveStoredTimelineState({ zoom: clamped });
@@ -202,13 +210,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   }, [isHydrated, clips]);
 
   const setPlayhead = React.useCallback((time: number) => {
-    setPlayheadState(Math.max(0, time));
+    setLocalPlayhead(Math.max(0, time));
   }, []);
 
   const seek = React.useCallback(
     (time: number) => {
       const clamped = Math.max(0, Math.min(totalDuration, time));
-      setPlayheadState(clamped);
+      setLocalPlayhead(clamped);
     },
     [totalDuration]
   );
@@ -216,17 +224,21 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   // Step playhead forward by exactly 1 frame at 30 fps
   const stepFrameForward = React.useCallback(() => {
     setIsPlaying(false);
-    setPlayheadState((prev) => stepFrame(prev, 1, totalDuration, TIMELINE_FPS));
-  }, [totalDuration]);
+    setLocalPlayhead((prev) => stepFrame(prev ?? playhead, 1, totalDuration, TIMELINE_FPS));
+  }, [totalDuration, playhead]);
 
   // Step playhead backward by exactly 1 frame at 30 fps
   const stepFrameBackward = React.useCallback(() => {
     setIsPlaying(false);
-    setPlayheadState((prev) => stepFrame(prev, -1, totalDuration, TIMELINE_FPS));
-  }, [totalDuration]);
+    setLocalPlayhead((prev) => stepFrame(prev ?? playhead, -1, totalDuration, TIMELINE_FPS));
+  }, [totalDuration, playhead]);
 
   const togglePlay = React.useCallback(() => {
     setIsPlaying((prev) => !prev);
+  }, []);
+
+  const pause = React.useCallback(() => {
+    setIsPlaying(false);
   }, []);
 
   // Real-time playback loop for timeline clock
@@ -240,8 +252,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
-      setPlayheadState((prev) => {
-        const next = prev + dt;
+      setLocalPlayhead((prev) => {
+        const current = prev ?? playhead;
+        const next = current + dt;
         if (next >= totalDuration) {
           setIsPlaying(false);
           return 0;
@@ -254,7 +267,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, totalDuration]);
+  }, [isPlaying, totalDuration, playhead]);
 
   // Synchronize audio playback with timeline clock
   React.useEffect(() => {
@@ -278,7 +291,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           audio.currentTime = Math.max(0, targetTime);
         }
 
-        audio.volume = typeof activeAudioClip.volume === "number" ? Math.max(0, Math.min(1, activeAudioClip.volume)) : 1.0;
+        const clipRelativeTime = playhead - activeAudioClip.startTime;
+        const currentGain = calculateAudioGain(
+          clipRelativeTime,
+          activeAudioClip.duration,
+          activeAudioClip.volume ?? 1.0,
+          activeAudioClip.fadeInDuration ?? 0,
+          activeAudioClip.fadeOutDuration ?? 0
+        );
+
+        audio.volume = Math.max(0, Math.min(1.0, currentGain));
 
         if (isPlaying) {
           audio.play().catch(() => {});
@@ -324,17 +346,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       pushHistorySnapshot(clips, transitions);
 
       const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual-1");
-      const trackClips = clips.filter((c) => c.trackId === trackId);
-
-      let startTime = customStartTime !== undefined ? customStartTime : 0;
-      if (customStartTime === undefined && trackClips.length > 0) {
-        startTime = Math.max(...trackClips.map((c) => c.startTime + c.duration));
-      }
 
       let duration = 3.0;
       if (asset.category === "video" || asset.category === "audio") {
         duration = asset.duration && asset.duration > 0 ? asset.duration : 4.0;
       }
+
+      // Safe placement that prevents overlap on the same visual track
+      const startTime = findNextNonOverlappingStartTime(trackId, duration, clips, customStartTime);
 
       const newClip: TimelineClip = {
         id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -368,7 +387,8 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       pushHistorySnapshot(clips, transitions);
 
-      const clampedStart = Math.max(0, newStartTime);
+      // Prevent overlapping same visual track
+      const clampedStart = clampMoveToPreventOverlap(target, newStartTime, clips);
       const updatedClips = clips.map((c) =>
         c.id === clipId ? { ...c, startTime: clampedStart } : c
       );
@@ -472,6 +492,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
+      // Prevent switching visual layer if target lane is already occupied at this interval
+      if (updates.trackId && updates.trackId !== target.trackId && isVisualTrack(updates.trackId)) {
+        if (hasVisualOverlap({ ...target, ...updates, trackId: updates.trackId }, clips)) {
+          return;
+        }
+      }
+
       pushHistorySnapshot(clips, transitions);
 
       const updatedClips = clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c));
@@ -557,11 +584,20 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       pushHistorySnapshot(clips, transitions);
 
+      // Find next available placement that does not overlap same visual lane
+      const preferredStart = clip.startTime + clip.duration;
+      const targetStart = findNextNonOverlappingStartTime(
+        clip.trackId,
+        clip.duration,
+        clips,
+        preferredStart
+      );
+
       const duplicate: TimelineClip = {
         ...clip,
         id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: `${clip.name} (Copy)`,
-        startTime: clip.startTime + clip.duration,
+        startTime: targetStart,
       };
 
       const updatedClips = [...clips, duplicate];
@@ -821,6 +857,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         stepFrameForward,
         stepFrameBackward,
         togglePlay,
+        pause,
         setZoom,
         selectClip,
         selectTransition,

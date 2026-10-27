@@ -34,6 +34,8 @@ import {
   areClipsAdjacentForTransition,
   validateTransitionDuration,
 } from "@/lib/transition-helpers";
+import { validateFadeDuration } from "@/lib/audio-fade-helpers";
+import { hasVisualOverlap } from "@/lib/timeline-overlap";
 
 export function ClipInspectorPanel() {
   const {
@@ -76,6 +78,37 @@ export function ClipInspectorPanel() {
       updateClip(selectedClip.id, { volume: val });
     }
   };
+
+  const handleFadeInChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedClip) return;
+    const val = parseFloat(e.target.value);
+    const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeOutDuration ?? 0);
+    updateClip(selectedClip.id, { fadeInDuration: safeFade });
+  };
+
+  const handleFadeOutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedClip) return;
+    const val = parseFloat(e.target.value);
+    const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
+    updateClip(selectedClip.id, { fadeOutDuration: safeFade });
+  };
+
+  // Check if moving to layer 1 or layer 2 would cause a same-track collision
+  const wouldOverlapTrack1 = React.useMemo(() => {
+    if (!selectedClip || !isVisualTrack(selectedClip.trackId)) return false;
+    return hasVisualOverlap(
+      { id: selectedClip.id, startTime: selectedClip.startTime, duration: selectedClip.duration, trackId: "visual-1" },
+      clips
+    );
+  }, [selectedClip, clips]);
+
+  const wouldOverlapTrack2 = React.useMemo(() => {
+    if (!selectedClip || !isVisualTrack(selectedClip.trackId)) return false;
+    return hasVisualOverlap(
+      { id: selectedClip.id, startTime: selectedClip.startTime, duration: selectedClip.duration, trackId: "visual-2" },
+      clips
+    );
+  }, [selectedClip, clips]);
 
   // Find if selected visual clip has an adjacent next clip eligible for transition
   const transitionToNext = React.useMemo(() => {
@@ -309,8 +342,14 @@ export function ClipInspectorPanel() {
                 <div className="grid grid-cols-2 gap-1.5 pt-0.5">
                   <button
                     type="button"
+                    disabled={selectedClip.trackId === "visual-2" && wouldOverlapTrack1}
                     onClick={() => updateClip(selectedClip.id, { trackId: "visual-1" })}
-                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer ${
+                    title={
+                      selectedClip.trackId === "visual-2" && wouldOverlapTrack1
+                        ? "Cannot move to Track 1: another clip occupies this timeline position"
+                        : "Move to Visual Track 1 (Base Layer)"
+                    }
+                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                       selectedClip.trackId !== "visual-2"
                         ? "border-primary bg-primary/10 text-primary font-bold"
                         : "border-border text-muted-foreground hover:bg-muted"
@@ -320,8 +359,14 @@ export function ClipInspectorPanel() {
                   </button>
                   <button
                     type="button"
+                    disabled={selectedClip.trackId !== "visual-2" && wouldOverlapTrack2}
                     onClick={() => updateClip(selectedClip.id, { trackId: "visual-2" })}
-                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer ${
+                    title={
+                      selectedClip.trackId !== "visual-2" && wouldOverlapTrack2
+                        ? "Cannot move to Track 2: another clip occupies this timeline position"
+                        : "Move to Visual Track 2 (Overlay Layer)"
+                    }
+                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                       selectedClip.trackId === "visual-2"
                         ? "border-primary bg-primary/10 text-primary font-bold"
                         : "border-border text-muted-foreground hover:bg-muted"
@@ -523,6 +568,68 @@ export function ClipInspectorPanel() {
                 <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
                   <span>0% (Mute)</span>
                   <span>100%</span>
+                </div>
+              </div>
+            )}
+
+            {/* Audio Specific: Fade In & Fade Out Controls */}
+            {isAudioTrack(selectedClip.trackId) && (
+              <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <SlidersHorizontal className="size-3 text-muted-foreground" />
+                    <span>Audio Fades</span>
+                  </span>
+                  {(selectedClip.fadeInDuration || selectedClip.fadeOutDuration) ? (
+                    <button
+                      type="button"
+                      onClick={() => updateClip(selectedClip.id, { fadeInDuration: 0, fadeOutDuration: 0 })}
+                      className="text-3xs text-muted-foreground hover:text-destructive cursor-pointer font-medium"
+                      title="Reset fades to 0s"
+                    >
+                      Reset Fades
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* Fade In Slider */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-2xs">
+                    <span className="text-muted-foreground">Fade In</span>
+                    <span className="font-mono text-primary font-semibold">
+                      {(selectedClip.fadeInDuration || 0).toFixed(2)}s
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={Math.min(5.0, selectedClip.duration / 2)}
+                    step="0.05"
+                    value={selectedClip.fadeInDuration || 0}
+                    onChange={handleFadeInChange}
+                    aria-label="Audio fade-in duration"
+                    className="w-full accent-primary cursor-pointer"
+                  />
+                </div>
+
+                {/* Fade Out Slider */}
+                <div className="space-y-1 pt-1 border-t border-border/50">
+                  <div className="flex items-center justify-between text-2xs">
+                    <span className="text-muted-foreground">Fade Out</span>
+                    <span className="font-mono text-primary font-semibold">
+                      {(selectedClip.fadeOutDuration || 0).toFixed(2)}s
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={Math.min(5.0, selectedClip.duration / 2)}
+                    step="0.05"
+                    value={selectedClip.fadeOutDuration || 0}
+                    onChange={handleFadeOutChange}
+                    aria-label="Audio fade-out duration"
+                    className="w-full accent-primary cursor-pointer"
+                  />
                 </div>
               </div>
             )}

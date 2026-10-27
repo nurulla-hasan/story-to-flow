@@ -567,8 +567,24 @@ export async function exportTimelineToMp4({
           source.buffer = decodedBuffer;
 
           const gain = offlineCtx.createGain();
-          gain.gain.value =
+          const baseVol =
             typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
+          const fadeIn = Math.max(0, Math.min(clip.duration, clip.fadeInDuration ?? 0));
+          const fadeOut = Math.max(0, Math.min(clip.duration, clip.fadeOutDuration ?? 0));
+
+          if (fadeIn > 0) {
+            gain.gain.setValueAtTime(0, clip.startTime);
+            gain.gain.linearRampToValueAtTime(baseVol, clip.startTime + fadeIn);
+          } else {
+            gain.gain.setValueAtTime(baseVol, clip.startTime);
+          }
+
+          if (fadeOut > 0) {
+            const fadeOutStart = clip.startTime + clip.duration - fadeOut;
+            const holdUntil = Math.max(clip.startTime + fadeIn, fadeOutStart);
+            gain.gain.setValueAtTime(baseVol, holdUntil);
+            gain.gain.linearRampToValueAtTime(0, clip.startTime + clip.duration);
+          }
 
           source.connect(gain);
           gain.connect(offlineCtx.destination);

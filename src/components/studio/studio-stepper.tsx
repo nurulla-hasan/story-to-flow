@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Mic, Clock, Film, FileText } from "lucide-react";
+import { Check, Mic, Clock, Film, FileText, ChevronRight } from "lucide-react";
 
 interface StudioStepperProps {
   currentStage: number; // 1, 2, 3, 4
@@ -22,90 +22,105 @@ export function StudioStepper({
   const steps = [
     {
       id: 1,
-      title: "Story Input",
+      title: "Story",
       icon: FileText,
       isCompleted: hasStory && (hasVoiceover || currentStage > 1),
       isActive: currentStage === 1,
     },
     {
       id: 2,
-      title: "Voiceover Script",
+      title: "Voiceover",
       icon: Mic,
       isCompleted: hasVoiceover && (hasDuration || currentStage > 2),
       isActive: currentStage === 2,
     },
     {
       id: 3,
-      title: "Cartesia Duration",
+      title: "Duration",
       icon: Clock,
       isCompleted: hasDuration && (hasScenes || currentStage > 3),
       isActive: currentStage === 3,
     },
     {
       id: 4,
-      title: "Scene & Shot Prompts",
+      title: "Prompts",
       icon: Film,
       isCompleted: hasScenes,
       isActive: currentStage === 4,
     },
   ];
 
-  return (
-    <div className="w-full bg-card border border-border rounded-xl p-3 shadow-2xs">
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-        {steps.map((step, idx) => {
-          const Icon = step.icon;
-          const isClickable =
-            (step.id === 1 && hasStory) ||
-            (step.id === 2 && (hasStory || hasVoiceover)) ||
-            (step.id === 3 && hasVoiceover) ||
-            (step.id === 4 && hasDuration && hasScenes);
+  const currentStep = steps.find((s) => s.id === currentStage) || steps[0];
+  const completedCount = steps.filter((s) => s.isCompleted).length;
+  const progressPercent = Math.round((completedCount / steps.length) * 100);
 
-          return (
-            <div key={step.id} className="flex items-center flex-1 min-w-0">
-              <button
-                type="button"
-                onClick={() => isClickable && onStageClick?.(step.id)}
-                disabled={!isClickable}
-                className={`flex items-center gap-2 p-1.5 rounded-lg text-left transition-all w-full select-none ${
-                  step.isActive
-                    ? "bg-primary/10 border border-primary/30 text-primary font-semibold shadow-2xs"
-                    : step.isCompleted
-                      ? "text-foreground hover:bg-muted/60 cursor-pointer"
-                      : "text-muted-foreground/60 cursor-not-allowed"
-                }`}
-              >
-                <div
-                  className={`size-6 rounded-md flex items-center justify-center shrink-0 text-xs font-mono font-bold transition-colors ${
-                    step.isCompleted
-                      ? "bg-primary text-primary-foreground"
-                      : step.isActive
-                        ? "bg-primary/20 text-primary border border-primary/40"
-                        : "bg-muted text-muted-foreground"
+  return (
+    <div className="w-full bg-card/70 backdrop-blur-sm border border-border/80 rounded-xl px-3.5 py-2.5 shadow-2xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Left: Current Active Step Info */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="size-7 rounded-lg bg-primary/10 border border-primary/25 text-primary flex items-center justify-center shrink-0">
+            <currentStep.icon className="size-3.5" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Step {currentStage} of 4:
+            </span>
+            <span className="text-xs font-semibold text-foreground truncate">
+              {currentStep.title}
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Minimal Interactive Segmented Progress Bar */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {steps.map((step, idx) => {
+            const isClickable =
+              (step.id === 1 && hasStory) ||
+              (step.id === 2 && (hasStory || hasVoiceover)) ||
+              (step.id === 3 && hasVoiceover) ||
+              (step.id === 4 && hasDuration && hasScenes);
+
+            return (
+              <div key={step.id} className="flex items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => isClickable && onStageClick?.(step.id)}
+                  disabled={!isClickable}
+                  title={`${step.title} (Step ${step.id})`}
+                  className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                    step.isActive
+                      ? "bg-primary text-primary-foreground font-semibold shadow-2xs"
+                      : step.isCompleted
+                        ? "bg-muted text-foreground hover:bg-primary/10 hover:text-primary cursor-pointer"
+                        : "text-muted-foreground/40 cursor-not-allowed"
                   }`}
                 >
-                  {step.isCompleted ? (
-                    <Check className="size-3.5 stroke-[2.5]" />
-                  ) : (
-                    step.id
-                  )}
-                </div>
+                  <span className="size-3.5 rounded-full flex items-center justify-center shrink-0">
+                    {step.isCompleted ? (
+                      <Check className="size-3 stroke-[2.5]" />
+                    ) : (
+                      <span className="text-3xs font-mono font-bold">{step.id}</span>
+                    )}
+                  </span>
+                  <span className="text-2xs font-medium hidden md:inline">
+                    {step.title}
+                  </span>
+                </button>
 
-                <div className="min-w-0 truncate">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <Icon className="size-3.5 shrink-0 opacity-80" />
-                    <span className="text-xs truncate">{step.title}</span>
-                  </div>
-                </div>
-              </button>
-
-              {idx < steps.length - 1 && (
-                <div className="hidden sm:block w-3 h-px bg-border/80 mx-1 shrink-0" />
-              )}
-            </div>
-          );
-        })}
+                {idx < steps.length - 1 && (
+                  <div
+                    className={`h-0.5 w-3 sm:w-5 rounded-full transition-colors ${
+                      step.isCompleted ? "bg-primary/60" : "bg-border"
+                    }`}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
+

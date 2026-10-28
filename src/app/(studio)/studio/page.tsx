@@ -490,24 +490,21 @@ export default function StudioPage() {
         <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-secondary/5 via-transparent to-transparent" />
       </div>
 
-      <div className="space-y-8 relative">
+      <div className="space-y-6 relative">
         {/* Workflow Progression Stepper */}
-        <div className="relative">
-          <div className="absolute -inset-4 bg-gradient-to-r from-primary/5 to-secondary/5 rounded-2xl blur-xl -z-10" />
-          <StudioStepper
-            currentStage={currentStage}
-            hasStory={!!story.trim()}
-            hasVoiceover={!!voiceoverScript.trim()}
-            hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
-            hasScenes={!!result?.response}
-            onStageClick={(stg) => setLocalStage(stg)}
-          />
-        </div>
+        <StudioStepper
+          currentStage={currentStage}
+          hasStory={!!story.trim()}
+          hasVoiceover={!!voiceoverScript.trim()}
+          hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
+          hasScenes={!!result?.response}
+          onStageClick={(stg) => setLocalStage(stg)}
+        />
 
         {/* 2-Column Dashboard Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           {/* Left Column: Staged Story Workflow */}
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* STAGE 1: Original Story Input */}
             <div className="space-y-4">
               <div className="relative">
@@ -697,7 +694,7 @@ export default function StudioPage() {
           </div>
 
           {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
-          <div className="space-y-8">
+          <div className="space-y-6 lg:sticky lg:top-20">
             <div className="relative">
               <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
               <OutputCard

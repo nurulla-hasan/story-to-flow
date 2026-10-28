@@ -483,78 +483,100 @@ export default function StudioPage() {
 
   return (
     <>
-      <div className="space-y-6">
+      {/* Subtle background gradient */}
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-surface-subtle to-muted/30" />
+        <div className="absolute top-0 left-0 right-0 h-64 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-secondary/5 via-transparent to-transparent" />
+      </div>
+
+      <div className="space-y-8 relative">
         {/* Workflow Progression Stepper */}
-        <StudioStepper
-          currentStage={currentStage}
-          hasStory={!!story.trim()}
-          hasVoiceover={!!voiceoverScript.trim()}
-          hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
-          hasScenes={!!result?.response}
-          onStageClick={(stg) => setLocalStage(stg)}
-        />
+        <div className="relative">
+          <div className="absolute -inset-4 bg-gradient-to-r from-primary/5 to-secondary/5 rounded-2xl blur-xl -z-10" />
+          <StudioStepper
+            currentStage={currentStage}
+            hasStory={!!story.trim()}
+            hasVoiceover={!!voiceoverScript.trim()}
+            hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
+            hasScenes={!!result?.response}
+            onStageClick={(stg) => setLocalStage(stg)}
+          />
+        </div>
 
         {/* 2-Column Dashboard Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left Column: Staged Story Workflow */}
-          <div className="space-y-6">
+          <div className="space-y-8">
             {/* STAGE 1: Original Story Input */}
-            <div className="space-y-3">
-              <StoryInputCard
-                story={story}
-                onChange={handleStoryChange}
-                onClear={handleClear}
-                validationError={validationError}
-                disabled={isGenerating}
-              />
+            <div className="space-y-4">
+              <div className="relative">
+                <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
+                <StoryInputCard
+                  story={story}
+                  onChange={handleStoryChange}
+                  onClear={handleClear}
+                  validationError={validationError}
+                  disabled={isGenerating}
+                />
+              </div>
 
               {/* Action: Generate Master Voiceover Script */}
               {!voiceoverScript.trim() && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {isGenerating && generationPhase === "voiceover" ? (
-                    <div className="flex items-center gap-2.5">
-                      <Button
-                        size="lg"
-                        className="flex-1 gap-2.5 cursor-default select-none shadow-sm"
-                        tabIndex={-1}
-                      >
-                        <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                        <span className="font-semibold truncate">Writing Voiceover Script</span>
-                        <span className="font-mono text-xs font-bold bg-primary-foreground/20 px-2 py-0.5 rounded-md shadow-xs">
-                          {formatSeconds(elapsedSeconds)}
-                        </span>
-                      </Button>
-                      <Button
-                        size="lg"
-                        variant="destructive"
-                        onClick={handleStop}
-                        className="gap-2 shrink-0 cursor-pointer shadow-sm"
-                        title="Cancel generation and abort request"
-                      >
-                        <Square className="size-3.5 fill-current" />
-                        <span>Stop</span>
-                      </Button>
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex-1">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-sm -z-10" />
+                        <Button
+                          size="lg"
+                          className="flex-1 gap-3 cursor-default select-none shadow-md"
+                          tabIndex={-1}
+                        >
+                          <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
+                          <span className="font-semibold truncate">Writing Voiceover Script</span>
+                          <span className="font-mono text-xs font-bold bg-primary-foreground/25 px-2.5 py-1 rounded-lg shadow-sm">
+                            {formatSeconds(elapsedSeconds)}
+                          </span>
+                        </Button>
+                      </div>
+                      <div className="relative">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
+                        <Button
+                          size="lg"
+                          variant="destructive"
+                          onClick={handleStop}
+                          className="gap-2.5 shrink-0 cursor-pointer shadow-md"
+                          title="Cancel generation and abort request"
+                        >
+                          <Square className="size-3.5 fill-current" />
+                          <span>Stop</span>
+                        </Button>
+                      </div>
                     </div>
                   ) : (
-                    <Button
-                      size="lg"
-                      onClick={handleGenerateVoiceover}
-                      disabled={!story.trim() || isGenerating}
-                      className="w-full gap-2 cursor-pointer shadow-sm text-sm font-semibold"
-                    >
-                      <Sparkles className="size-4.5" />
-                      <span>Generate Voiceover Script</span>
-                      <ArrowRight className="size-4.5" />
-                    </Button>
+                    <div className="relative">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-md -z-10 opacity-70" />
+                      <Button
+                        size="lg"
+                        onClick={handleGenerateVoiceover}
+                        disabled={!story.trim() || isGenerating}
+                        className="w-full gap-3 cursor-pointer shadow-md text-sm font-semibold"
+                      >
+                        <Sparkles className="size-4.5" />
+                        <span>Generate Voiceover Script</span>
+                        <ArrowRight className="size-4.5" />
+                      </Button>
+                    </div>
                   )}
 
                   {isGenerating && generationPhase === "voiceover" && (
-                    <div className="flex items-center justify-between text-2xs text-muted-foreground px-1.5 animate-in fade-in">
-                      <span className="flex items-center gap-1.5 font-medium text-foreground/80">
-                        <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+                    <div className="flex items-center justify-between text-xs text-muted-foreground px-2 animate-in fade-in">
+                      <span className="flex items-center gap-2 font-medium text-foreground">
+                        <span className="size-2 rounded-full bg-primary animate-pulse" />
                         <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
                       </span>
-                      <span className="font-mono">{elapsedSeconds}s elapsed</span>
+                      <span className="font-mono font-semibold">{elapsedSeconds}s elapsed</span>
                     </div>
                   )}
                 </div>
@@ -563,98 +585,128 @@ export default function StudioPage() {
 
             {/* STAGE 2: Master Voiceover Script (Review & Edit for Cartesia) */}
             {voiceoverScript.trim() && (
-              <VoiceoverScriptCard
-                script={voiceoverScript}
-                onChange={handleVoiceoverChange}
-                onRegenerate={handleGenerateVoiceover}
-                onProceedToDuration={() => setLocalStage(3)}
-                isGenerating={isGenerating && generationPhase === "voiceover"}
-                disabled={isGenerating}
-              />
+              <div className="relative">
+                <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                <VoiceoverScriptCard
+                  script={voiceoverScript}
+                  onChange={handleVoiceoverChange}
+                  onRegenerate={handleGenerateVoiceover}
+                  onProceedToDuration={() => setLocalStage(3)}
+                  isGenerating={isGenerating && generationPhase === "voiceover"}
+                  disabled={isGenerating}
+                />
+              </div>
             )}
 
             {/* STAGE 3: Cartesia Duration Entry & Visual Settings */}
             {voiceoverScript.trim() && (
-              <CartesiaDurationCard
-                minutes={minutes}
-                seconds={seconds}
-                onMinutesChange={handleMinutesChange}
-                onSecondsChange={handleSecondsChange}
-                settings={prodSettings}
-                onUpdateSetting={updateSetting}
-                onGenerateScenes={handleGenerateScenes}
-                isGenerating={isGenerating && generationPhase === "scenes"}
-                disabled={isGenerating}
-              />
+              <div className="relative">
+                <div className="absolute -inset-3 bg-gradient-to-br from-success-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                <CartesiaDurationCard
+                  minutes={minutes}
+                  seconds={seconds}
+                  onMinutesChange={handleMinutesChange}
+                  onSecondsChange={handleSecondsChange}
+                  settings={prodSettings}
+                  onUpdateSetting={updateSetting}
+                  onGenerateScenes={handleGenerateScenes}
+                  isGenerating={isGenerating && generationPhase === "scenes"}
+                  disabled={isGenerating}
+                />
+              </div>
             )}
 
             {/* In-Flight Scene Generation Status Bar */}
             {isGenerating && generationPhase === "scenes" && (
-              <div className="space-y-2 p-3 rounded-xl bg-card border border-primary/20 shadow-sm animate-in fade-in">
-                <div className="flex items-center gap-2.5">
-                  <Button
-                    size="lg"
-                    className="flex-1 gap-2.5 cursor-default select-none shadow-sm"
-                    tabIndex={-1}
-                  >
-                    <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                    <span className="font-semibold truncate">Engineering Scenes &amp; Shots</span>
-                    <span className="font-mono text-xs font-bold bg-primary-foreground/20 px-2 py-0.5 rounded-md shadow-xs">
-                      {formatSeconds(elapsedSeconds)}
-                    </span>
-                  </Button>
-                  <Button
-                    size="lg"
-                    variant="destructive"
-                    onClick={handleStop}
-                    className="gap-2 shrink-0 cursor-pointer shadow-sm"
-                    title="Cancel generation and abort request"
-                  >
-                    <Square className="size-3.5 fill-current" />
-                    <span>Stop</span>
-                  </Button>
-                </div>
+              <div className="relative">
+                <div className="absolute -inset-2 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-lg -z-10 opacity-70" />
+                <div className="space-y-3 p-4 rounded-xl bg-card/80 backdrop-blur-sm border border-primary/30 shadow-lg animate-in fade-in">
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 to-primary/10 rounded-xl blur-sm -z-10" />
+                      <Button
+                        size="lg"
+                        className="flex-1 gap-3 cursor-default select-none shadow-md"
+                        tabIndex={-1}
+                      >
+                        <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
+                        <span className="font-semibold truncate">Engineering Scenes &amp; Shots</span>
+                        <span className="font-mono text-xs font-bold bg-primary-foreground/25 px-2.5 py-1 rounded-lg shadow-sm">
+                          {formatSeconds(elapsedSeconds)}
+                        </span>
+                      </Button>
+                    </div>
+                    <div className="relative">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
+                      <Button
+                        size="lg"
+                        variant="destructive"
+                        onClick={handleStop}
+                        className="gap-2.5 shrink-0 cursor-pointer shadow-md"
+                        title="Cancel generation and abort request"
+                      >
+                        <Square className="size-3.5 fill-current" />
+                        <span>Stop</span>
+                      </Button>
+                    </div>
+                  </div>
 
-                <div className="flex items-center justify-between text-2xs text-muted-foreground px-1">
-                  <span className="flex items-center gap-1.5 font-medium text-foreground/80">
-                    <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-                    <span>{getProgressPhase(elapsedSeconds, "scenes")}</span>
-                  </span>
-                  <span className="font-mono">{elapsedSeconds}s elapsed</span>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground px-2">
+                    <span className="flex items-center gap-2 font-medium text-foreground">
+                      <span className="size-2 rounded-full bg-primary animate-pulse" />
+                      <span>{getProgressPhase(elapsedSeconds, "scenes")}</span>
+                    </span>
+                    <span className="font-mono font-semibold">{elapsedSeconds}s elapsed</span>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Compact Active Production Settings Bar with Reset Studio Button */}
-            <StudioSettingsBar
-              settings={prodSettings}
-              model={selectedModel}
-              onResetClick={() => setIsResetDialogOpen(true)}
-            />
+            <div className="relative">
+              <div className="absolute -inset-3 bg-gradient-to-br from-surface-subtle via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+              <StudioSettingsBar
+                settings={prodSettings}
+                model={selectedModel}
+                onResetClick={() => setIsResetDialogOpen(true)}
+              />
+            </div>
 
             {/* Brief cancellation / reset notice */}
             {cancelNotice && (
-              <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground animate-in fade-in">
-                <span className="size-2 rounded-full bg-muted-foreground/50" />
-                <span>{cancelNotice}</span>
+              <div className="relative">
+                <div className="absolute -inset-2 bg-gradient-to-r from-muted/30 to-muted/10 rounded-xl blur-sm -z-10 opacity-70" />
+                <div className="flex items-center gap-3 rounded-xl bg-muted/80 backdrop-blur-sm px-4 py-2.5 text-sm text-muted-foreground animate-in fade-in">
+                  <span className="size-2.5 rounded-full bg-muted-foreground/60" />
+                  <span className="font-medium">{cancelNotice}</span>
+                </div>
               </div>
             )}
 
             {/* How it works Card */}
-            <HowItWorksCard />
+            <div className="relative">
+              <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+              <HowItWorksCard />
+            </div>
 
             {/* Output format Card */}
-            <OutputFormatCard />
+            <div className="relative">
+              <div className="absolute -inset-3 bg-gradient-to-br from-warning-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+              <OutputFormatCard />
+            </div>
           </div>
 
           {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
-          <div className="space-y-6">
-            <OutputCard
-              result={result}
-              error={error}
-              copied={copied}
-              onCopyAll={handleCopyAll}
-            />
+          <div className="space-y-8">
+            <div className="relative">
+              <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
+              <OutputCard
+                result={result}
+                error={error}
+                copied={copied}
+                onCopyAll={handleCopyAll}
+              />
+            </div>
           </div>
         </div>
       </div>

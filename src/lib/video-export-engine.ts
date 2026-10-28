@@ -692,6 +692,42 @@ export function seekVideoElement(
   });
 }
 
+export interface AudioCandidateSelection {
+  dedicatedAudioClips: TimelineClip[];
+  videoClipsWithAudio: TimelineClip[];
+  hasAudioSources: boolean;
+}
+
+/**
+ * Filter clips to determine audio candidates for MP4 export:
+ * - Dedicated audio clips on audio tracks.
+ * - Video clips on visual tracks with volume > 0 (strictly excluding images).
+ */
+export function selectAudioEligibleClips(
+  clips: TimelineClip[],
+  assets: MediaAssetItem[]
+): AudioCandidateSelection {
+  const assetMap = new Map(assets.map((a) => [a.id, a]));
+  const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
+  const dedicatedAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
+
+  // Only actual video clips on visual tracks with volume > 0 (strictly excluding image clips)
+  const videoClipsWithAudio = visualClips.filter((c) => {
+    const asset = assetMap.get(c.assetId);
+    const isVideo = c.type === "video" || asset?.category === "video";
+    const isImage = c.type === "image" || asset?.category === "image";
+    return isVideo && !isImage && (c.volume ?? 1) > 0;
+  });
+
+  const hasAudioSources = dedicatedAudioClips.length > 0 || videoClipsWithAudio.length > 0;
+
+  return {
+    dedicatedAudioClips,
+    videoClipsWithAudio,
+    hasAudioSources,
+  };
+}
+
 /**
  * Render the entire timeline frame-by-frame and mux into an MP4 file with bounded backpressure.
  */
@@ -729,17 +765,11 @@ export async function exportTimelineToMp4({
 
   const assetMap = new Map(assets.map((a) => [a.id, a]));
   const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
-  const dedicatedAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  const { dedicatedAudioClips, videoClipsWithAudio, hasAudioSources } = selectAudioEligibleClips(
+    clips,
+    assets
+  );
 
-  // Only actual video clips on visual tracks with volume > 0 (strictly excluding image clips)
-  const videoClipsWithAudio = visualClips.filter((c) => {
-    const asset = assetMap.get(c.assetId);
-    const isVideo = c.type === "video" || asset?.category === "video";
-    const isImage = c.type === "image" || asset?.category === "image";
-    return isVideo && !isImage && (c.volume ?? 1) > 0;
-  });
-
-  const hasAudioSources = dedicatedAudioClips.length > 0 || videoClipsWithAudio.length > 0;
   const hasAudio =
     hasAudioSources &&
     typeof (window as unknown as { AudioEncoder?: unknown }).AudioEncoder !== "undefined";

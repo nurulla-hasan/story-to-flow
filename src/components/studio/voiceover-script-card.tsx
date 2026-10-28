@@ -92,7 +92,6 @@ export function VoiceoverScriptCard({
 
           {onRegenerate && (
             <Button
-              size="sm"
               variant="ghost"
               onClick={onRegenerate}
               disabled={isGenerating || disabled}
@@ -115,20 +114,19 @@ export function VoiceoverScriptCard({
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
             placeholder="ভয়েসওভার স্ক্রিপ্টটি এখানে প্রদর্শিত হবে। আপনি প্রয়োজনে শব্দ বা বাক্য সম্পাদন করতে পারেন..."
-            className="w-full min-h-[160px] max-h-[340px] font-bangla text-sm leading-relaxed resize-y border-border/80 focus:border-primary p-3"
+            className="w-full min-h-40 max-h-85 font-bangla text-sm leading-relaxed resize-y border-border/80 focus:border-primary p-3"
           />
         </div>
 
         {/* Word count & Speaking duration guidance bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs border-t border-border/60 pt-3">
-          <div className="flex items-center gap-2 font-mono text-3xs text-muted-foreground">
+          <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
             <span>{wordCount} words</span>
             <span>•</span>
             <span>Estimated speech: ~{estimatedSeconds}s (@ 2.4 wps)</span>
           </div>
 
           <Button
-            size="sm"
             onClick={onProceedToDuration}
             disabled={!script.trim() || disabled}
             className="gap-1.5 text-xs font-semibold cursor-pointer shadow-sm"

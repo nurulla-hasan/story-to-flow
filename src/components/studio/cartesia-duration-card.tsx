@@ -88,10 +88,10 @@ const VIDEO_SOUND_OPTIONS: { value: VideoSoundMode; label: string; desc: string 
 ];
 
 const PACING_OPTIONS = [
-  { value: "4.0", label: "4.0s per image (Default)" },
-  { value: "2.5", label: "2.5s per image (Fast)" },
-  { value: "3.0", label: "3.0s per image (Dynamic)" },
-  { value: "5.0", label: "5.0s per image (Cinematic)" },
+  { value: 4.0, label: "4.0s per image (Default)" },
+  { value: 2.5, label: "2.5s per image (Fast)" },
+  { value: 3.0, label: "3.0s per image (Dynamic)" },
+  { value: 5.0, label: "5.0s per image (Cinematic)" },
   { value: "Auto", label: "Auto (AI chooses pacing)" },
 ];
 
@@ -264,7 +264,9 @@ export function CartesiaDurationCard({
               disabled={disabled}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select asset mode" />
+                <SelectValue>
+                  {VISUAL_ASSET_MODE_OPTIONS.find((o) => o.value === (settings.visualAssetMode || "Hybrid"))?.label || "Select asset mode"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {VISUAL_ASSET_MODE_OPTIONS.map((opt) => (
@@ -288,10 +290,14 @@ export function CartesiaDurationCard({
             <Select
               value={settings.videoSoundMode || "Silent Video"}
               onValueChange={(val) => onUpdateSetting("videoSoundMode", val as VideoSoundMode)}
-              disabled={disabled}
+              disabled={disabled || settings.visualAssetMode === "All Images"}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select sound mode" />
+                <SelectValue>
+                  {settings.visualAssetMode === "All Images"
+                    ? "Disabled (All Images mode)"
+                    : VIDEO_SOUND_OPTIONS.find((o) => o.value === (settings.videoSoundMode || "Silent Video"))?.label || "Select sound mode"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {VIDEO_SOUND_OPTIONS.map((opt) => (
@@ -302,7 +308,9 @@ export function CartesiaDurationCard({
               </SelectContent>
             </Select>
             <FieldDescription className="text-3xs text-muted-foreground">
-              {VIDEO_SOUND_OPTIONS.find((o) => o.value === settings.videoSoundMode)?.desc}
+              {settings.visualAssetMode === "All Images" 
+                ? "Disabled when using All Images mode (no video assets)" 
+                : VIDEO_SOUND_OPTIONS.find((o) => o.value === settings.videoSoundMode)?.desc}
             </FieldDescription>
           </Field>
 
@@ -313,23 +321,30 @@ export function CartesiaDurationCard({
               <span>Static Image Shot Pacing</span>
             </FieldLabel>
             <Select
-              value={String(settings.staticFramePacing ?? 4.0)}
+              value={settings.staticFramePacing === "Auto" 
+                ? "Auto" 
+                : String(settings.staticFramePacing ?? 4.0)}
               onValueChange={(val) => {
                 if (val) {
+                  const newValue = val === "Auto" ? "Auto" : parseFloat(val);
                   onUpdateSetting(
                     "staticFramePacing",
-                    val === "Auto" ? "Auto" : parseFloat(val)
+                    newValue
                   );
                 }
               }}
               disabled={disabled}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select pacing" />
+                <SelectValue>
+                  {PACING_OPTIONS.find((o) => 
+                    String(o.value) === String(settings.staticFramePacing ?? 4.0)
+                  )?.label || "Select pacing"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {PACING_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
+                  <SelectItem key={String(opt.value)} value={String(opt.value)}>
                     {opt.label}
                   </SelectItem>
                 ))}
@@ -366,7 +381,11 @@ export function CartesiaDurationCard({
               disabled={disabled || !isVideoAssetModeActive}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select video duration" />
+                <SelectValue>
+                  {!isVideoAssetModeActive 
+                    ? "Disabled (All Images mode)" 
+                    : VIDEO_DURATION_OPTIONS.find((o) => o.value === String(videoDurationSec))?.label || "Select video duration"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {VIDEO_DURATION_OPTIONS.map((opt) => (
@@ -377,7 +396,9 @@ export function CartesiaDurationCard({
               </SelectContent>
             </Select>
             <FieldDescription className="text-3xs text-muted-foreground leading-relaxed">
-              Use the same duration in your external video generator. If your chosen generator does not offer this duration, select a supported duration there and update this Studio setting to match.
+              {settings.visualAssetMode === "All Images"
+                ? "Not applicable when using All Images mode (no video assets)"
+                : "Use the same duration in your external video generator. If your chosen generator does not offer this duration, select a supported duration there and update this Studio setting to match."}
             </FieldDescription>
           </Field>
         </div>

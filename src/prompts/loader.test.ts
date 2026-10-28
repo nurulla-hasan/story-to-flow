@@ -188,6 +188,17 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
     expect(systemMessage).toContain("Hero-video source assets must strictly match the selected duration (4.0 SECONDS).");
     expect(systemMessage).toContain("SCENE & SHOT OUTPUT FORMAT (ONE CODE BLOCK PER STORY SCENE):");
     expect(systemMessage).toContain("Use the same duration in your external video generator.");
+
+    const autoPacingMessage = assembleSceneSystemMessage(
+      { ...sceneSettings, staticFramePacing: "Auto" as const },
+      30.0
+    );
+    expect(autoPacingMessage).toContain(
+      "Static-image shots should default to approximately 4.0 seconds (Auto default) per shot"
+    );
+    expect(autoPacingMessage).not.toContain(
+      "Static-image shots should default to approximately Auto seconds per shot"
+    );
   });
 
   it("assembleSceneSystemMessage: applies dynamic hero-video duration lock for 6s and 8s durations", () => {

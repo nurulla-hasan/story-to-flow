@@ -94,6 +94,10 @@ export function assembleSceneSystemMessage(
     settings.staticFramePacing === "Auto"
       ? "Auto (Default 4.0s per static image)"
       : `${settings.staticFramePacing} seconds per static image`;
+  const staticPacingValue =
+    settings.staticFramePacing === "Auto"
+      ? "4.0 seconds (Auto default)"
+      : `${settings.staticFramePacing} seconds`;
 
   const videoDurationSec = settings.videoAssetDuration || 4;
 
@@ -127,7 +131,7 @@ CRITICAL SCENE VS. SHOT ARCHITECTURE:
 - A Shot is one visual composition used to depict part of that scene.
 - One scene can contain multiple shots! Do not force every story scene to last exactly as long as one image.
 - Do not treat the duration of a whole story scene as the duration of a single static image.
-- Static-image shots should default to approximately ${pacingText} per shot (or adjusted to fit the narration beat naturally).
+- Static-image shots should default to approximately ${staticPacingValue} per shot (or adjusted to fit the narration beat naturally).
 - Hero-video source assets must strictly match the selected duration (${videoDurationSec}.0 SECONDS).
 - The overall visual plan must provide complete, continuous coverage matching the actual voiceover duration (${actualDuration.toFixed(2)}s).
 

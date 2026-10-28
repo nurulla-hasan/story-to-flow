@@ -217,6 +217,8 @@ export default function StudioPage() {
   // Duration changes handlers
   const handleMinutesChange = (val: string) => {
     setLocalMinutes(val);
+    setLocalResult(null);
+    setLocalStage(3);
     const m = parseFloat(val) || 0;
     const s = parseFloat(seconds) || 0;
     const total = m * 60 + s;
@@ -225,12 +227,16 @@ export default function StudioPage() {
       saveStoredStudioData({
         voiceoverDurationMinutes: val,
         actualVoiceoverDuration: total > 0 ? total : null,
+        currentStage: 3,
+        lastResult: null,
       });
     }, 300);
   };
 
   const handleSecondsChange = (val: string) => {
     setLocalSeconds(val);
+    setLocalResult(null);
+    setLocalStage(3);
     const m = parseFloat(minutes) || 0;
     const s = parseFloat(val) || 0;
     const total = m * 60 + s;
@@ -239,6 +245,8 @@ export default function StudioPage() {
       saveStoredStudioData({
         voiceoverDurationSeconds: val,
         actualVoiceoverDuration: total > 0 ? total : null,
+        currentStage: 3,
+        lastResult: null,
       });
     }, 300);
   };
@@ -251,15 +259,19 @@ export default function StudioPage() {
     }
 
     // Regeneration creates a new audio script, so the old measured duration and scenes are stale.
+    setLocalVoiceoverScript("");
     setLocalMinutes("");
     setLocalSeconds("");
+    setLocalStage(1);
     setLocalResult(null);
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
     if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
     saveStoredStudioData({
+      voiceoverScript: "",
       voiceoverDurationMinutes: "",
       voiceoverDurationSeconds: "",
       actualVoiceoverDuration: null,
-      currentStage,
+      currentStage: 1,
       lastResult: null,
     });
 

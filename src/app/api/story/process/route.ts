@@ -65,7 +65,9 @@ export async function POST(request: NextRequest) {
 
     // Backward-compatible top-level videoAssetDuration is accepted by the schema;
     // use it only when the nested production setting is not supplied.
-    const requestSettings = bodySettings || parseResult.data.videoAssetDuration !== undefined
+    const hasProductionSettings =
+      bodySettings !== undefined || parseResult.data.videoAssetDuration !== undefined;
+    const requestSettings = hasProductionSettings
       ? {
           ...bodySettings,
           videoAssetDuration: bodySettings?.videoAssetDuration ?? parseResult.data.videoAssetDuration,

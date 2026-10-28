@@ -35,11 +35,10 @@ import {
   isAudioTrack,
 } from "@/types/timeline";
 import { findAdjacentClipPairs } from "@/lib/transition-helpers";
-import { calculateLeftTrim, calculateRightTrim } from "@/lib/timeline-trim";
+import { calculateLeftTrim, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
 import {
   clampMoveToPreventOverlap,
   clampLeftTrimToPreventOverlap,
-  clampRightTrimToPreventOverlap,
 } from "@/lib/timeline-overlap";
 import {
   getPixelsPerSecond,
@@ -484,23 +483,7 @@ export function TimelineDock() {
       }
 
       const trimResult = calculateRightTrim(clip, deltaSec);
-      const nonOverlappingDuration = clampRightTrimToPreventOverlap(
-        clip,
-        trimResult.duration,
-        initialClips
-      );
-
-      latestClips = initialClips.map((c) =>
-        c.id === clip.id
-          ? {
-              ...c,
-              startTime: trimResult.startTime,
-              duration: nonOverlappingDuration,
-              inPoint: trimResult.inPoint,
-              outPoint: trimResult.inPoint + nonOverlappingDuration,
-            }
-          : c
-      );
+      latestClips = applyRippleExtend(clip.id, trimResult.duration, initialClips);
       setClipsTransient(latestClips);
     };
 

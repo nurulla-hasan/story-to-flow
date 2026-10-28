@@ -43,6 +43,7 @@ import {
   MIN_TRANSITION_DURATION,
 } from "@/lib/transition-helpers";
 import { validateFadeDuration } from "@/lib/audio-fade-helpers";
+import { applyRippleExtend } from "@/lib/timeline-trim";
 import { hasVisualOverlap } from "@/lib/timeline-overlap";
 
 export function ClipInspectorPanel() {
@@ -86,7 +87,7 @@ export function ClipInspectorPanel() {
     setTimeout(() => setApplyFeedback(null), 4000);
   };
 
-  // Intermediate transient handler for smooth slider scrubbing without pushing history snapshot per tick
+  // Intermediate transient handler for smooth slider scrubbing with ripple extension
   const handleTransientDurationChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
     const val = parseFloat((e.target as HTMLInputElement).value);
@@ -97,11 +98,7 @@ export function ClipInspectorPanel() {
         const remaining = (selectedClip.sourceDuration - selectedClip.inPoint) / speed;
         clampedDur = Math.min(clampedDur, remaining);
       }
-      const transientClips = clips.map((c) =>
-        c.id === selectedClip.id
-          ? { ...c, duration: clampedDur, outPoint: c.inPoint + clampedDur * speed }
-          : c
-      );
+      const transientClips = applyRippleExtend(selectedClip.id, clampedDur, clips);
       setClipsTransient(transientClips);
     }
   };

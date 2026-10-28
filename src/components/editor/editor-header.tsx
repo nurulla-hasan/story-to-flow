@@ -36,6 +36,8 @@ export function EditorHeader() {
     undo,
     redo,
     clips,
+    aspectRatio,
+    setAspectRatio,
     fitVisualsToVoiceover,
   } = useTimeline();
 
@@ -181,10 +183,15 @@ export function EditorHeader() {
             </div>
           ) : null}
 
-          <Badge variant="secondary" className="gap-1.5">
-            <Smartphone className="size-3" />
-            <span>9:16 Vertical</span>
-          </Badge>
+          <button
+            type="button"
+            onClick={() => setAspectRatio(aspectRatio === "16:9" ? "9:16" : "16:9")}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-border bg-secondary hover:bg-muted text-xs font-medium cursor-pointer transition-colors"
+            title={`Click to switch canvas aspect ratio (currently ${aspectRatio})`}
+          >
+            <Smartphone className={`size-3 ${aspectRatio === "16:9" ? "rotate-90" : ""} transition-transform`} />
+            <span>{aspectRatio === "16:9" ? "16:9 Landscape" : "9:16 Vertical"}</span>
+          </button>
 
           <Button
             variant="outline"

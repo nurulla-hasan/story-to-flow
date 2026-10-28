@@ -45,7 +45,7 @@ interface ExportDialogProps {
 type ResolutionPreset = "720p" | "1080p";
 
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
-  const { clips, transitions, projectTitle } = useTimeline();
+  const { clips, transitions, projectTitle, aspectRatio } = useTimeline();
   const { assets, acquireAssetLease } = useMediaLibrary();
 
   // Conservative default: 720p for memory safety on laptops and mobile devices
@@ -71,11 +71,16 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const plan = React.useMemo(() => calculateExportPlan(clips, 30), [clips]);
   const webCodecsStatus = React.useMemo(() => checkWebCodecsSupport(), []);
 
-  // Resolution dimensions
+  // Resolution dimensions reflecting active project aspect ratio (16:9 landscape vs 9:16 vertical)
+  const isLandscape = aspectRatio === "16:9";
   const resolution = React.useMemo(() => {
+    if (isLandscape) {
+      if (preset === "1080p") return { width: 1920, height: 1080 };
+      return { width: 1280, height: 720 };
+    }
     if (preset === "1080p") return { width: 1080, height: 1920 };
     return { width: 720, height: 1280 };
-  }, [preset]);
+  }, [preset, isLandscape]);
 
   const safety = React.useMemo(() => {
     return validateExportSafety(plan, { width: resolution.width, height: resolution.height });
@@ -193,7 +198,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <div>
               <DialogTitle>Export MP4 Video</DialogTitle>
               <DialogDescription>
-                Client-side 9:16 vertical video composition
+                Client-side {isLandscape ? "16:9 landscape" : "9:16 vertical"} video composition
               </DialogDescription>
             </div>
           </div>
@@ -317,7 +322,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-foreground">
-                  Output Resolution (9:16 Vertical)
+                  Output Resolution ({isLandscape ? "16:9 Landscape" : "9:16 Vertical"})
                 </label>
                 <span className="text-3xs text-muted-foreground">30 FPS Standard</span>
               </div>
@@ -334,7 +339,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-semibold text-foreground">720 × 1280</span>
+                    <span className="text-xs font-semibold text-foreground">
+                      {isLandscape ? "1280 × 720" : "720 × 1280"}
+                    </span>
                     <Badge variant="secondary">Recommended</Badge>
                   </div>
                   <span className="text-3xs text-muted-foreground mt-1">
@@ -353,7 +360,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                   }`}
                 >
                   <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-semibold text-foreground">1080 × 1920</span>
+                    <span className="text-xs font-semibold text-foreground">
+                      {isLandscape ? "1920 × 1080" : "1080 × 1920"}
+                    </span>
                     <Badge variant="outline">Full HD</Badge>
                   </div>
                   <span className="text-3xs text-muted-foreground mt-1">

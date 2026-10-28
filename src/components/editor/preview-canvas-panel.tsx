@@ -50,6 +50,7 @@ export function PreviewCanvasPanel() {
     seek,
     commitPlayhead,
     totalDuration,
+    aspectRatio,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
@@ -234,7 +235,7 @@ export function PreviewCanvasPanel() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Eye className="size-4 text-primary" />
-            <CardTitle>9:16 Preview Canvas</CardTitle>
+            <CardTitle>{aspectRatio === "16:9" ? "16:9 Landscape Canvas" : "9:16 Preview Canvas"}</CardTitle>
           </div>
           <Badge variant="outline">
             {activeTransitionData ? (
@@ -245,22 +246,28 @@ export function PreviewCanvasPanel() {
             ) : isHydrated && topActiveClip ? (
               `${topActiveClip.name} (${activeVisuals.length > 1 ? `${activeVisuals.length} Layers` : "Layer 1"})`
             ) : (
-              "1080 × 1920"
+              aspectRatio === "16:9" ? "1920 × 1080" : "1080 × 1920"
             )}
           </Badge>
         </div>
         <CardDescription>
-          Real-time vertical canvas rendered for Reels, TikTok &amp; Shorts
+          {aspectRatio === "16:9"
+            ? "Real-time landscape widescreen canvas rendered for YouTube & Desktop"
+            : "Real-time vertical canvas rendered for Reels, TikTok & Shorts"}
         </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-2">
         {/* Stage Container with dark backdrop */}
         <div className="flex items-center justify-center bg-muted/40 rounded-xl p-2 flex-1 min-h-0 overflow-hidden">
-          {/* Vertical 9:16 Phone Canvas Mockup */}
+          {/* Canvas Mockup matching active aspect ratio */}
           <div
-            style={{ aspectRatio: "9/16" }}
-            className="relative h-full max-h-72 sm:max-h-84 md:max-h-96 rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-visible"
+            style={{ aspectRatio: aspectRatio === "16:9" ? "16/9" : "9/16" }}
+            className={`relative rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-visible ${
+              aspectRatio === "16:9"
+                ? "w-full max-w-xl h-auto aspect-video max-h-72 sm:max-h-84 md:max-h-96"
+                : "h-full max-h-72 sm:max-h-84 md:max-h-96"
+            }`}
           >
             {/* Top Phone Notch / Camera indicator */}
             <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />

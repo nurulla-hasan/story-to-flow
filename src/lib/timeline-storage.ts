@@ -18,6 +18,7 @@ export const DEFAULT_TIMELINE_STATE: TimelineProjectState = {
   zoom: 100,
   selectedClipId: null,
   selectedTransitionId: null,
+  aspectRatio: "9:16",
   updatedAt: 0,
 };
 
@@ -196,6 +197,7 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
     selectedClipId: typeof record.selectedClipId === "string" ? record.selectedClipId : null,
     selectedTransitionId:
       typeof record.selectedTransitionId === "string" ? record.selectedTransitionId : null,
+    aspectRatio: record.aspectRatio === "16:9" ? "16:9" : "9:16",
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : Date.now(),
   };
 }

@@ -73,5 +73,6 @@ export interface TimelineProjectState {
   zoom: number; // 50 to 200, default 100
   selectedClipId: string | null;
   selectedTransitionId: string | null;
+  aspectRatio?: "9:16" | "16:9";
   updatedAt: number;
 }

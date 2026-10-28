@@ -36,6 +36,7 @@ import {
 } from "@/lib/transition-helpers";
 import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
 import { calculateAudioGain } from "@/lib/audio-fade-helpers";
+import { applyRippleExtend } from "@/lib/timeline-trim";
 import {
   hasVisualOverlap,
   clampMoveToPreventOverlap,
@@ -55,11 +56,13 @@ export interface TimelineContextType {
   zoom: number;
   totalDuration: number;
   projectTitle: string;
+  aspectRatio: "9:16" | "16:9";
   canUndo: boolean;
   canRedo: boolean;
   saveError: string | null;
   isDirty: boolean;
   setProjectTitle: (title: string) => void;
+  setAspectRatio: (ratio: "9:16" | "16:9") => void;
   setPlayhead: (time: number) => void;
   commitPlayhead: (time?: number) => void;
   seek: (time: number) => void;
@@ -116,6 +119,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   // Local overrides during active session (starts null so server and client first render use default)
   const [localTitle, setLocalTitle] = React.useState<string | null>(null);
+  const [localAspectRatio, setLocalAspectRatio] = React.useState<"9:16" | "16:9" | null>(null);
   const [localClips, setLocalClips] = React.useState<TimelineClip[] | null>(null);
   const [localTransitions, setLocalTransitions] = React.useState<TimelineTransition[] | null>(null);
   // undefined means "inherit the stored selection"; null means "explicitly cleared".
@@ -131,6 +135,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   // Derived active state: perfectly identical between server and client first render
   const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
+  const aspectRatio = localAspectRatio ?? (isHydrated ? (storedState.aspectRatio || "9:16") : (DEFAULT_TIMELINE_STATE.aspectRatio || "9:16"));
   const clips = localClips ?? (isHydrated ? storedState.clips : DEFAULT_TIMELINE_STATE.clips);
   const transitions = localTransitions ?? (isHydrated ? storedState.transitions : DEFAULT_TIMELINE_STATE.transitions);
   const playhead = localPlayhead ?? (isHydrated ? storedState.playhead : DEFAULT_TIMELINE_STATE.playhead);
@@ -258,6 +263,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (title: string) => {
       setLocalTitle(title);
       persistPartial({ projectTitle: title });
+    },
+    [persistPartial]
+  );
+
+  const setAspectRatio = React.useCallback(
+    (ratio: "9:16" | "16:9") => {
+      setLocalAspectRatio(ratio);
+      persistPartial({ aspectRatio: ratio });
     },
     [persistPartial]
   );
@@ -582,25 +595,20 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         clampedDuration = Math.min(clampedDuration, remaining);
       }
 
-      const updatedClips = clips.map((c) =>
-        c.id === clipId
-          ? {
-              ...c,
-              duration: clampedDuration,
-              outPoint: c.inPoint + clampedDuration * speed,
-            }
-          : c
-      );
+      // Apply ripple extension to downstream clips if extending duration
+      const updatedClips = applyRippleExtend(clipId, clampedDuration, clips);
 
-      // Validate transitions connected to this clip to ensure duration doesn't exceed bounds
-      const validTransitions = transitions.map((t) => {
-        if (t.fromClipId === clipId || t.toClipId === clipId) {
-          const from = updatedClips.find((c) => c.id === t.fromClipId);
-          const to = updatedClips.find((c) => c.id === t.toClipId);
-          const safeDur = validateTransitionDuration(t.duration, from, to);
-          return { ...t, duration: safeDur };
-        }
-        return t;
+      // Validate transitions connected to shifted or resized clips
+      const validTransitions = transitions.filter((t) => {
+        const from = updatedClips.find((c) => c.id === t.fromClipId);
+        const to = updatedClips.find((c) => c.id === t.toClipId);
+        if (!from || !to) return false;
+        return areClipsAdjacentForTransition(from, to);
+      }).map((t) => {
+        const from = updatedClips.find((c) => c.id === t.fromClipId);
+        const to = updatedClips.find((c) => c.id === t.toClipId);
+        const safeDur = validateTransitionDuration(t.duration, from, to);
+        return { ...t, duration: safeDur };
       });
 
       setLocalClips(updatedClips);
@@ -1034,11 +1042,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         zoom,
         totalDuration,
         projectTitle,
+        aspectRatio,
         canUndo,
         canRedo,
         saveError: saveStatus.error,
         isDirty: saveStatus.isDirty,
         setProjectTitle,
+        setAspectRatio,
         setPlayhead,
         commitPlayhead,
         seek,

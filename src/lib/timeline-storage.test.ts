@@ -312,9 +312,10 @@ describe("legacy saved-state compatibility", () => {
     });
   });
 
-  it("sanitizes saved clip speed and preserves rotation", () => {
+  it("sanitizes saved clip speed and preserves rotation and aspectRatio", () => {
     const parsed = deserializeTimelineState({
       version: 1,
+      aspectRatio: "16:9",
       clips: [
         createClip({
           speed: -2,
@@ -323,6 +324,7 @@ describe("legacy saved-state compatibility", () => {
       ],
     });
 
+    expect(parsed?.aspectRatio).toBe("16:9");
     expect(parsed?.clips[0].speed).toBe(1.0);
     expect(parsed?.clips[0].transform?.rotation).toBe(120);
 
@@ -331,6 +333,7 @@ describe("legacy saved-state compatibility", () => {
       clips: [createClip({ speed: 1.5 })],
     });
     expect(validFast?.clips[0].speed).toBe(1.5);
+    expect(validFast?.aspectRatio).toBe("9:16"); // default fallback
   });
 
   it("rejects non-object and newer payloads", () => {

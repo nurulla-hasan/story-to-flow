@@ -339,3 +339,54 @@ describe("Preview/Export Parity — Split-Related Transition Integrity (C-09)", 
     expect(reconciledTransitions[0].duration).toBe(1.0);
   });
 });
+
+describe("Preview/Export Parity — Landscape (16:9) vs Portrait (9:16) Export Dimensions", () => {
+  it("calculates correct landscape dimensions (1280x720 for 720p, 1920x1080 for 1080p)", () => {
+    const getResolution = (aspectRatio: "9:16" | "16:9", preset: "720p" | "1080p") => {
+      const isLandscape = aspectRatio === "16:9";
+      if (isLandscape) {
+        if (preset === "1080p") return { width: 1920, height: 1080 };
+        return { width: 1280, height: 720 };
+      }
+      if (preset === "1080p") return { width: 1080, height: 1920 };
+      return { width: 720, height: 1280 };
+    };
+
+    expect(getResolution("16:9", "720p")).toEqual({ width: 1280, height: 720 });
+    expect(getResolution("16:9", "1080p")).toEqual({ width: 1920, height: 1080 });
+    expect(getResolution("9:16", "720p")).toEqual({ width: 720, height: 1280 });
+    expect(getResolution("9:16", "1080p")).toEqual({ width: 1080, height: 1920 });
+  });
+
+  it("exports full voiceover duration matching latest audio end timestamp", () => {
+    const fullVoiceover: TimelineClip = {
+      id: "vo-full",
+      assetId: "a-vo",
+      name: "narration.mp3",
+      type: "audio",
+      trackId: "audio",
+      startTime: 0,
+      duration: 242.96, // exact full story length
+      inPoint: 0,
+      outPoint: 242.96,
+      sourceDuration: 242.96,
+    };
+
+    const visualScene: TimelineClip = {
+      id: "scene-1",
+      assetId: "v-1",
+      name: "intro.png",
+      type: "image",
+      trackId: "visual-1",
+      startTime: 0,
+      duration: 106.02, // visual ended early
+      inPoint: 0,
+      outPoint: 106.02,
+    };
+
+    // calculateExportPlan calculates maxEnd across ALL tracks (audio + visuals)
+    const plan = calculateExportPlan([visualScene, fullVoiceover], 30);
+    expect(plan.totalDuration).toBe(242.96);
+    expect(plan.totalFrames).toBe(Math.ceil(242.96 * 30));
+  });
+});

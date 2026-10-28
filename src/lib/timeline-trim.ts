@@ -1,4 +1,4 @@
-import type { TimelineClip } from "@/types/timeline";
+import { type TimelineClip, isVisualTrack } from "@/types/timeline";
 
 export const MIN_CLIP_DURATION = 0.5; // 500ms minimum clip duration
 
@@ -149,21 +149,9 @@ export function applyRippleExtend(
   if (!target) return allClips;
 
   const originalEndTime = target.startTime + target.duration;
+  const newEndTime = target.startTime + newDuration;
   const durationDelta = parseFloat((newDuration - target.duration).toFixed(3));
   const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
-
-  if (durationDelta <= 0) {
-    // Shrinking or unchanged relative to baseline: only update the target clip duration
-    return allClips.map((c) =>
-      c.id === editedClipId
-        ? {
-            ...c,
-            duration: newDuration,
-            outPoint: c.inPoint + newDuration * speed,
-          }
-        : c
-    );
-  }
 
   return allClips.map((clip) => {
     if (clip.id === editedClipId) {
@@ -176,10 +164,12 @@ export function applyRippleExtend(
 
     // Downstream check: starts at or after the edited clip's original end boundary
     if (clip.startTime >= originalEndTime - RIPPLE_EPSILON) {
-      const newStart = parseFloat((clip.startTime + durationDelta).toFixed(3));
+      // Shift downstream clip by durationDelta, clamped so it never precedes the edited clip's new end
+      const proposedStart = clip.startTime + durationDelta;
+      const clampedStart = Math.max(newEndTime, proposedStart);
       return {
         ...clip,
-        startTime: newStart,
+        startTime: parseFloat(clampedStart.toFixed(3)),
       };
     }
 
@@ -196,8 +186,10 @@ export function applyRippleExtend(
  * - Deleted clip is removed from the timeline.
  * - Downstream clips whose start times are at or after the deleted clip's original end
  *   (deletedEndTime - RIPPLE_EPSILON) shift left by deletedClip.duration.
- * - Clips starting before the deleted clip's original end (e.g. voiceover starting at 0s,
- *   earlier clips on any track, or overlays starting before deletedEndTime) remain untouched.
+ * - Clips that started inside the deleted interval on secondary tracks (target.startTime < start < deletedEndTime)
+ *   are clamped to target.startTime, aligning them at the new splice point without creating negative times.
+ * - Clips starting at or before the deleted clip's start time (e.g. voiceover starting at 0s,
+ *   earlier clips on any track, or overlays starting <= target.startTime) remain untouched.
  * - Downstream clips across all relevant tracks (visual-1, visual-2, audio-1, sfx) shift consistently,
  *   preserving relative downstream arrangement without introducing negative start times.
  */
@@ -213,25 +205,69 @@ export function applyRippleDelete(
     return { updatedClips: allClips, deletedClip: null };
   }
 
+  const deletedStartTime = target.startTime;
   const deletedEndTime = target.startTime + target.duration;
   const shiftAmount = target.duration;
 
-  const remainingClips = allClips.filter((c) => c.id !== deletedClipId);
+  // Filter out the deleted clip and sort in original chronological order
+  const remainingClips = allClips
+    .filter((c) => c.id !== deletedClipId)
+    .sort((a, b) => a.startTime - b.startTime);
 
-  const updatedClips = remainingClips.map((clip) => {
-    // Only shift clips that started at or after the deleted clip's end time
-    if (clip.startTime >= deletedEndTime - RIPPLE_EPSILON) {
-      const newStart = parseFloat(Math.max(0, clip.startTime - shiftAmount).toFixed(3));
-      return {
-        ...clip,
-        startTime: newStart,
-      };
+  // Group by trackId while preserving chronological order within each track
+  const trackGroups = new Map<string, TimelineClip[]>();
+  for (const clip of remainingClips) {
+    const list = trackGroups.get(clip.trackId) || [];
+    list.push(JSON.parse(JSON.stringify(clip)));
+    trackGroups.set(clip.trackId, list);
+  }
+
+  const finalClips: TimelineClip[] = [];
+
+  for (const [, clipsOnTrack] of trackGroups.entries()) {
+    let lastTrackEnd = 0;
+
+    for (const clip of clipsOnTrack) {
+      const clipEnd = clip.startTime + clip.duration;
+
+      // 1. Visual clips partially overlapping the cut from the left: trim tail at splice point
+      if (
+        isVisualTrack(clip.trackId) &&
+        isVisualTrack(target.trackId) &&
+        clip.startTime < deletedStartTime &&
+        clipEnd > deletedStartTime + RIPPLE_EPSILON
+      ) {
+        clip.duration = parseFloat(Math.max(MIN_CLIP_DURATION, deletedStartTime - clip.startTime).toFixed(3));
+        if (clip.outPoint) {
+          const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+          clip.outPoint = clip.inPoint + clip.duration * speed;
+        }
+      }
+
+      let proposedStart: number;
+
+      if (clip.startTime >= deletedEndTime - RIPPLE_EPSILON) {
+        // 2. Downstream clips starting at or after deletedEndTime shift left by shiftAmount
+        proposedStart = Math.max(0, clip.startTime - shiftAmount);
+      } else if (clip.startTime >= deletedStartTime && clip.startTime < deletedEndTime) {
+        // 3. Clips starting inside the deleted interval move to splice point (deletedStartTime)
+        proposedStart = deletedStartTime;
+      } else {
+        // 4. Clips starting before deletedStartTime remain anchored
+        proposedStart = clip.startTime;
+      }
+
+      // Enforce zero same-track collision: cannot start before predecessor on this track ends
+      const safeStart = Math.max(proposedStart, lastTrackEnd);
+      clip.startTime = parseFloat(safeStart.toFixed(3));
+      lastTrackEnd = clip.startTime + clip.duration;
+
+      finalClips.push(clip);
     }
-    return clip;
-  });
+  }
 
   return {
-    updatedClips,
+    updatedClips: finalClips,
     deletedClip: target,
   };
 }

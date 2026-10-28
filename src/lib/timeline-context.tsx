@@ -983,6 +983,37 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const isHoldingSpaceRef = React.useRef<boolean>(false);
   const wasPlayingBeforeHoldRef = React.useRef<boolean>(false);
 
+  // Stable actions ref so global keyboard shortcuts never tear down 60 times per second during playback
+  const actionsRef = React.useRef({
+    undo,
+    redo,
+    stepFrameForward,
+    stepFrameBackward,
+    splitClipAtPlayhead,
+    duplicateClip,
+    deleteClip,
+    deleteTransition,
+    togglePlay,
+    selectedClipId,
+    selectedTransitionId,
+  });
+
+  React.useEffect(() => {
+    actionsRef.current = {
+      undo,
+      redo,
+      stepFrameForward,
+      stepFrameBackward,
+      splitClipAtPlayhead,
+      duplicateClip,
+      deleteClip,
+      deleteTransition,
+      togglePlay,
+      selectedClipId,
+      selectedTransitionId,
+    };
+  });
+
   // Keyboard Shortcuts Listener
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1010,39 +1041,39 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       // Single-Frame Step Backward (Left Arrow)
       if (!modifier && !e.altKey && (e.key === "ArrowLeft" || e.key === "Left")) {
         e.preventDefault();
-        stepFrameBackward();
+        actionsRef.current.stepFrameBackward();
         return;
       }
 
       // Single-Frame Step Forward (Right Arrow)
       if (!modifier && !e.altKey && (e.key === "ArrowRight" || e.key === "Right")) {
         e.preventDefault();
-        stepFrameForward();
+        actionsRef.current.stepFrameForward();
         return;
       }
 
       if (modifier && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
-        undo();
+        actionsRef.current.undo();
       } else if (
         (modifier && e.key.toLowerCase() === "y") ||
         (modifier && e.shiftKey && e.key.toLowerCase() === "z")
       ) {
         e.preventDefault();
-        redo();
+        actionsRef.current.redo();
       } else if (modifier && e.key.toLowerCase() === "b") {
         e.preventDefault();
-        splitClipAtPlayhead();
+        actionsRef.current.splitClipAtPlayhead();
       } else if (modifier && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        if (selectedClipId) duplicateClip(selectedClipId);
+        if (actionsRef.current.selectedClipId) actionsRef.current.duplicateClip(actionsRef.current.selectedClipId);
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedClipId) {
+        if (actionsRef.current.selectedClipId) {
           e.preventDefault();
-          deleteClip(selectedClipId);
-        } else if (selectedTransitionId) {
+          actionsRef.current.deleteClip(actionsRef.current.selectedClipId);
+        } else if (actionsRef.current.selectedTransitionId) {
           e.preventDefault();
-          deleteTransition(selectedTransitionId);
+          actionsRef.current.deleteTransition(actionsRef.current.selectedTransitionId);
         }
       } else if (e.key === " " || e.code === "Space") {
         if (e.defaultPrevented) return;
@@ -1070,6 +1101,23 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl?.tagName === "INPUT" ||
+        activeEl?.tagName === "TEXTAREA" ||
+        activeEl?.tagName === "SELECT" ||
+        activeEl?.getAttribute("contenteditable") === "true" ||
+        activeEl?.getAttribute("role") === "slider";
+
+      // Guard: do not intercept if typing in an input, textarea, or slider
+      if (isInput) return;
+
+      const isInsideDialog = Boolean(
+        activeEl?.closest('[role="dialog"]') ||
+        activeEl?.closest('[role="alertdialog"]')
+      );
+      if (isInsideDialog) return;
+
       if (e.key === " " || e.code === "Space") {
         if (spaceTimerRef.current) {
           clearTimeout(spaceTimerRef.current);
@@ -1086,30 +1134,35 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           // Short tap (< 200ms): standard Play / Pause toggle
-          togglePlay();
+          actionsRef.current.togglePlay();
+        }
+      }
+    };
+
+    const handleBlur = () => {
+      // If focus lost or window blurs while Space was held down, restore 1.0x immediately
+      if (spaceTimerRef.current) {
+        clearTimeout(spaceTimerRef.current);
+        spaceTimerRef.current = null;
+      }
+      if (isHoldingSpaceRef.current) {
+        isHoldingSpaceRef.current = false;
+        setPlaybackSpeed(1.0);
+        if (!wasPlayingBeforeHoldRef.current) {
+          setIsPlaying(false);
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
     };
-  }, [
-    undo,
-    redo,
-    stepFrameForward,
-    stepFrameBackward,
-    splitClipAtPlayhead,
-    duplicateClip,
-    deleteClip,
-    deleteTransition,
-    togglePlay,
-    selectedClipId,
-    selectedTransitionId,
-  ]);
+  }, []);
 
   return (
     <TimelineContext.Provider

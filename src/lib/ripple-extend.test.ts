@@ -159,15 +159,18 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     expect(ovDown.duration).toBe(3.0);
   });
 
-  it("does not shift downstream clips when shrinking a clip (standard trim behavior)", () => {
+  it("shifts downstream clips leftward when reducing a clip duration in ripple mode (zero gap)", () => {
     // Shrinking Clip B from 8s to 6s (-2s delta)
     const updated = applyRippleExtend("clip-B", 6.0, initialClips);
 
     const b = updated.find((c) => c.id === "clip-B")!;
     const c = updated.find((c) => c.id === "clip-C")!;
 
+    expect(b.startTime).toBe(5.0);
     expect(b.duration).toBe(6.0);
-    expect(c.startTime).toBe(13.0); // remains anchored
+    expect(b.startTime + b.duration).toBe(11.0); // ends at 11s
+    expect(c.startTime).toBe(11.0); // shifts left by 2s to 11s: zero gap!
+    expect(c.duration).toBe(5.0);
   });
 
   it("maintains transition adjacency between extended clip and shifted downstream clip", () => {
@@ -235,5 +238,34 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     expect(b10.duration).toBe(10.0);
     expect(b10.startTime + b10.duration).toBe(15.0); // 5 + 10 = 15s
     expect(c10.startTime).toBe(15.0); // 13 + (10 - 8) = 15s! Zero gap!
+
+    // Step 3: User continues dragging within the same gesture down to 6s (below original 8s):
+    const intermediate6s = applyRippleExtend("clip-B", 6.0, initialSnapshot);
+    const b6 = intermediate6s.find((c) => c.id === "clip-B")!;
+    const c6 = intermediate6s.find((c) => c.id === "clip-C")!;
+
+    expect(b6.startTime).toBe(5.0);
+    expect(b6.duration).toBe(6.0);
+    expect(b6.startTime + b6.duration).toBe(11.0); // 5 + 6 = 11s
+    expect(c6.startTime).toBe(11.0); // 13 + (6 - 8) = 11s! Zero gap!
+  });
+
+  it("handles repeated extension and reduction cycles without drift or unintended gaps", () => {
+    const initialSnapshot = JSON.parse(JSON.stringify(initialClips));
+
+    // Cycle 1: Extend 8s -> 16s
+    let state = applyRippleExtend("clip-B", 16.0, initialSnapshot);
+    expect(state.find((c) => c.id === "clip-C")?.startTime).toBe(21.0); // 13 + 8
+
+    // Cycle 2: Reduce 8s -> 7s
+    state = applyRippleExtend("clip-B", 7.0, initialSnapshot);
+    expect(state.find((c) => c.id === "clip-C")?.startTime).toBe(12.0); // 13 - 1
+
+    // Cycle 3: Back to original 8s
+    state = applyRippleExtend("clip-B", 8.0, initialSnapshot);
+    expect(state.find((c) => c.id === "clip-C")?.startTime).toBe(13.0); // original
+
+    // Voiceover at t=0 never moves across all cycles
+    expect(state.find((c) => c.id === "voice-1")?.startTime).toBe(0);
   });
 });

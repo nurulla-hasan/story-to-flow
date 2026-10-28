@@ -570,6 +570,8 @@ export function TimelineDock() {
               return (
                 <div
                   key={clip.id}
+                  data-clip-id={clip.id}
+                  data-testid="timeline-clip"
                   style={{
                     left: `${leftPos}px`,
                     width: `${widthPx}px`,
@@ -1029,6 +1031,8 @@ export function TimelineDock() {
                       return (
                         <div
                           key={clip.id}
+                          data-clip-id={clip.id}
+                          data-testid="timeline-clip"
                           style={{
                             left: `${leftPos}px`,
                             width: `${widthPx}px`,

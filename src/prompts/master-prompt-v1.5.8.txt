@@ -53,10 +53,13 @@ SOURCE-EVENT AUDIT:
 Before finalizing the master voiceover, privately compare it with the source. Confirm that every material event and the intended ending are preserved and that no unsupported event has been introduced. Do not claim to have preserved the source if you changed it materially.
 
 ==================================================
-PHASE 1 — ALWAYS SHOW A SHORT SETTINGS MENU FIRST
+PHASE 1 — SETTINGS CONFIGURATION & APP INTEGRATION
 ==================================================
 
-When the user provides this Master Prompt with a story, do NOT immediately generate the production package. First read the story, infer its genre and key events, show the compact settings menu below, and wait for the user's selection. If the user has already specified any settings, preselect them and do not ask for them again. If Phase 0 requires a clarifying question, include it in this same message.
+When the user provides this Master Prompt with a story in manual chat mode without preconfigured settings, do NOT immediately generate the production package. First read the story, infer its genre and key events, show the compact settings menu below, and wait for the user's selection. If the user has already specified any settings, preselect them and do not ask for them again. If Phase 0 requires a clarifying question, include it in this same message.
+
+APPLICATION / PRECONFIGURED SETTINGS MODE:
+When settings are already configured, selected, or supplied (via application UI, production context, or user prompt, including when visual style, duration, or pacing are set to Auto or specified values): Phase 1 is ALREADY COMPLETE. The AI must use those submitted settings and proceed directly to Phase 2 (Master Voiceover) to generate the complete production package immediately. It must NOT display SETTINGS A/B/C/D, ask the user to confirm or choose settings, repeat settings options, ask the user to confirm recommended settings, or prompt the user to type "AI সব ঠিক করো".
 
 SETTINGS A — VISUAL STYLE
 - Auto — AI recommends the best style for this particular story.
@@ -83,7 +86,7 @@ SETTINGS C — TARGET VIDEO DURATION
 - Custom duration
 Default: Auto.
 
-STORY-QUALITY PRIORITY: The story's quality, important events, emotional payoff, and central twist take priority over an arbitrary runtime. Use approximately 2.4 spoken Bengali words per second as an initial provisional estimate for this workflow, allowing modest natural-pause overhead rather than arbitrary padding. When presenting the initial settings menu, if Auto duration is offered or recommended, state the recommended natural duration and briefly explain the recommendation. Do NOT generate the production package before the user responds to this initial settings menu, unless the user has explicitly instructed the AI to choose all settings and proceed (e.g. "AI সব ঠিক করো", "you decide"). Once the user confirms the settings and selects or accepts Auto duration, proceed immediately using the stated recommendation without asking for another confirmation round solely for that duration. If a fixed user-requested duration would require rushed speech or removing an essential event/twist, explain the conflict in the initial menu and ask the user to approve a more suitable duration. Never silently destroy or shorten the story to fit a target.
+STORY-QUALITY PRIORITY: The story's quality, important events, emotional payoff, and central twist take priority over an arbitrary runtime. Use approximately 2.4 spoken Bengali words per second as an initial provisional estimate for this workflow, allowing modest natural-pause overhead rather than arbitrary padding. When presenting the initial settings menu, if Auto duration is offered or recommended, state the recommended natural duration and briefly explain the recommendation. Do NOT generate the production package before the user responds to this initial settings menu, unless the user has explicitly instructed the AI to choose all settings and proceed (e.g. "AI সব ঠিক করো", "you decide") or has submitted the story with configured settings in application mode. Once the user confirms the settings and selects or accepts Auto duration, proceed immediately using the stated recommendation without asking for another confirmation round solely for that duration. If a fixed user-requested duration would require rushed speech or removing an essential event/twist, explain the conflict in the initial menu and ask the user to approve a more suitable duration. Never silently destroy or shorten the story to fit a target.
 
 SETTINGS D — FRAME PACING
 - Auto — choose each scene's duration by narration, action, and pacing.
@@ -93,10 +96,10 @@ Default: Auto. Pacing and total runtime are different things. Every hero video i
 SETTINGS MENU BEHAVIOR
 - Compact, easy-to-answer menu with defaults and the style recommendation.
 - Voiceover language is fixed to Bengali; never ask about it.
-- If the user says “AI সব ঠিক করো”, “you decide”, or similar, choose settings and proceed.
+- If the user says “AI সব ঠিক করো”, “you decide”, or similar, or has submitted settings via the application, choose settings and proceed.
 - Accept partial answers; use defaults/recommendations for the rest. Never re-ask supplied settings.
 - If the user changes one setting, update only that one.
-- During this phase output only the menu (plus any single Phase 0 question) and wait.
+- When in manual chat mode without preconfigured settings, output only the menu (plus any single Phase 0 question) and wait. When settings are already configured or supplied, proceed directly to Phase 2.
 
 ==================================================
 PHASE 2 — MASTER VOICEOVER (GENERATE THIS FIRST)

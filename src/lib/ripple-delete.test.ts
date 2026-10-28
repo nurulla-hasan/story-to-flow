@@ -186,4 +186,95 @@ describe("Ripple Delete for Timeline Clips", () => {
     expect(currentClips.find((c) => c.id === "clip-B")).toBeUndefined();
     expect(currentClips.find((c) => c.id === "clip-C")?.startTime).toBe(5.0);
   });
+
+  it("calculates overall timeline duration change accurately after ripple delete", () => {
+    // Initial timeline: Clip A (0-5s), Clip B (5-13s), Clip C (13-18s)
+    const originalMaxEnd = Math.max(clipA.startTime + clipA.duration, clipB.startTime + clipB.duration, clipC.startTime + clipC.duration);
+    expect(originalMaxEnd).toBe(18.0);
+
+    const { updatedClips } = applyRippleDelete("clip-B", [clipA, clipB, clipC]);
+    const newMaxEnd = Math.max(...updatedClips.map((c) => c.startTime + c.duration));
+
+    // After deleting Clip B (8s), total duration drops from 18s to 10s
+    expect(newMaxEnd).toBe(10.0);
+  });
+
+  it("clamps overlay clips that start inside the deleted interval to the splice point", () => {
+    const midOverlay: TimelineClip = {
+      id: "overlay-mid",
+      assetId: "o3",
+      name: "Mid Overlay",
+      type: "image",
+      trackId: "visual-2",
+      startTime: 7.0, // starts at 7s (inside Clip B: 5–13s)
+      duration: 3.0,
+      inPoint: 0,
+      outPoint: 3.0,
+    };
+
+    const { updatedClips } = applyRippleDelete("clip-B", [clipA, clipB, clipC, midOverlay]);
+    const ov = updatedClips.find((c) => c.id === "overlay-mid")!;
+
+    // Clamps cleanly to Clip B's start time (5.0s), preventing negative start or intrusion into Clip A
+    expect(ov.startTime).toBe(5.0);
+    expect(ov.duration).toBe(3.0);
+  });
+
+  it("handles ripple delete of a split clip correctly", () => {
+    // Clip B was split into B1 (5-9s, dur 4s) and B2 (9-13s, dur 4s)
+    const clipB1: TimelineClip = { ...clipB, id: "clip-B1", duration: 4.0, outPoint: 4.0 };
+    const clipB2: TimelineClip = { ...clipB, id: "clip-B2", startTime: 9.0, duration: 4.0, inPoint: 4.0, outPoint: 8.0 };
+
+    // Deleting B1 (duration 4s)
+    const { updatedClips } = applyRippleDelete("clip-B1", [clipA, clipB1, clipB2, clipC]);
+
+    const b2 = updatedClips.find((c) => c.id === "clip-B2")!;
+    const c = updatedClips.find((c) => c.id === "clip-C")!;
+
+    // B2 shifts left from 9s to 5s
+    expect(b2.startTime).toBe(5.0);
+    // Clip C shifts left from 13s to 9s
+    expect(c.startTime).toBe(9.0);
+  });
+
+  it("prevents same-track overlap on secondary tracks when interval clip and downstream clip shift", () => {
+    const midOverlay: TimelineClip = {
+      id: "overlay-mid",
+      assetId: "o3",
+      name: "Mid Overlay",
+      type: "image",
+      trackId: "visual-2",
+      startTime: 7.0, // starts at 7s (inside Clip B: 5–13s)
+      duration: 3.0, // 7.0 - 10.0s
+      inPoint: 0,
+      outPoint: 3.0,
+    };
+
+    const lateOverlay: TimelineClip = {
+      id: "overlay-late",
+      assetId: "o4",
+      name: "Late Overlay",
+      type: "image",
+      trackId: "visual-2",
+      startTime: 13.5, // starts at 13.5s (after Clip B: 5–13s)
+      duration: 3.0, // 13.5 - 16.5s
+      inPoint: 0,
+      outPoint: 3.0,
+    };
+
+    const { updatedClips } = applyRippleDelete("clip-B", [clipA, clipB, clipC, midOverlay, lateOverlay]);
+    const ovMid = updatedClips.find((c) => c.id === "overlay-mid")!;
+    const ovLate = updatedClips.find((c) => c.id === "overlay-late")!;
+
+    // ovMid is positioned at splice point (5.0s - 8.0s)
+    expect(ovMid.startTime).toBe(5.0);
+    expect(ovMid.duration).toBe(3.0);
+
+    // ovLate is positioned after ovMid to prevent 2.5s same-track collision (8.0s - 11.0s)
+    expect(ovLate.startTime).toBe(8.0);
+    expect(ovLate.duration).toBe(3.0);
+
+    // Zero overlap between ovMid and ovLate
+    expect(ovLate.startTime >= ovMid.startTime + ovMid.duration).toBe(true);
+  });
 });

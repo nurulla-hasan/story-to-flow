@@ -67,22 +67,42 @@ export function ClipInspectorPanel() {
 
   // Gesture snapshot tracking for inspector sliders to ensure exactly 1 history commit per drag
   const initialClipsRef = React.useRef<TimelineClip[] | null>(null);
+  const latestClipsRef = React.useRef<TimelineClip[] | null>(null);
 
   const handleSliderPointerDown = () => {
     initialClipsRef.current = JSON.parse(JSON.stringify(clips));
+    latestClipsRef.current = null;
   };
 
-  const handleSliderPointerUp = () => {
+  const handleSliderPointerUp = React.useCallback(() => {
     if (initialClipsRef.current) {
-      commitClipGesture(initialClipsRef.current, clips);
+      const finalClips = latestClipsRef.current ?? clips;
+      commitClipGesture(initialClipsRef.current, finalClips);
       initialClipsRef.current = null;
+      latestClipsRef.current = null;
     }
-  };
+  }, [clips, commitClipGesture]);
+
+  // Window-level listener ensures dragging slider released outside bounding box cleanly commits
+  React.useEffect(() => {
+    const onWindowPointerUp = () => {
+      if (initialClipsRef.current) {
+        handleSliderPointerUp();
+      }
+    };
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", onWindowPointerUp);
+    };
+  }, [handleSliderPointerUp]);
 
   const getBaseClips = () => {
     if (!initialClipsRef.current) {
       const snapshot: TimelineClip[] = JSON.parse(JSON.stringify(clips));
       initialClipsRef.current = snapshot;
+      latestClipsRef.current = null;
       return snapshot;
     }
     return initialClipsRef.current;
@@ -113,6 +133,7 @@ export function ClipInspectorPanel() {
         clampedDur,
         baseClips
       );
+      latestClipsRef.current = transientClips;
       setClipsTransient(transientClips);
     }
   };

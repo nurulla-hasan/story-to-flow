@@ -124,4 +124,26 @@ describe("Master Prompt Loader & Version v1.5.8 Validation", () => {
     expect(systemMessage).toContain("ask exactly ONE concise standalone clarification question");
     expect(systemMessage).toContain("Do NOT display or repeat the full Phase 1 settings menu when asking for clarification.");
   });
+
+  it("app-mode prompt assembly: enforces immediate generation with configured visual style and auto duration", () => {
+    const customSettings = {
+      model: "antigravity/gemini-3.8-flash-high",
+      visualStyle: "3D Animated Cartoon",
+      aspectRatio: "16:9" as const,
+      duration: "Auto" as const,
+      staticFramePacing: "Auto" as const,
+    };
+
+    const systemMessage = assembleSystemMessage(customSettings);
+
+    expect(systemMessage).toContain("VISUAL STYLE: 3D Animated Cartoon");
+    expect(systemMessage).toContain("ASPECT RATIO: 16:9");
+    expect(systemMessage).toContain("TARGET DURATION: Auto (AI will recommend appropriate duration)");
+    expect(systemMessage).toContain("STATIC FRAME PACING: Auto (AI will choose appropriate pacing)");
+    expect(systemMessage).toContain("The visual style \"3D Animated Cartoon\" should use polished animation");
+    expect(systemMessage).toContain("Do NOT display or repeat the Phase 1 settings menu.");
+    expect(systemMessage).toContain("APPLICATION / PRECONFIGURED SETTINGS MODE:");
+    expect(systemMessage).toContain("Phase 1 is ALREADY COMPLETE.");
+    expect(systemMessage).toContain("prompt the user to type \"AI সব ঠিক করো\"");
+  });
 });

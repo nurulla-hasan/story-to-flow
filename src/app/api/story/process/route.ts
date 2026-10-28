@@ -68,6 +68,18 @@ export async function POST(request: NextRequest) {
     // Assemble system message with Master Prompt + production context
     const systemMessage = assembleSystemMessage(resolvedSettings);
 
+    // Format user message to clearly pass the submitted story and confirm preselected settings
+    const userMessageContent = `Story to produce:
+${story}
+
+Configured Production Settings (Selected and Confirmed):
+- Visual Style: ${resolvedSettings.visualStyle}
+- Aspect Ratio: ${resolvedSettings.aspectRatio}
+- Target Duration: ${resolvedSettings.duration === "Auto" ? "Auto" : `${resolvedSettings.duration} seconds`}
+- Frame Pacing: ${resolvedSettings.staticFramePacing === "Auto" ? "Auto" : `${resolvedSettings.staticFramePacing} seconds per static image`}
+
+The user has submitted this story using the configured settings above. Phase 1 is complete. Proceed directly to Phase 2 (Master Voiceover) and generate the complete production package immediately.`;
+
     // Call LLM with story and assembled prompt (using unified configurable long-generation timeout)
     const result = await chatWithModel({
       model: resolvedSettings.model,
@@ -78,7 +90,7 @@ export async function POST(request: NextRequest) {
         },
         {
           role: "user",
-          content: story,
+          content: userMessageContent,
         },
       ],
       temperature: 0.7,

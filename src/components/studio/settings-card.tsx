@@ -9,7 +9,7 @@ import {
   CardContent,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import {
   Select,
   SelectContent,
@@ -17,7 +17,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Palette, Clock, Image as ImageIcon, Settings, Cpu, RotateCcw } from "lucide-react"
+import {
+  Palette,
+  Image as ImageIcon,
+  Settings,
+  Cpu,
+  RotateCcw,
+  Film,
+  Volume2,
+} from "lucide-react"
+import type {
+  VisualAssetMode,
+  VideoSoundMode,
+  VideoAssetDuration,
+} from "@/lib/validation"
 
 function AspectRatioIcon({ className = "size-3.5" }: { className?: string }) {
   return (
@@ -59,22 +72,30 @@ const ASPECT_RATIO_OPTIONS = [
   { value: "16:9", label: "16:9 (Landscape)" },
 ] as const
 
-const DURATION_OPTIONS = [
-  { value: "Auto", label: "Auto (AI recommends)" },
-  { value: "20", label: "20 seconds" },
-  { value: "30", label: "30 seconds" },
-  { value: "45", label: "45 seconds" },
-  { value: "60", label: "60 seconds" },
-  { value: "90", label: "90 seconds" },
-  { value: "120", label: "120 seconds" },
-] as const
-
 const PACING_OPTIONS = [
   { value: "Auto", label: "Auto (AI recommends)" },
   { value: "2.5", label: "2.5s per image" },
   { value: "3.0", label: "3.0s per image" },
-  { value: "4.0", label: "4.0s per image" },
+  { value: "4.0", label: "4.0s per image (Default)" },
   { value: "5.0", label: "5.0s per image" },
+] as const
+
+const VIDEO_DURATION_OPTIONS = [
+  { value: "4", label: "4.0 seconds (Default)" },
+  { value: "6", label: "6.0 seconds" },
+  { value: "8", label: "8.0 seconds" },
+] as const
+
+const VISUAL_ASSET_MODE_OPTIONS = [
+  { value: "Hybrid", label: "Hybrid (AI mixes static images & video)" },
+  { value: "All Images", label: "All Images (Static shots only)" },
+  { value: "All Videos", label: "All Videos (Video motion shots only)" },
+] as const
+
+const VIDEO_SOUND_OPTIONS = [
+  { value: "Silent Video", label: "Silent Video (Default)" },
+  { value: "Ambient Sound & SFX", label: "Ambient Sound & SFX" },
+  { value: "Full Generated Audio", label: "Full Generated Audio (Experimental prompt)" },
 ] as const
 
 interface SettingsCardProps {
@@ -82,10 +103,14 @@ interface SettingsCardProps {
   onVisualStyleChange: (value: string) => void
   aspectRatio: "9:16" | "16:9"
   onAspectRatioChange: (value: "9:16" | "16:9") => void
-  duration: "Auto" | number
-  onDurationChange: (value: "Auto" | number) => void
   staticFramePacing: "Auto" | number
   onStaticFramePacingChange: (value: "Auto" | number) => void
+  videoAssetDuration?: VideoAssetDuration
+  onVideoAssetDurationChange?: (value: VideoAssetDuration) => void
+  visualAssetMode?: VisualAssetMode
+  onVisualAssetModeChange?: (value: VisualAssetMode) => void
+  videoSoundMode?: VideoSoundMode
+  onVideoSoundModeChange?: (value: VideoSoundMode) => void
   activeModel?: string
   disabled?: boolean
   onResetDefaults?: () => void
@@ -97,15 +122,24 @@ export function SettingsCard({
   onVisualStyleChange,
   aspectRatio,
   onAspectRatioChange,
-  duration,
-  onDurationChange,
   staticFramePacing,
   onStaticFramePacingChange,
+  videoAssetDuration = 4,
+  onVideoAssetDurationChange,
+  visualAssetMode = "Hybrid",
+  onVisualAssetModeChange,
+  videoSoundMode = "Silent Video",
+  onVideoSoundModeChange,
   activeModel,
   disabled = false,
   onResetDefaults,
   isDefault = true,
 }: SettingsCardProps) {
+  const isVideoModeActive = visualAssetMode !== "All Images";
+
+  const currentVideoDuration: VideoAssetDuration =
+    videoAssetDuration === 6 || videoAssetDuration === 8 ? videoAssetDuration : 4;
+
   return (
     <Card>
       <CardHeader>
@@ -117,7 +151,7 @@ export function SettingsCard({
             <div>
               <CardTitle>Production Settings</CardTitle>
               <CardDescription className="font-bangla">
-                কনটেন্ট অনুযায়ী আপনার পছন্দের সেটিংস নির্বাচন করুন
+                Select your preferred visual style, aspect ratio, and shot durations
               </CardDescription>
             </div>
           </div>
@@ -136,7 +170,7 @@ export function SettingsCard({
       </CardHeader>
       <CardContent>
         <div className="space-y-5">
-          {/* 2x2 Grid of Dropdowns */}
+          {/* Grid of Settings */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Visual Style */}
             <Field>
@@ -192,35 +226,7 @@ export function SettingsCard({
               </Select>
             </Field>
 
-            {/* Duration */}
-            <Field>
-              <FieldLabel>
-                <Clock className="size-3.5 text-muted-foreground" />
-                <span>Duration</span>
-              </FieldLabel>
-              <Select
-                value={String(duration)}
-                onValueChange={(val) => {
-                  if (val) {
-                    onDurationChange(val === "Auto" ? "Auto" : Number(val))
-                  }
-                }}
-                disabled={disabled}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select duration" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DURATION_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            {/* Static Frame Pacing */}
+            {/* Static Image Shot Pacing */}
             <Field>
               <FieldLabel>
                 <ImageIcon className="size-3.5 text-muted-foreground" />
@@ -246,7 +252,108 @@ export function SettingsCard({
                   ))}
                 </SelectContent>
               </Select>
+              <FieldDescription className="text-3xs text-muted-foreground">
+                Default duration for static image shots.
+              </FieldDescription>
             </Field>
+
+            {/* Video Source Asset Duration */}
+            {onVideoAssetDurationChange && isVideoModeActive && (
+              <Field>
+                <div className="flex items-center justify-between">
+                  <FieldLabel>
+                    <Film className="size-3.5 text-muted-foreground" />
+                    <span>Video Source Asset Duration</span>
+                  </FieldLabel>
+                  <span className="text-3xs font-mono font-semibold text-primary">
+                    {currentVideoDuration}.0s
+                  </span>
+                </div>
+                <Select
+                  value={String(currentVideoDuration)}
+                  onValueChange={(val) => {
+                    if (val) {
+                      onVideoAssetDurationChange(parseInt(val, 10) as VideoAssetDuration)
+                    }
+                  }}
+                  disabled={disabled}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select video duration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VIDEO_DURATION_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription className="text-3xs text-muted-foreground leading-relaxed">
+                  Use the same duration in your external video generator. If your chosen generator does not offer this duration, select a supported duration there and update this Studio setting to match.
+                </FieldDescription>
+              </Field>
+            )}
+
+            {/* Visual Asset Mode */}
+            {onVisualAssetModeChange && (
+              <Field>
+                <FieldLabel>
+                  <Film className="size-3.5 text-muted-foreground" />
+                  <span>Visual Asset Mode</span>
+                </FieldLabel>
+                <Select
+                  value={visualAssetMode}
+                  onValueChange={(val) => {
+                    if (val) {
+                      onVisualAssetModeChange(val as VisualAssetMode)
+                    }
+                  }}
+                  disabled={disabled}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select asset mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VISUAL_ASSET_MODE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+
+            {/* Video Sound Mode */}
+            {onVideoSoundModeChange && (
+              <Field>
+                <FieldLabel>
+                  <Volume2 className="size-3.5 text-muted-foreground" />
+                  <span>Video Sound</span>
+                </FieldLabel>
+                <Select
+                  value={videoSoundMode}
+                  onValueChange={(val) => {
+                    if (val) {
+                      onVideoSoundModeChange(val as VideoSoundMode)
+                    }
+                  }}
+                  disabled={disabled}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select video sound" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VIDEO_SOUND_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
           </div>
 
           {/* Reset Defaults Action Bar */}

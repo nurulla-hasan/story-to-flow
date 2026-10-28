@@ -453,11 +453,21 @@ export default function SettingsPage() {
             onVisualStyleChange={(val) => updateSetting("visualStyle", val)}
             aspectRatio={prodSettings.aspectRatio}
             onAspectRatioChange={(val) => updateSetting("aspectRatio", val)}
-            duration={prodSettings.duration}
-            onDurationChange={(val) => updateSetting("duration", val)}
             staticFramePacing={prodSettings.staticFramePacing}
             onStaticFramePacingChange={(val) =>
               updateSetting("staticFramePacing", val)
+            }
+            videoAssetDuration={prodSettings.videoAssetDuration}
+            onVideoAssetDurationChange={(val) =>
+              updateSetting("videoAssetDuration", val)
+            }
+            visualAssetMode={prodSettings.visualAssetMode}
+            onVisualAssetModeChange={(val) =>
+              updateSetting("visualAssetMode", val)
+            }
+            videoSoundMode={prodSettings.videoSoundMode}
+            onVideoSoundModeChange={(val) =>
+              updateSetting("videoSoundMode", val)
             }
             activeModel={selectedModel}
             onResetDefaults={resetProdDefaults}

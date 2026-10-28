@@ -10,6 +10,11 @@ export const STUDIO_STORAGE_EVENT = "story_forge_studio_storage_change";
 export interface StoredStudioState {
   version: number;
   story: string;
+  voiceoverScript: string;
+  voiceoverDurationMinutes: string;
+  voiceoverDurationSeconds: string;
+  actualVoiceoverDuration: number | null;
+  currentStage: number; // 1 = story, 2 = voiceover, 3 = duration/settings, 4 = scenes
   lastResult: StoryProcessResponse | null;
   savedAt: number;
 }
@@ -17,6 +22,11 @@ export interface StoredStudioState {
 const DEFAULT_STUDIO_STATE: StoredStudioState = {
   version: STUDIO_STORAGE_VERSION,
   story: "",
+  voiceoverScript: "",
+  voiceoverDurationMinutes: "",
+  voiceoverDurationSeconds: "",
+  actualVoiceoverDuration: null,
+  currentStage: 1,
   lastResult: null,
   savedAt: 0,
 };
@@ -44,6 +54,11 @@ export function getStoredStudioState(): StoredStudioState {
       return {
         version: STUDIO_STORAGE_VERSION,
         story: typeof parsed.story === "string" ? parsed.story : "",
+        voiceoverScript: typeof parsed.voiceoverScript === "string" ? parsed.voiceoverScript : "",
+        voiceoverDurationMinutes: typeof parsed.voiceoverDurationMinutes === "string" ? parsed.voiceoverDurationMinutes : (parsed.voiceoverDurationMinutes?.toString() || ""),
+        voiceoverDurationSeconds: typeof parsed.voiceoverDurationSeconds === "string" ? parsed.voiceoverDurationSeconds : (parsed.voiceoverDurationSeconds?.toString() || ""),
+        actualVoiceoverDuration: typeof parsed.actualVoiceoverDuration === "number" ? parsed.actualVoiceoverDuration : null,
+        currentStage: typeof parsed.currentStage === "number" ? parsed.currentStage : 1,
         lastResult:
           parsed.lastResult &&
           typeof parsed.lastResult === "object" &&
@@ -59,6 +74,29 @@ export function getStoredStudioState(): StoredStudioState {
   }
 
   return DEFAULT_STUDIO_STATE;
+}
+
+/**
+ * Persist partial studio state changes to localStorage.
+ */
+export function saveStoredStudioData(partial: Partial<StoredStudioState>): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    const current = getStoredStudioState();
+    const updated: StoredStudioState = {
+      ...current,
+      ...partial,
+      savedAt: Date.now(),
+    };
+    const serialized = JSON.stringify(updated);
+    cachedStudioRaw = serialized;
+    cachedStudioSnapshot = updated;
+    window.localStorage.setItem(STUDIO_STORAGE_KEY, serialized);
+    window.dispatchEvent(new CustomEvent(STUDIO_STORAGE_EVENT));
+  } catch {
+    // Gracefully handle storage quota or private-browsing restrictions
+  }
 }
 
 /**

@@ -11,7 +11,7 @@ import * as path from "node:path";
 /**
  * Current active Master Prompt version
  */
-export const MASTER_PROMPT_VERSION = "v1.5.8";
+export const MASTER_PROMPT_VERSION = "v1.6.1";
 
 /**
  * Metadata for the loaded master prompt.
@@ -31,25 +31,26 @@ export interface MasterPrompt {
 }
 
 /**
- * Load the active Master Prompt from the file system.
+ * Load a Master Prompt from the file system.
+ * Defaults to the active MASTER_PROMPT_VERSION (e.g. src/prompts/master-prompt-v1.5.9.txt),
+ * while supporting explicit historical version loading (e.g. "v1.5.8").
  * 
  * This function is server-side only and will fail if called in client code.
- * The prompt file path is resolved dynamically using MASTER_PROMPT_VERSION
- * (e.g. src/prompts/master-prompt-v1.5.8.txt).
  * 
+ * @param version - Optional version string (defaults to MASTER_PROMPT_VERSION)
  * @throws {Error} If the prompt file is missing, empty, or unreadable
  * @returns {MasterPrompt} The loaded prompt with metadata
  */
-export function loadMasterPrompt(): MasterPrompt {
+export function loadMasterPrompt(version: string = MASTER_PROMPT_VERSION): MasterPrompt {
   const promptPath = path.join(
     process.cwd(),
-    `src/prompts/master-prompt-${MASTER_PROMPT_VERSION}.txt`
+    `src/prompts/master-prompt-${version}.txt`
   );
 
   // Check if file exists
   if (!fs.existsSync(promptPath)) {
     throw new Error(
-      `Master Prompt ${MASTER_PROMPT_VERSION} not found at ${promptPath}. ` +
+      `Master Prompt ${version} not found at ${promptPath}. ` +
       "Ensure the prompt file exists in the src/prompts directory."
     );
   }
@@ -61,7 +62,7 @@ export function loadMasterPrompt(): MasterPrompt {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Failed to read Master Prompt ${MASTER_PROMPT_VERSION} from ${promptPath}: ${errorMessage}`
+      `Failed to read Master Prompt ${version} from ${promptPath}: ${errorMessage}`
     );
   }
 
@@ -69,7 +70,7 @@ export function loadMasterPrompt(): MasterPrompt {
   const trimmedContent = content.trim();
   if (trimmedContent.length === 0) {
     throw new Error(
-      `Master Prompt ${MASTER_PROMPT_VERSION} at ${promptPath} is empty. ` +
+      `Master Prompt ${version} at ${promptPath} is empty. ` +
       "The prompt file must contain the complete prompt text."
     );
   }
@@ -78,7 +79,7 @@ export function loadMasterPrompt(): MasterPrompt {
   return {
     content: trimmedContent,
     metadata: {
-      version: MASTER_PROMPT_VERSION,
+      version,
       loadedAt: new Date(),
       contentLength: trimmedContent.length,
     },

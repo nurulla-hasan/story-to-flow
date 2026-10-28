@@ -6,8 +6,10 @@ import { DEFAULT_MODEL } from "./env";
 import type {
   ProductionSettings,
   AspectRatio,
-  Duration,
   StaticFramePacing,
+  VisualAssetMode,
+  VideoSoundMode,
+  VideoAssetDuration,
 } from "./validation";
 
 /**
@@ -17,19 +19,25 @@ export interface ResolvedSettings {
   model: string;
   visualStyle: string;
   aspectRatio: AspectRatio;
-  duration: Duration;
   staticFramePacing: StaticFramePacing;
+  videoAssetDuration: VideoAssetDuration;
+  visualAssetMode: VisualAssetMode;
+  videoSoundMode: VideoSoundMode;
+  actualVoiceoverDuration?: number;
+  voiceoverScript?: string;
 }
 
 /**
- * Application defaults matching Master Prompt v1.4.2 and task requirements
+ * Application defaults matching Master Prompt requirements
  */
 export const DEFAULT_SETTINGS: ResolvedSettings = {
   model: DEFAULT_MODEL,
   visualStyle: "Auto",
   aspectRatio: "9:16",
-  duration: "Auto",
-  staticFramePacing: "Auto",
+  staticFramePacing: 4, // Default to 4 seconds for static image shots
+  videoAssetDuration: 4, // Default to 4 seconds for video source assets (4s, 6s, 8s)
+  visualAssetMode: "Hybrid", // Default to Hybrid (AI mixes static images & video)
+  videoSoundMode: "Silent Video", // Default to Silent Video
 };
 
 /**
@@ -43,13 +51,25 @@ export const DEFAULT_SETTINGS: ResolvedSettings = {
 export function resolveSettings(
   requestSettings?: ProductionSettings
 ): ResolvedSettings {
+  const reqVideoDur = requestSettings?.videoAssetDuration;
+  const resolvedVideoDur: VideoAssetDuration =
+    reqVideoDur === 4 || reqVideoDur === 6 || reqVideoDur === 8
+      ? reqVideoDur
+      : DEFAULT_SETTINGS.videoAssetDuration;
+
   return {
     model: requestSettings?.model || DEFAULT_SETTINGS.model,
     visualStyle: requestSettings?.visualStyle || DEFAULT_SETTINGS.visualStyle,
     aspectRatio: requestSettings?.aspectRatio || DEFAULT_SETTINGS.aspectRatio,
-    duration: requestSettings?.duration || DEFAULT_SETTINGS.duration,
     staticFramePacing:
-      requestSettings?.staticFramePacing || DEFAULT_SETTINGS.staticFramePacing,
+      requestSettings?.staticFramePacing ?? DEFAULT_SETTINGS.staticFramePacing,
+    videoAssetDuration: resolvedVideoDur,
+    visualAssetMode:
+      requestSettings?.visualAssetMode || DEFAULT_SETTINGS.visualAssetMode,
+    videoSoundMode:
+      requestSettings?.videoSoundMode || DEFAULT_SETTINGS.videoSoundMode,
+    actualVoiceoverDuration: requestSettings?.actualVoiceoverDuration,
+    voiceoverScript: requestSettings?.voiceoverScript,
   };
 }
 

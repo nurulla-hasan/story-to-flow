@@ -19,12 +19,11 @@ export function StudioSettingsBar({
 }: StudioSettingsBarProps) {
   const styleLabel =
     settings.visualStyle === "Auto" ? "Auto Style" : settings.visualStyle;
-  const durationLabel =
-    settings.duration === "Auto" ? "Auto Duration" : `${settings.duration}s`;
   const pacingLabel =
     settings.staticFramePacing === "Auto"
       ? "Auto Pacing"
-      : `${settings.staticFramePacing}s`;
+      : `${settings.staticFramePacing}s Static`;
+  const videoDurationLabel = `${settings.videoAssetDuration || 4}s Video`;
 
   return (
     <Card>
@@ -47,15 +46,23 @@ export function StudioSettingsBar({
               </span>
               <span className="text-muted-foreground/40 hidden sm:inline">•</span>
               <span className="text-muted-foreground shrink-0 hidden sm:inline">
-                {durationLabel}
+                {pacingLabel}
               </span>
               <span className="text-muted-foreground/40 hidden md:inline">•</span>
               <span className="text-muted-foreground shrink-0 hidden md:inline">
-                {pacingLabel}
+                {settings.visualAssetMode || "Hybrid"}
               </span>
               <span className="text-muted-foreground/40 hidden lg:inline">•</span>
+              <span className="text-muted-foreground shrink-0 hidden lg:inline">
+                {videoDurationLabel}
+              </span>
+              <span className="text-muted-foreground/40 hidden xl:inline">•</span>
+              <span className="text-muted-foreground shrink-0 hidden xl:inline">
+                {settings.videoSoundMode || "Silent Video"}
+              </span>
+              <span className="text-muted-foreground/40 hidden 2xl:inline">•</span>
               <span
-                className="font-mono text-2xs text-muted-foreground/80 truncate hidden lg:inline max-w-36"
+                className="font-mono text-2xs text-muted-foreground/80 truncate hidden 2xl:inline max-w-36"
                 title={model}
                 suppressHydrationWarning
               >

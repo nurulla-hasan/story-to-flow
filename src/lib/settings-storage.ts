@@ -2,21 +2,31 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
+import type {
+  VisualAssetMode,
+  VideoSoundMode,
+  VideoAssetDuration,
+} from "./validation";
+
 export const PRODUCTION_SETTINGS_KEY = "story_forge_production_settings";
 export const SETTINGS_CHANGE_EVENT = "story_forge_settings_change";
 
 export interface ProductionSettingsState {
   visualStyle: string;
   aspectRatio: "9:16" | "16:9";
-  duration: "Auto" | number;
   staticFramePacing: "Auto" | number;
+  videoAssetDuration: VideoAssetDuration;
+  visualAssetMode: VisualAssetMode;
+  videoSoundMode: VideoSoundMode;
 }
 
 export const DEFAULT_PRODUCTION_SETTINGS: ProductionSettingsState = {
   visualStyle: "Auto",
   aspectRatio: "9:16",
-  duration: "Auto",
-  staticFramePacing: "Auto",
+  staticFramePacing: 4, // 4.0s default static image frame pacing
+  videoAssetDuration: 4, // 4.0s default video source asset duration (4s, 6s, 8s)
+  visualAssetMode: "Hybrid", // Hybrid (AI mixes static images & video)
+  videoSoundMode: "Silent Video", // Silent Video default
 };
 
 export function getStoredProductionSettings(): ProductionSettingsState {
@@ -27,11 +37,19 @@ export function getStoredProductionSettings(): ProductionSettingsState {
     const raw = window.localStorage.getItem(PRODUCTION_SETTINGS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const parsedVideoDur = parsed.videoAssetDuration;
+      const validVideoDur: VideoAssetDuration =
+        parsedVideoDur === 4 || parsedVideoDur === 6 || parsedVideoDur === 8
+          ? parsedVideoDur
+          : DEFAULT_PRODUCTION_SETTINGS.videoAssetDuration;
+
       return {
         visualStyle: parsed.visualStyle || DEFAULT_PRODUCTION_SETTINGS.visualStyle,
         aspectRatio: parsed.aspectRatio === "16:9" ? "16:9" : "9:16",
-        duration: parsed.duration ?? DEFAULT_PRODUCTION_SETTINGS.duration,
         staticFramePacing: parsed.staticFramePacing ?? DEFAULT_PRODUCTION_SETTINGS.staticFramePacing,
+        videoAssetDuration: validVideoDur,
+        visualAssetMode: parsed.visualAssetMode || DEFAULT_PRODUCTION_SETTINGS.visualAssetMode,
+        videoSoundMode: parsed.videoSoundMode || DEFAULT_PRODUCTION_SETTINGS.videoSoundMode,
       };
     }
   } catch {
@@ -132,8 +150,10 @@ export function useProductionSettings() {
   const isDefault =
     settings.visualStyle === DEFAULT_PRODUCTION_SETTINGS.visualStyle &&
     settings.aspectRatio === DEFAULT_PRODUCTION_SETTINGS.aspectRatio &&
-    settings.duration === DEFAULT_PRODUCTION_SETTINGS.duration &&
-    settings.staticFramePacing === DEFAULT_PRODUCTION_SETTINGS.staticFramePacing;
+    settings.staticFramePacing === DEFAULT_PRODUCTION_SETTINGS.staticFramePacing &&
+    settings.videoAssetDuration === DEFAULT_PRODUCTION_SETTINGS.videoAssetDuration &&
+    settings.visualAssetMode === DEFAULT_PRODUCTION_SETTINGS.visualAssetMode &&
+    settings.videoSoundMode === DEFAULT_PRODUCTION_SETTINGS.videoSoundMode;
 
   return {
     settings,

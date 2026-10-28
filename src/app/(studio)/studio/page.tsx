@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import type { StoryProcessResponse } from "@/lib/validation";
 import { useSelectedModel } from "@/lib/model-storage";
 import { useProductionSettings } from "@/lib/settings-storage";
@@ -8,9 +8,13 @@ import {
   useStudioStorage,
   saveStoredStory,
   saveStoredResult,
+  saveStoredStudioData,
   clearStoredStudioState,
 } from "@/lib/studio-storage";
 import { StoryInputCard } from "@/components/studio/story-input-card";
+import { StudioStepper } from "@/components/studio/studio-stepper";
+import { VoiceoverScriptCard } from "@/components/studio/voiceover-script-card";
+import { CartesiaDurationCard } from "@/components/studio/cartesia-duration-card";
 import { StudioSettingsBar } from "@/components/studio/studio-settings-bar";
 import { OutputCard } from "@/components/studio/output-card";
 import { HowItWorksCard } from "@/components/studio/how-it-works-card";
@@ -42,29 +46,51 @@ function formatSeconds(sec: number): string {
   return `${mins}:${remaining.toString().padStart(2, "0")}`;
 }
 
-function getProgressPhase(sec: number): string {
-  if (sec < 6) return "Analyzing story tone & structure...";
-  if (sec < 18) return "Composing continuous Bengali voiceover...";
-  if (sec < 45) return "Engineering visual prompts & timecodes...";
-  return "Finalizing complete production package...";
+function getProgressPhase(sec: number, phase: "voiceover" | "scenes" | null): string {
+  if (phase === "voiceover") {
+    if (sec < 6) return "Analyzing story tone & emotional arc...";
+    if (sec < 18) return "Crafting natural Bangladeshi Bengali narration...";
+    return "Polishing voiceover cadence for Cartesia speech...";
+  }
+  if (sec < 6) return "Aligning visual beats with measured voiceover duration...";
+  if (sec < 18) return "Engineering visual scene compositions & shot modes...";
+  if (sec < 45) return "Generating cinematic prompts & lighting instructions...";
+  return "Finalizing complete scene & shot package...";
 }
 
 export default function StudioPage() {
   const { selectedModel } = useSelectedModel();
-  const { settings: prodSettings } = useProductionSettings();
+  const { settings: prodSettings, updateSetting } = useProductionSettings();
   const storedStudio = useStudioStorage();
 
-  // Local states with fallback to persistent storage
+  // Local state with fallback to persistent storage
   const [localStory, setLocalStory] = useState<string | null>(null);
-  const [localResult, setLocalResult] = useState<
-    StoryProcessResponse | null | undefined
-  >(undefined);
+  const [localVoiceoverScript, setLocalVoiceoverScript] = useState<string | null>(null);
+  const [localMinutes, setLocalMinutes] = useState<string | null>(null);
+  const [localSeconds, setLocalSeconds] = useState<string | null>(null);
+  const [localStage, setLocalStage] = useState<number | null>(null);
+  const [localResult, setLocalResult] = useState<StoryProcessResponse | null | undefined>(undefined);
 
   const story = localStory !== null ? localStory : storedStudio.story;
+  const voiceoverScript =
+    localVoiceoverScript !== null
+      ? localVoiceoverScript
+      : storedStudio.voiceoverScript || "";
+  const minutes =
+    localMinutes !== null
+      ? localMinutes
+      : storedStudio.voiceoverDurationMinutes || "";
+  const seconds =
+    localSeconds !== null
+      ? localSeconds
+      : storedStudio.voiceoverDurationSeconds || "";
+  const currentStage =
+    localStage !== null ? localStage : storedStudio.currentStage || 1;
   const result =
     localResult !== undefined ? localResult : storedStudio.lastResult;
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationPhase, setGenerationPhase] = useState<"voiceover" | "scenes" | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -75,6 +101,8 @@ export default function StudioPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef<number>(0);
   const storySaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const voiceoverSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const durationSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Live timer during active generation
   useEffect(() => {
@@ -88,16 +116,24 @@ export default function StudioPage() {
   // Cleanup timers & abort controller on unmount
   useEffect(() => {
     return () => {
-      if (storySaveTimeoutRef.current) {
-        clearTimeout(storySaveTimeoutRef.current);
-      }
+      if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
+      if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+      if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
   }, []);
 
-  // Debounced story input auto-save (persists 400ms after user pauses typing)
+  // Calculate actual voiceover duration in seconds
+  const actualVoiceoverDuration = useMemo(() => {
+    const m = parseFloat(minutes) || 0;
+    const s = parseFloat(seconds) || 0;
+    const total = m * 60 + s;
+    return total > 0 ? parseFloat(total.toFixed(2)) : null;
+  }, [minutes, seconds]);
+
+  // Debounced story input auto-save
   const handleStoryChange = (val: string) => {
     setLocalStory(val);
     setValidationError(null);
@@ -119,13 +155,53 @@ export default function StudioPage() {
     saveStoredStory("");
   };
 
-  const handleGenerate = async () => {
+  // Voiceover script change handler
+  const handleVoiceoverChange = (val: string) => {
+    setLocalVoiceoverScript(val);
+    if (voiceoverSaveTimeoutRef.current) {
+      clearTimeout(voiceoverSaveTimeoutRef.current);
+    }
+    voiceoverSaveTimeoutRef.current = setTimeout(() => {
+      saveStoredStudioData({ voiceoverScript: val });
+    }, 400);
+  };
+
+  // Duration changes handlers
+  const handleMinutesChange = (val: string) => {
+    setLocalMinutes(val);
+    const m = parseFloat(val) || 0;
+    const s = parseFloat(seconds) || 0;
+    const total = m * 60 + s;
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    durationSaveTimeoutRef.current = setTimeout(() => {
+      saveStoredStudioData({
+        voiceoverDurationMinutes: val,
+        actualVoiceoverDuration: total > 0 ? total : null,
+      });
+    }, 300);
+  };
+
+  const handleSecondsChange = (val: string) => {
+    setLocalSeconds(val);
+    const m = parseFloat(minutes) || 0;
+    const s = parseFloat(val) || 0;
+    const total = m * 60 + s;
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    durationSaveTimeoutRef.current = setTimeout(() => {
+      saveStoredStudioData({
+        voiceoverDurationSeconds: val,
+        actualVoiceoverDuration: total > 0 ? total : null,
+      });
+    }, 300);
+  };
+
+  // STAGE 1 ACTION: Generate Master Voiceover Script Only
+  const handleGenerateVoiceover = async () => {
     if (!story.trim()) {
-      setValidationError("Please enter a story to generate the package.");
+      setValidationError("Please enter your story first to generate the voiceover script.");
       return;
     }
 
-    // Cancel any previous in-flight request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -139,59 +215,141 @@ export default function StudioPage() {
     setCancelNotice(null);
     setElapsedSeconds(0);
     setIsGenerating(true);
+    setGenerationPhase("voiceover");
 
     try {
       const response = await fetch("/api/story/process", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
           story,
+          stage: "voiceover",
           settings: {
             model: selectedModel,
             visualStyle: prodSettings.visualStyle,
             aspectRatio: prodSettings.aspectRatio,
-            duration: prodSettings.duration,
             staticFramePacing: prodSettings.staticFramePacing,
+            visualAssetMode: prodSettings.visualAssetMode,
+            videoSoundMode: prodSettings.videoSoundMode,
           },
         }),
       });
 
-      // Ignore if superseded or cancelled
       if (requestIdRef.current !== currentRequestId) return;
 
       const data = await response.json();
 
       if (!response.ok) {
         if (data.cancelled || response.status === 499) {
-          setCancelNotice("Generation was stopped.");
+          setCancelNotice("Voiceover script generation was stopped.");
           return;
         }
-        setError(data.error || "Failed to generate production package");
+        setError(data.error || "Failed to generate voiceover script.");
         return;
       }
 
-      setLocalResult(data);
-      // Persist latest successful output only after generation completes
-      saveStoredResult(data);
+      // Extract raw voiceover script
+      const scriptText = (data.response || "").trim();
+      setLocalVoiceoverScript(scriptText);
+      setLocalStage(2); // Advance to Voiceover Script Review stage
+      saveStoredStudioData({ voiceoverScript: scriptText, currentStage: 2 });
     } catch (err) {
       if (requestIdRef.current !== currentRequestId) return;
-
       if (err instanceof Error && err.name === "AbortError") {
         setCancelNotice("Generation was stopped.");
         return;
       }
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An unexpected error occurred. Please try again.",
-      );
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
     } finally {
       if (requestIdRef.current === currentRequestId) {
         setIsGenerating(false);
+        setGenerationPhase(null);
+        abortControllerRef.current = null;
+      }
+    }
+  };
+
+  // STAGE 4 ACTION: Generate Scene & Shot Prompts with Measured Duration
+  const handleGenerateScenes = async () => {
+    if (!story.trim()) {
+      setValidationError("Original story text is required.");
+      return;
+    }
+    if (!voiceoverScript.trim()) {
+      setError("Please generate and review the voiceover script before generating scenes.");
+      return;
+    }
+    if (!actualVoiceoverDuration || actualVoiceoverDuration <= 0) {
+      setError("Please enter the actual voiceover duration measured from Cartesia.");
+      return;
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const currentRequestId = ++requestIdRef.current;
+
+    setError(null);
+    setValidationError(null);
+    setCancelNotice(null);
+    setElapsedSeconds(0);
+    setIsGenerating(true);
+    setGenerationPhase("scenes");
+
+    try {
+      const response = await fetch("/api/story/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          story,
+          stage: "scenes",
+          voiceoverScript: voiceoverScript.trim(),
+          actualVoiceoverDuration,
+          settings: {
+            model: selectedModel,
+            visualStyle: prodSettings.visualStyle,
+            aspectRatio: prodSettings.aspectRatio,
+            staticFramePacing: prodSettings.staticFramePacing,
+            videoAssetDuration: prodSettings.videoAssetDuration,
+            visualAssetMode: prodSettings.visualAssetMode,
+            videoSoundMode: prodSettings.videoSoundMode,
+          },
+        }),
+      });
+
+      if (requestIdRef.current !== currentRequestId) return;
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.cancelled || response.status === 499) {
+          setCancelNotice("Scene generation was stopped.");
+          return;
+        }
+        setError(data.error || "Failed to generate scene & shot prompts.");
+        return;
+      }
+
+      setLocalResult(data);
+      setLocalStage(4); // Advance to Final Scene Prompts stage
+      saveStoredResult(data);
+      saveStoredStudioData({ currentStage: 4, lastResult: data });
+    } catch (err) {
+      if (requestIdRef.current !== currentRequestId) return;
+      if (err instanceof Error && err.name === "AbortError") {
+        setCancelNotice("Generation was stopped.");
+        return;
+      }
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+    } finally {
+      if (requestIdRef.current === currentRequestId) {
+        setIsGenerating(false);
+        setGenerationPhase(null);
         abortControllerRef.current = null;
       }
     }
@@ -203,49 +361,44 @@ export default function StudioPage() {
       abortControllerRef.current = null;
     }
     setIsGenerating(false);
+    setGenerationPhase(null);
     setElapsedSeconds(0);
     setCancelNotice("Generation was stopped.");
     setTimeout(() => {
-      setCancelNotice((prev) =>
-        prev === "Generation was stopped." ? null : prev,
-      );
+      setCancelNotice((prev) => (prev === "Generation was stopped." ? null : prev));
     }, 4000);
   };
 
-  // Reset Studio workspace action (clears story work & output, preserves production settings & model)
   const handleConfirmResetStudio = () => {
-    // 1. Abort active generation if in progress
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
 
-    // 2. Invalidate request ID to ignore late responses
     requestIdRef.current++;
-
-    // 3. Clear stored Studio state from localStorage (story & generated output only)
     clearStoredStudioState();
 
-    // 4. Clear local component state for story work and output (preserves prodSettings & selectedModel)
     setLocalStory("");
+    setLocalVoiceoverScript("");
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalStage(1);
     setLocalResult(null);
     setError(null);
     setValidationError(null);
     setIsGenerating(false);
+    setGenerationPhase(null);
     setElapsedSeconds(0);
     setIsResetDialogOpen(false);
 
     setCancelNotice("Story workspace reset. Settings preserved.");
     setTimeout(() => {
-      setCancelNotice((prev) =>
-        prev === "Story workspace reset. Settings preserved." ? null : prev,
-      );
+      setCancelNotice((prev) => (prev === "Story workspace reset. Settings preserved." ? null : prev));
     }, 3500);
   };
 
   const handleCopyAll = async () => {
     if (!result?.response) return;
-
     try {
       await navigator.clipboard.writeText(result.response);
       setCopied(true);
@@ -257,30 +410,114 @@ export default function StudioPage() {
 
   return (
     <>
-      {/* 2-Column Dashboard Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Input + Settings Summary + Generate Button + How It Works + Format Info */}
-        <div className="space-y-6">
-          {/* Story Input Card */}
-          <StoryInputCard
-            story={story}
-            onChange={handleStoryChange}
-            onClear={handleClear}
-            validationError={validationError}
-            disabled={isGenerating}
-          />
+      <div className="space-y-6">
+        {/* Workflow Progression Stepper */}
+        <StudioStepper
+          currentStage={currentStage}
+          hasStory={!!story.trim()}
+          hasVoiceover={!!voiceoverScript.trim()}
+          hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
+          hasScenes={!!result?.response}
+          onStageClick={(stg) => setLocalStage(stg)}
+        />
 
-          {/* Compact Active Production Settings Bar with Reset Studio Button */}
-          <StudioSettingsBar
-            settings={prodSettings}
-            model={selectedModel}
-            onResetClick={() => setIsResetDialogOpen(true)}
-          />
+        {/* 2-Column Dashboard Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Column: Staged Story Workflow */}
+          <div className="space-y-6">
+            {/* STAGE 1: Original Story Input */}
+            <div className="space-y-3">
+              <StoryInputCard
+                story={story}
+                onChange={handleStoryChange}
+                onClear={handleClear}
+                validationError={validationError}
+                disabled={isGenerating}
+              />
 
-          {/* Generate & Stop Button Controls with Live Timer */}
-          <div className="space-y-2.5">
-            {isGenerating ? (
-              <div className="space-y-2">
+              {/* Action: Generate Master Voiceover Script */}
+              {!voiceoverScript.trim() && (
+                <div className="space-y-2">
+                  {isGenerating && generationPhase === "voiceover" ? (
+                    <div className="flex items-center gap-2.5">
+                      <Button
+                        size="lg"
+                        className="flex-1 gap-2.5 cursor-default select-none shadow-sm"
+                        tabIndex={-1}
+                      >
+                        <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
+                        <span className="font-semibold truncate">Writing Voiceover Script</span>
+                        <span className="font-mono text-xs font-bold bg-primary-foreground/20 px-2 py-0.5 rounded-md shadow-xs">
+                          {formatSeconds(elapsedSeconds)}
+                        </span>
+                      </Button>
+                      <Button
+                        size="lg"
+                        variant="destructive"
+                        onClick={handleStop}
+                        className="gap-2 shrink-0 cursor-pointer shadow-sm"
+                        title="Cancel generation and abort request"
+                      >
+                        <Square className="size-3.5 fill-current" />
+                        <span>Stop</span>
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="lg"
+                      onClick={handleGenerateVoiceover}
+                      disabled={!story.trim() || isGenerating}
+                      className="w-full gap-2 cursor-pointer shadow-sm text-sm font-semibold"
+                    >
+                      <Sparkles className="size-4.5" />
+                      <span>Generate Voiceover Script</span>
+                      <ArrowRight className="size-4.5" />
+                    </Button>
+                  )}
+
+                  {isGenerating && generationPhase === "voiceover" && (
+                    <div className="flex items-center justify-between text-2xs text-muted-foreground px-1.5 animate-in fade-in">
+                      <span className="flex items-center gap-1.5 font-medium text-foreground/80">
+                        <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+                        <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
+                      </span>
+                      <span className="font-mono">{elapsedSeconds}s elapsed</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* STAGE 2: Master Voiceover Script (Review & Edit for Cartesia) */}
+            {voiceoverScript.trim() && (
+              <VoiceoverScriptCard
+                script={voiceoverScript}
+                onChange={handleVoiceoverChange}
+                onRegenerate={handleGenerateVoiceover}
+                onProceedToDuration={() => setLocalStage(3)}
+                isGenerating={isGenerating && generationPhase === "voiceover"}
+                disabled={isGenerating}
+              />
+            )}
+
+            {/* STAGE 3: Cartesia Duration Entry & Visual Settings */}
+            {voiceoverScript.trim() && (
+              <CartesiaDurationCard
+                minutes={minutes}
+                seconds={seconds}
+                onMinutesChange={handleMinutesChange}
+                onSecondsChange={handleSecondsChange}
+                settings={prodSettings}
+                onUpdateSetting={updateSetting}
+                onGenerateScenes={handleGenerateScenes}
+                isGenerating={isGenerating && generationPhase === "scenes"}
+                disabled={isGenerating}
+              />
+            )}
+
+            {/* In-Flight Scene Generation Status Bar */}
+            {isGenerating && generationPhase === "scenes" && (
+              <div className="space-y-2 p-3 rounded-xl bg-card border border-primary/20 shadow-sm animate-in fade-in">
                 <div className="flex items-center gap-2.5">
                   <Button
                     size="lg"
@@ -288,9 +525,7 @@ export default function StudioPage() {
                     tabIndex={-1}
                   >
                     <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                    <span className="font-semibold truncate">
-                      Generating Package
-                    </span>
+                    <span className="font-semibold truncate">Engineering Scenes &amp; Shots</span>
                     <span className="font-mono text-xs font-bold bg-primary-foreground/20 px-2 py-0.5 rounded-md shadow-xs">
                       {formatSeconds(elapsedSeconds)}
                     </span>
@@ -307,29 +542,22 @@ export default function StudioPage() {
                   </Button>
                 </div>
 
-                {/* Live Progress Phase & Timer Bar */}
-                <div className="flex items-center justify-between text-2xs text-muted-foreground px-1.5 animate-in fade-in">
+                <div className="flex items-center justify-between text-2xs text-muted-foreground px-1">
                   <span className="flex items-center gap-1.5 font-medium text-foreground/80">
                     <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-                    <span>{getProgressPhase(elapsedSeconds)}</span>
+                    <span>{getProgressPhase(elapsedSeconds, "scenes")}</span>
                   </span>
-                  <span className="font-mono text-muted-foreground">
-                    {elapsedSeconds}s elapsed
-                  </span>
+                  <span className="font-mono">{elapsedSeconds}s elapsed</span>
                 </div>
               </div>
-            ) : (
-              <Button
-                size="lg"
-                onClick={handleGenerate}
-                disabled={!story.trim()}
-                className="w-full gap-2 cursor-pointer shadow-sm"
-              >
-                <Sparkles className="size-4.5" />
-                <span>Generate Production Package</span>
-                <ArrowRight className="size-4.5" />
-              </Button>
             )}
+
+            {/* Compact Active Production Settings Bar with Reset Studio Button */}
+            <StudioSettingsBar
+              settings={prodSettings}
+              model={selectedModel}
+              onResetClick={() => setIsResetDialogOpen(true)}
+            />
 
             {/* Brief cancellation / reset notice */}
             {cancelNotice && (
@@ -338,23 +566,23 @@ export default function StudioPage() {
                 <span>{cancelNotice}</span>
               </div>
             )}
+
+            {/* How it works Card */}
+            <HowItWorksCard />
+
+            {/* Output format Card */}
+            <OutputFormatCard />
           </div>
 
-          {/* How it works Card */}
-          <HowItWorksCard />
-
-          {/* Output format Card */}
-          <OutputFormatCard />
-        </div>
-
-        {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
-        <div className="space-y-6">
-          <OutputCard
-            result={result}
-            error={error}
-            copied={copied}
-            onCopyAll={handleCopyAll}
-          />
+          {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
+          <div className="space-y-6">
+            <OutputCard
+              result={result}
+              error={error}
+              copied={copied}
+              onCopyAll={handleCopyAll}
+            />
+          </div>
         </div>
       </div>
 
@@ -367,10 +595,9 @@ export default function StudioPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Reset Studio Workspace?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently clear your current story text, cancel any
-              active generation, and remove the generated production package.
-              Your production settings and AI model preference will remain
-              unchanged.
+              This will permanently clear your current story text, voiceover script,
+              entered duration, and generated production package. Your production
+              settings and AI model preference will remain unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
 

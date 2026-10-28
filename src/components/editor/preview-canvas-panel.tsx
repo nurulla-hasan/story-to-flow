@@ -632,7 +632,7 @@ export function PreviewCanvasPanel() {
                         const { fromOpacity, toOpacity } = getCrossDissolveWeights(progress);
                         return (
                           <div
-                            className="absolute inset-0 bg-editor-screen"
+                            className="absolute inset-0"
                             style={{ isolation: "isolate" }}
                           >
                             {renderVisualNode(fromClip, {

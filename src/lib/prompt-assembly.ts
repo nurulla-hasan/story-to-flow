@@ -208,10 +208,10 @@ Maintain this chosen visual style consistently across all scenes.`
 expressive characters, consistent character designs, cohesive environments, attractive colors,
 and cinematic lighting appropriate to the story. Maintain consistent style across all scenes.`;
 
+  const videoDurationSec = settings.videoAssetDuration || 4;
+
   const assetModeDirective = getAssetModeDirective(settings.visualAssetMode, videoDurationSec);
   const soundModeDirective = getVideoSoundDirective(settings.videoSoundMode);
-
-  const videoDurationSec = settings.videoAssetDuration || 4;
 
   // Production context instruction
   const productionContext = `

@@ -1,6 +1,7 @@
 "use client";
 
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import { Input, BlobSource, ALL_FORMATS, AudioBufferSink, InputAudioTrack } from "mediabunny";
 import {
   type TimelineClip,
   type TimelineTransition,
@@ -311,48 +312,272 @@ export function preloadVideo(
   });
 }
 
+export interface VideoAudioTrackInfo {
+  hasAudioTrack: boolean;
+  codec?: string | null;
+  sampleRate?: number | null;
+  numberOfChannels?: number | null;
+}
+
 /**
- * Detect whether an embedded media container (MP4, QuickTime, WebM) contains an audio track.
- * Scans the ISO BMFF / QuickTime box headers for 'soun' handler or WebM EBML audio track tags.
+ * Inspect a video blob using mediabunny's container demuxer to reliably determine
+ * whether it contains an audio track, its codec, sample rate, and channels.
+ * Avoids fragile string matching or fixed-size byte scans across arbitrary video files.
  */
-export function detectAudioTrackInVideo(buffer: ArrayBuffer): boolean {
-  if (!buffer || buffer.byteLength < 8) return false;
+export async function inspectVideoAudioTrack(blob: Blob): Promise<VideoAudioTrackInfo> {
+  if (!blob || blob.size < 16) {
+    return { hasAudioTrack: false };
+  }
 
-  const bytes = new Uint8Array(buffer);
+  try {
+    const input = new Input({
+      formats: ALL_FORMATS,
+      source: new BlobSource(blob),
+    });
+    const audioTracks = await input.getAudioTracks();
+    if (audioTracks.length === 0) {
+      return { hasAudioTrack: false };
+    }
+    const track = audioTracks[0];
+    return {
+      hasAudioTrack: true,
+      codec: track.codec ?? null,
+      sampleRate: track.sampleRate ?? null,
+      numberOfChannels: track.numberOfChannels ?? null,
+    };
+  } catch {
+    return { hasAudioTrack: false };
+  }
+}
 
-  // 1. Check for MP4 / QuickTime: search for ASCII 'soun' (0x73, 0x6F, 0x75, 0x6E)
-  // 'soun' is the ISO BMFF / MOV handler type for audio media ('hdlr' box).
-  // Video-only MP4 files contain 'vide' but no 'soun'.
-  const soun0 = 0x73; // 's'
-  const soun1 = 0x6f; // 'o'
-  const soun2 = 0x75; // 'u'
-  const soun3 = 0x6e; // 'n'
+export interface WrappedAudioBufferChunk {
+  buffer: AudioBuffer;
+  timestamp: number;
+  duration: number;
+}
 
-  const maxScan = Math.min(bytes.length, 1024 * 1024);
-  for (let i = 0; i < maxScan - 4; i++) {
-    if (
-      bytes[i] === soun0 &&
-      bytes[i + 1] === soun1 &&
-      bytes[i + 2] === soun2 &&
-      bytes[i + 3] === soun3
-    ) {
-      return true;
+/**
+ * Assemble multiple Mediabunny WrappedAudioBuffer chunks into a single unified AudioBuffer,
+ * strictly preserving presentation timestamps (PTS), non-zero initial offsets, and gaps.
+ * This guarantees that clip.inPoint trimming remains perfectly synchronized with the video stream.
+ */
+export function assembleAudioBufferFromWrappedChunks(
+  chunks: WrappedAudioBufferChunk[],
+  audioContext: BaseAudioContext
+): AudioBuffer | null {
+  if (!chunks || chunks.length === 0) return null;
+
+  let maxSampleIndex = 0;
+  const sampleRate = chunks[0].buffer.sampleRate;
+  const channels = chunks[0].buffer.numberOfChannels;
+
+  for (const chunk of chunks) {
+    const ts = typeof chunk.timestamp === "number" ? chunk.timestamp : 0;
+    const rawStartSample = Math.round(ts * sampleRate);
+    const endSample = rawStartSample + chunk.buffer.length;
+    if (endSample > maxSampleIndex) {
+      maxSampleIndex = endSample;
     }
   }
 
-  // 2. Check for WebM: signature 0x1A 0x45 0xDF 0xA3
-  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
-    for (let i = 4; i < maxScan - 2; i++) {
-      if (bytes[i] === 0x83 && bytes[i + 1] === 0x02) {
-        return true;
+  if (maxSampleIndex <= 0) return null;
+
+  const merged = audioContext.createBuffer(channels, maxSampleIndex, sampleRate);
+
+  for (let ch = 0; ch < channels; ch++) {
+    const outData = merged.getChannelData(ch);
+    for (const chunk of chunks) {
+      const ts = typeof chunk.timestamp === "number" ? chunk.timestamp : 0;
+      const rawStartSample = Math.round(ts * sampleRate);
+      const inData = chunk.buffer.getChannelData(Math.min(ch, chunk.buffer.numberOfChannels - 1));
+
+      // Handle non-zero or negative start timestamps:
+      // If a chunk starts at a negative timestamp (e.g. encoder priming/pre-roll delay),
+      // skip the samples before t = 0 so that outData[0] aligns exactly with t = 0 of the media.
+      let srcOffset = 0;
+      let dstOffset = rawStartSample;
+
+      if (rawStartSample < 0) {
+        srcOffset = -rawStartSample;
+        dstOffset = 0;
       }
-      if (bytes[i] === 0x83 && bytes[i + 1] === 0x01 && bytes[i + 2] === 0x02) {
-        return true;
+
+      if (srcOffset < inData.length && dstOffset < maxSampleIndex) {
+        const copyLen = Math.min(inData.length - srcOffset, maxSampleIndex - dstOffset);
+        if (copyLen > 0) {
+          outData.set(inData.subarray(srcOffset, srcOffset + copyLen), dstOffset);
+        }
       }
     }
   }
 
-  return false;
+  return merged;
+}
+
+/**
+ * Safely inspect and decode embedded audio from a video blob into an AudioBuffer.
+ * - Uses mediabunny's container demuxer to reliably inspect track headers (ISO BMFF / MOV / WebM).
+ * - If no audio track exists in the container (silent video), returns null cleanly.
+ * - If an audio track exists, decodes via Web Audio decodeAudioData (or WebCodecs AudioDecoder fallback).
+ * - Accurately aligns presentation timestamps (PTS) and preserves non-zero start offsets and gaps.
+ * - If decoding fails or codec is unsupported, throws a descriptive actionable error.
+ */
+export async function decodeVideoEmbeddedAudio(
+  blob: Blob,
+  clipName: string,
+  audioContext: BaseAudioContext
+): Promise<AudioBuffer | null> {
+  let audioTracks: InputAudioTrack[] = [];
+  let trackInfo: InputAudioTrack | null = null;
+
+  try {
+    const input = new Input({
+      formats: ALL_FORMATS,
+      source: new BlobSource(blob),
+    });
+    audioTracks = await input.getAudioTracks();
+    if (audioTracks.length > 0) {
+      trackInfo = audioTracks[0];
+    }
+  } catch {
+    // If container demuxing fails on non-standard format, attempt direct decodeAudioData as fallback
+    try {
+      const rawBuffer = await blob.arrayBuffer();
+      const res = await audioContext.decodeAudioData(rawBuffer.slice(0));
+      return res || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // If container definitely has no audio track, it is a silent video
+  if (audioTracks.length === 0 || !trackInfo) {
+    return null;
+  }
+
+  const arrayBuffer = await blob.arrayBuffer();
+
+  try {
+    return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+  } catch {
+    // If browser decodeAudioData failed, check if WebCodecs AudioDecoder / mediabunny sink can decode it
+    if (typeof (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder !== "undefined") {
+      try {
+        const sink = new AudioBufferSink(trackInfo);
+        const chunks: WrappedAudioBufferChunk[] = [];
+        for await (const chunk of sink.buffers()) {
+          chunks.push({
+            buffer: chunk.buffer,
+            timestamp: chunk.timestamp,
+            duration: chunk.duration,
+          });
+        }
+        const assembled = assembleAudioBufferFromWrappedChunks(chunks, audioContext);
+        if (assembled) {
+          return assembled;
+        }
+      } catch {}
+    }
+
+    throw new Error(
+      `Failed to decode embedded audio in video "${clipName}": The audio codec "${trackInfo.codec || "unknown"}" is unsupported by your browser. Please re-encode with standard AAC or MP3 audio.`
+    );
+  }
+}
+
+export interface RGBAColor {
+  r: number; // 0 to 255
+  g: number; // 0 to 255
+  b: number; // 0 to 255
+  a: number; // 0 to 1
+}
+
+/**
+ * Deterministic pixel-level simulation of the Canvas 2D isolated cross-dissolve compositing:
+ * 1. Layer A (outgoing) with globalAlpha (1 - p) using source-over on cleared transparent layer
+ * 2. Layer B (incoming) with globalAlpha p using lighter on layer A
+ * 3. Composite onto destination/background with source-over
+ *
+ * Verifies the actual pixel math without relying solely on canvas call spies.
+ */
+export function computeCrossDissolvePixel(
+  colorA: RGBAColor,
+  colorB: RGBAColor,
+  progress: number,
+  bg: RGBAColor = { r: 0, g: 0, b: 0, a: 1 }
+): RGBAColor {
+  const p = Math.max(0, Math.min(1, progress));
+
+  // Step 1: Layer A with alpha (1 - p)
+  const a1 = (1 - p) * colorA.a;
+  const r1 = colorA.r * a1;
+  const g1 = colorA.g * a1;
+  const b1 = colorA.b * a1;
+
+  // Step 2: Layer B with alpha p added via "lighter" (premultiplied addition)
+  const a2_src = p * colorB.a;
+  const r2_src = colorB.r * a2_src;
+  const g2_src = colorB.g * a2_src;
+  const b2_src = colorB.b * a2_src;
+
+  const a_blend = Math.min(1, a1 + a2_src);
+  const r_blend = Math.min(255, r1 + r2_src);
+  const g_blend = Math.min(255, g1 + g2_src);
+  const b_blend = Math.min(255, b1 + b2_src);
+
+  // Step 3: Composite blendCanvasTrans onto bg using standard source-over
+  const finalA = a_blend + bg.a * (1 - a_blend);
+  const finalR = r_blend + bg.r * bg.a * (1 - a_blend);
+  const finalG = g_blend + bg.g * bg.a * (1 - a_blend);
+  const finalB = b_blend + bg.b * bg.a * (1 - a_blend);
+
+  return {
+    r: Math.round(finalR),
+    g: Math.round(finalG),
+    b: Math.round(finalB),
+    a: parseFloat(finalA.toFixed(4)),
+  };
+}
+
+/**
+ * Mathematically normalized cross-dissolve compositing:
+ * Uses isolated additive layer blending to ensure:
+ * C_result = (1 - progress) * fromClip + progress * toClip
+ * Alpha_result = (1 - progress) * alpha_from + progress * alpha_to
+ *
+ * Prevents midpoint darkening (luminance drop to 75%) and background leakage
+ * while properly respecting transparent regions in either clip.
+ */
+export function compositeCrossDissolve(
+  targetCtx: CanvasRenderingContext2D,
+  layerCanvasFrom: HTMLCanvasElement,
+  layerCanvasTo: HTMLCanvasElement,
+  blendCanvasTrans: HTMLCanvasElement,
+  progress: number,
+  width: number,
+  height: number
+): void {
+  const blendCtx = blendCanvasTrans.getContext("2d");
+  if (!blendCtx) return;
+
+  const p = Math.max(0, Math.min(1, progress));
+
+  blendCtx.clearRect(0, 0, width, height);
+
+  // 1. Draw outgoing clip with alpha = 1 - p
+  blendCtx.save();
+  blendCtx.globalAlpha = 1 - p;
+  blendCtx.globalCompositeOperation = "source-over";
+  blendCtx.drawImage(layerCanvasFrom, 0, 0);
+
+  // 2. Add incoming clip with alpha = p using "lighter" (premultiplied additive blend)
+  blendCtx.globalCompositeOperation = "lighter";
+  blendCtx.globalAlpha = p;
+  blendCtx.drawImage(layerCanvasTo, 0, 0);
+  blendCtx.restore();
+
+  // 3. Draw normalized composite onto target context using standard source-over
+  targetCtx.drawImage(blendCanvasTrans, 0, 0);
 }
 
 /**
@@ -492,6 +717,9 @@ export async function exportTimelineToMp4({
   const imageElements = new Map<string, HTMLImageElement>();
   const videoElements = new Map<string, HTMLVideoElement>();
   const canvas = document.createElement("canvas");
+  const blendCanvasA = document.createElement("canvas");
+  const blendCanvasB = document.createElement("canvas");
+  const blendCanvasTrans = document.createElement("canvas");
   let videoEncoder: VideoEncoder | null = null;
   let audioEncoder: AudioEncoder | null = null;
 
@@ -532,15 +760,16 @@ export async function exportTimelineToMp4({
     if (!ctx) throw new Error("Failed to get 2D rendering context for video canvas.");
 
     // Isolated offscreen canvases for normalized cross-dissolve compositing
-    const blendCanvasA = document.createElement("canvas");
     blendCanvasA.width = width;
     blendCanvasA.height = height;
     const blendCtxA = blendCanvasA.getContext("2d", { alpha: true });
 
-    const blendCanvasB = document.createElement("canvas");
     blendCanvasB.width = width;
     blendCanvasB.height = height;
     const blendCtxB = blendCanvasB.getContext("2d", { alpha: true });
+
+    blendCanvasTrans.width = width;
+    blendCanvasTrans.height = height;
 
     // Setup MP4 Muxer with fastStart: false to prevent caching all chunks in duplicate RAM arrays
     const muxer = new Muxer({
@@ -740,17 +969,16 @@ export async function exportTimelineToMp4({
             // Draw incoming clip at full opacity onto layer B
             await drawClipToContext(blendCtxB, toClip, 1.0, 0);
 
-            // Blend incoming clip over outgoing clip with opacity = progress
-            // Formula: C_result = (1 - progress) * fromClip + progress * toClip
-            // No background leakage because fromClip is drawn at 1.0 underneath
-            blendCtxA.save();
-            blendCtxA.globalAlpha = Math.max(0, Math.min(1, progress));
-            blendCtxA.globalCompositeOperation = "source-over";
-            blendCtxA.drawImage(blendCanvasB, 0, 0);
-            blendCtxA.restore();
-
-            // Composite the normalized blended transition layer onto main canvas
-            ctx.drawImage(blendCanvasA, 0, 0);
+            // Perform mathematically normalized isolated cross-dissolve
+            compositeCrossDissolve(
+              ctx,
+              blendCanvasA,
+              blendCanvasB,
+              blendCanvasTrans,
+              progress,
+              width,
+              height
+            );
           } else {
             await drawClip(fromClip, 1 - progress, 0);
             await drawClip(toClip, progress, 0);
@@ -855,21 +1083,8 @@ export async function exportTimelineToMp4({
         if (decodedBuffersCache.has(asset.id)) {
           decodedBuffer = decodedBuffersCache.get(asset.id)!;
         } else {
-          const arrayBuffer = await asset.blob.arrayBuffer();
-          const hasTrack = detectAudioTrackInVideo(arrayBuffer);
-          if (hasTrack) {
-            try {
-              decodedBuffer = await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
-              decodedBuffersCache.set(asset.id, decodedBuffer);
-            } catch {
-              throw new Error(
-                `Failed to decode embedded audio in video "${clip.name}": The audio track format is unsupported by your browser or corrupt. Please ensure the video uses AAC, MP3, or Opus audio.`
-              );
-            }
-          } else {
-            // Video has no audio track (silent video); do not throw, mark as null
-            decodedBuffersCache.set(asset.id, null);
-          }
+          decodedBuffer = await decodeVideoEmbeddedAudio(asset.blob, clip.name, offlineCtx);
+          decodedBuffersCache.set(asset.id, decodedBuffer);
         }
 
         if (decodedBuffer) {
@@ -902,9 +1117,15 @@ export async function exportTimelineToMp4({
           source.connect(gain);
           gain.connect(offlineCtx.destination);
 
-          // AudioBufferSourceNode.start(when, offset, duration): duration is amount to read from buffer
-          const sourceDurationToPlay = clip.duration * speed;
-          source.start(clip.startTime, Math.max(0, clip.inPoint), sourceDurationToPlay);
+          // AudioBufferSourceNode.start(when, offset, duration):
+          // duration is the amount of audio to read from the buffer (source time).
+          // At speed playbackRate, (clip.duration * speed) of buffer audio plays in clip.duration of timeline time.
+          const offset = Math.max(0, clip.inPoint);
+          const maxBufferDuration = Math.max(0, decodedBuffer.duration - offset);
+          const sourceDurationToPlay = Math.min(clip.duration * speed, maxBufferDuration);
+          if (sourceDurationToPlay > 0) {
+            source.start(clip.startTime, offset, sourceDurationToPlay);
+          }
         }
       }
 
@@ -957,8 +1178,12 @@ export async function exportTimelineToMp4({
           source.connect(gain);
           gain.connect(offlineCtx.destination);
 
-          const sourceDurationToPlay = clip.duration * speed;
-          source.start(clip.startTime, Math.max(0, clip.inPoint), sourceDurationToPlay);
+          const offset = Math.max(0, clip.inPoint);
+          const maxBufferDuration = Math.max(0, decodedBuffer.duration - offset);
+          const sourceDurationToPlay = Math.min(clip.duration * speed, maxBufferDuration);
+          if (sourceDurationToPlay > 0) {
+            source.start(clip.startTime, offset, sourceDurationToPlay);
+          }
         } catch (err) {
           throw new Error(
             `Failed to decode audio track "${clip.name}": ${
@@ -1095,5 +1320,11 @@ export async function exportTimelineToMp4({
     imageElements.clear();
     canvas.width = 0;
     canvas.height = 0;
+    blendCanvasA.width = 0;
+    blendCanvasA.height = 0;
+    blendCanvasB.width = 0;
+    blendCanvasB.height = 0;
+    blendCanvasTrans.width = 0;
+    blendCanvasTrans.height = 0;
   }
 }

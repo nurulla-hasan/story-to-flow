@@ -631,8 +631,8 @@ export function PreviewCanvasPanel() {
                       if (transition.type === "cross-dissolve") {
                         return (
                           <div className="relative w-full h-full" style={{ isolation: "isolate" }}>
-                            {renderVisualNode(fromClip, { opacity: 1, zIndex: 1 })}
-                            {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
+                            {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
+                            {renderVisualNode(toClip, { opacity: progress, zIndex: 2, mixBlendMode: "plus-lighter" })}
                           </div>
                         );
                       }

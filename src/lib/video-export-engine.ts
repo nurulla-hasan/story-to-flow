@@ -412,8 +412,15 @@ export async function exportTimelineToMp4({
 
   const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
   const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  const videoAudioClips = clips.filter(
+    (c) =>
+      c.type === "video" &&
+      isVisualTrack(c.trackId) &&
+      (typeof c.volume !== "number" || c.volume > 0) &&
+      assets.some((asset) => asset.id === c.assetId && asset.category === "video" && !!asset.blob)
+  );
   const hasAudio =
-    audioClips.length > 0 &&
+    (audioClips.length > 0 || videoAudioClips.length > 0) &&
     typeof (window as unknown as { AudioEncoder?: unknown }).AudioEncoder !== "undefined";
 
   onProgress({
@@ -734,8 +741,8 @@ export async function exportTimelineToMp4({
     transitionCanvas.width = 0;
     transitionCanvas.height = 0;
 
-    // 2. AUDIO ENCODING (IF AUDIO TRACKS EXIST)
-    if (hasAudio && audioClips.length > 0) {
+    // 2. AUDIO ENCODING (DEDICATED AUDIO TRACKS + EMBEDDED VIDEO AUDIO)
+    if (hasAudio && (audioClips.length > 0 || videoAudioClips.length > 0)) {
       if (signal?.aborted) throw new Error("Export cancelled by user");
 
       onProgress({
@@ -750,12 +757,17 @@ export async function exportTimelineToMp4({
       const totalAudioSamples = Math.ceil(sampleRate * plan.totalDuration);
       const offlineCtx = new OfflineAudioContext(2, Math.max(128, totalAudioSamples), sampleRate);
 
-      for (const clip of audioClips) {
+      const mixClips = [
+        ...audioClips.map((clip) => ({ clip, isEmbeddedVideoAudio: false })),
+        ...videoAudioClips.map((clip) => ({ clip, isEmbeddedVideoAudio: true })),
+      ];
+
+      for (const { clip, isEmbeddedVideoAudio } of mixClips) {
         if (signal?.aborted) throw new Error("Export cancelled by user");
 
         const asset = assets.find((a) => a.id === clip.assetId);
         if (!asset || !asset.blob) {
-          throw new Error(`Audio asset for "${clip.name}" is missing or unavailable.`);
+          throw new Error(`${isEmbeddedVideoAudio ? "Video" : "Audio"} asset for "${clip.name}" is missing or unavailable.`);
         }
 
         try {
@@ -764,12 +776,14 @@ export async function exportTimelineToMp4({
 
           const source = offlineCtx.createBufferSource();
           source.buffer = decodedBuffer;
+          const speed = isEmbeddedVideoAudio && clip.speed && clip.speed > 0 ? clip.speed : 1;
+          source.playbackRate.value = speed;
 
           const gain = offlineCtx.createGain();
           const baseVol =
             typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
-          const fadeIn = Math.max(0, Math.min(clip.duration, clip.fadeInDuration ?? 0));
-          const fadeOut = Math.max(0, Math.min(clip.duration, clip.fadeOutDuration ?? 0));
+          const fadeIn = isEmbeddedVideoAudio ? 0 : Math.max(0, Math.min(clip.duration, clip.fadeInDuration ?? 0));
+          const fadeOut = isEmbeddedVideoAudio ? 0 : Math.max(0, Math.min(clip.duration, clip.fadeOutDuration ?? 0));
 
           if (fadeIn > 0) {
             gain.gain.setValueAtTime(0, clip.startTime);
@@ -787,11 +801,10 @@ export async function exportTimelineToMp4({
 
           source.connect(gain);
           gain.connect(offlineCtx.destination);
-
-          source.start(clip.startTime, clip.inPoint, clip.duration);
+          source.start(clip.startTime, clip.inPoint, clip.duration * speed);
         } catch (err) {
           throw new Error(
-            `Failed to decode audio track "${clip.name}": ${
+            `Failed to decode ${isEmbeddedVideoAudio ? "embedded video audio" : "audio track"} "${clip.name}": ${
               err instanceof Error ? err.message : String(err)
             }`
           );

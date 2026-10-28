@@ -6,7 +6,6 @@ import { useSelectedModel } from "@/lib/model-storage";
 import { useProductionSettings } from "@/lib/settings-storage";
 import {
   useStudioStorage,
-  saveStoredStory,
   saveStoredResult,
   saveStoredStudioData,
   clearStoredStudioState,
@@ -133,50 +132,103 @@ export default function StudioPage() {
     return total > 0 ? parseFloat(total.toFixed(2)) : null;
   }, [minutes, seconds]);
 
-  // Debounced story input auto-save
+  // Debounced story input auto-save with downstream state invalidation
   const handleStoryChange = (val: string) => {
     setLocalStory(val);
     setValidationError(null);
 
-    if (storySaveTimeoutRef.current) {
-      clearTimeout(storySaveTimeoutRef.current);
-    }
+    // Cancel all pending auto-save timers to prevent race conditions
+    if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+
+    // Invalidate downstream voiceover script, measured duration, and scenes
+    setLocalVoiceoverScript("");
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalResult(null);
+    setLocalStage(1);
+
     storySaveTimeoutRef.current = setTimeout(() => {
-      saveStoredStory(val);
+      saveStoredStudioData({
+        story: val,
+        voiceoverScript: "",
+        voiceoverDurationMinutes: "",
+        voiceoverDurationSeconds: "",
+        actualVoiceoverDuration: null,
+        lastResult: null,
+        currentStage: 1,
+      });
     }, 400);
   };
 
   const handleClear = () => {
+    if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+
     setLocalStory("");
+    setLocalVoiceoverScript("");
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalResult(null);
+    setLocalStage(1);
     setValidationError(null);
-    if (storySaveTimeoutRef.current) {
-      clearTimeout(storySaveTimeoutRef.current);
-    }
-    saveStoredStory("");
+
+    saveStoredStudioData({
+      story: "",
+      voiceoverScript: "",
+      voiceoverDurationMinutes: "",
+      voiceoverDurationSeconds: "",
+      actualVoiceoverDuration: null,
+      lastResult: null,
+      currentStage: 1,
+    });
   };
 
-  // Voiceover script change handler
+  // Voiceover script change handler with downstream duration and scene invalidation
   const handleVoiceoverChange = (val: string) => {
     setLocalVoiceoverScript(val);
-    if (voiceoverSaveTimeoutRef.current) {
-      clearTimeout(voiceoverSaveTimeoutRef.current);
-    }
+
+    // Editing voiceover invalidates previously measured duration and generated scenes
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalResult(null);
+    setLocalStage(2);
+
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+
     voiceoverSaveTimeoutRef.current = setTimeout(() => {
-      saveStoredStudioData({ voiceoverScript: val });
+      saveStoredStudioData({
+        voiceoverScript: val,
+        voiceoverDurationMinutes: "",
+        voiceoverDurationSeconds: "",
+        actualVoiceoverDuration: null,
+        lastResult: null,
+        currentStage: 2,
+      });
     }, 400);
   };
 
-  // Duration changes handlers
+  // Duration changes handlers with scene invalidation
   const handleMinutesChange = (val: string) => {
     setLocalMinutes(val);
     const m = parseFloat(val) || 0;
     const s = parseFloat(seconds) || 0;
     const total = m * 60 + s;
+
+    // Changing duration invalidates scenes generated for previous duration
+    setLocalResult(null);
+    setLocalStage(3);
+
     if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
     durationSaveTimeoutRef.current = setTimeout(() => {
       saveStoredStudioData({
         voiceoverDurationMinutes: val,
-        actualVoiceoverDuration: total > 0 ? total : null,
+        actualVoiceoverDuration: total > 0 ? parseFloat(total.toFixed(2)) : null,
+        lastResult: null,
+        currentStage: 3,
       });
     }, 300);
   };
@@ -186,11 +238,18 @@ export default function StudioPage() {
     const m = parseFloat(minutes) || 0;
     const s = parseFloat(val) || 0;
     const total = m * 60 + s;
+
+    // Changing duration invalidates scenes generated for previous duration
+    setLocalResult(null);
+    setLocalStage(3);
+
     if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
     durationSaveTimeoutRef.current = setTimeout(() => {
       saveStoredStudioData({
         voiceoverDurationSeconds: val,
-        actualVoiceoverDuration: total > 0 ? total : null,
+        actualVoiceoverDuration: total > 0 ? parseFloat(total.toFixed(2)) : null,
+        lastResult: null,
+        currentStage: 3,
       });
     }, 300);
   };
@@ -252,8 +311,18 @@ export default function StudioPage() {
       // Extract raw voiceover script
       const scriptText = (data.response || "").trim();
       setLocalVoiceoverScript(scriptText);
+      setLocalMinutes("");
+      setLocalSeconds("");
+      setLocalResult(null);
       setLocalStage(2); // Advance to Voiceover Script Review stage
-      saveStoredStudioData({ voiceoverScript: scriptText, currentStage: 2 });
+      saveStoredStudioData({
+        voiceoverScript: scriptText,
+        voiceoverDurationMinutes: "",
+        voiceoverDurationSeconds: "",
+        actualVoiceoverDuration: null,
+        lastResult: null,
+        currentStage: 2,
+      });
     } catch (err) {
       if (requestIdRef.current !== currentRequestId) return;
       if (err instanceof Error && err.name === "AbortError") {
@@ -374,6 +443,10 @@ export default function StudioPage() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+
+    if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
 
     requestIdRef.current++;
     clearStoredStudioState();

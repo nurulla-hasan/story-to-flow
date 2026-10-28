@@ -630,10 +630,10 @@ export function PreviewCanvasPanel() {
                     const renderTransitionContent = () => {
                       if (transition.type === "cross-dissolve") {
                         return (
-                          <>
-                            {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
+                          <div className="relative w-full h-full" style={{ isolation: "isolate" }}>
+                            {renderVisualNode(fromClip, { opacity: 1, zIndex: 1 })}
                             {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
-                          </>
+                          </div>
                         );
                       }
 

@@ -66,12 +66,13 @@ export function loadMasterPrompt(version: string = MASTER_PROMPT_VERSION): Maste
     );
   }
 
-  // Validate content is non-empty
+  // Validate content is non-empty and not a placeholder stub
   const trimmedContent = content.trim();
-  if (trimmedContent.length === 0) {
+  const MIN_PROMPT_LENGTH = 5000;
+  if (trimmedContent.length < MIN_PROMPT_LENGTH) {
     throw new Error(
-      `Master Prompt ${version} at ${promptPath} is empty. ` +
-      "The prompt file must contain the complete prompt text."
+      `Master Prompt ${version} at ${promptPath} is incomplete or a placeholder stub (${trimmedContent.length} chars). ` +
+      `Expected a complete prompt of at least ${MIN_PROMPT_LENGTH} characters.`
     );
   }
 

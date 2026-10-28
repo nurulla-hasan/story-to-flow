@@ -241,8 +241,124 @@ function preloadImage(url: string, signal?: AbortSignal): Promise<HTMLImageEleme
 }
 
 /**
+ * Preload and wait for HTMLVideoElement to load metadata and decode its initial frame.
+ * Handles loadeddata (frame readiness), error, timeout, and cancellation.
+ * Ensures the video is ready to be drawn and sought without rendering black or uninitialized frames.
+ */
+export function preloadVideo(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs: number = 10000
+): Promise<HTMLVideoElement> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Export cancelled by user"));
+      return;
+    }
+
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      video.removeEventListener("loadeddata", onLoadedData);
+      video.removeEventListener("error", onError);
+      signal?.removeEventListener("abort", onAbort);
+      if (timer) clearTimeout(timer);
+    };
+
+    const onLoadedData = () => {
+      cleanup();
+      resolve(video);
+    };
+
+    const onError = () => {
+      cleanup();
+      reject(new Error(`Failed to load video: ${url}`));
+    };
+
+    const onAbort = () => {
+      cleanup();
+      try {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } catch {}
+      reject(new Error("Export cancelled by user"));
+    };
+
+    // If video element already has current frame decoded (readyState >= HAVE_CURRENT_DATA)
+    if (video.readyState >= 2) {
+      resolve(video);
+      return;
+    }
+
+    video.addEventListener("loadeddata", onLoadedData, { once: true });
+    video.addEventListener("error", onError, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Video loading timed out for ${url} (${timeoutMs}ms elapsed).`));
+    }, timeoutMs);
+
+    video.src = url;
+    video.load();
+  });
+}
+
+/**
+ * Detect whether an embedded media container (MP4, QuickTime, WebM) contains an audio track.
+ * Scans the ISO BMFF / QuickTime box headers for 'soun' handler or WebM EBML audio track tags.
+ */
+export function detectAudioTrackInVideo(buffer: ArrayBuffer): boolean {
+  if (!buffer || buffer.byteLength < 8) return false;
+
+  const bytes = new Uint8Array(buffer);
+
+  // 1. Check for MP4 / QuickTime: search for ASCII 'soun' (0x73, 0x6F, 0x75, 0x6E)
+  // 'soun' is the ISO BMFF / MOV handler type for audio media ('hdlr' box).
+  // Video-only MP4 files contain 'vide' but no 'soun'.
+  const soun0 = 0x73; // 's'
+  const soun1 = 0x6f; // 'o'
+  const soun2 = 0x75; // 'u'
+  const soun3 = 0x6e; // 'n'
+
+  const maxScan = Math.min(bytes.length, 1024 * 1024);
+  for (let i = 0; i < maxScan - 4; i++) {
+    if (
+      bytes[i] === soun0 &&
+      bytes[i + 1] === soun1 &&
+      bytes[i + 2] === soun2 &&
+      bytes[i + 3] === soun3
+    ) {
+      return true;
+    }
+  }
+
+  // 2. Check for WebM: signature 0x1A 0x45 0xDF 0xA3
+  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    for (let i = 4; i < maxScan - 2; i++) {
+      if (bytes[i] === 0x83 && bytes[i + 1] === 0x02) {
+        return true;
+      }
+      if (bytes[i] === 0x83 && bytes[i + 1] === 0x01 && bytes[i + 2] === 0x02) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Seek HTMLVideoElement with safe timeout, error rejection, and abort signal.
  * Ensures an unresolved seek or decoding failure does not silently proceed and export a stale frame.
+ * Uses 2ms frame-level tolerance so 30fps (~33.3ms) and 60fps (~16.7ms) frame seeks are never skipped.
  */
 export function seekVideoElement(
   video: HTMLVideoElement,
@@ -256,7 +372,17 @@ export function seekVideoElement(
       return;
     }
 
-    if (Math.abs(video.currentTime - time) < 0.05) {
+    const targetTime = Math.max(0, time);
+
+    // Frame-level seeking precision tolerance.
+    // 30fps = ~33.33ms (0.0333s); 60fps = ~16.67ms (0.0167s).
+    // Use 2ms (0.002s) tolerance so we never skip adjacent 30fps frames.
+    // Never skip if video has not yet decoded data (readyState < 2).
+    const SEEK_TOLERANCE_SEC = 0.002;
+    if (
+      video.readyState >= 2 &&
+      Math.abs(video.currentTime - targetTime) <= SEEK_TOLERANCE_SEC
+    ) {
       resolve();
       return;
     }
@@ -277,7 +403,7 @@ export function seekVideoElement(
 
     const onError = () => {
       cleanup();
-      reject(new Error(`Failed to decode video frame at ${time.toFixed(2)}s.`));
+      reject(new Error(`Failed to decode video frame at ${targetTime.toFixed(2)}s.`));
     };
 
     const onAbort = () => {
@@ -291,16 +417,16 @@ export function seekVideoElement(
 
     timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`Video seek timed out at ${time.toFixed(2)}s (${timeoutMs}ms elapsed).`));
+      reject(new Error(`Video seek timed out at ${targetTime.toFixed(2)}s (${timeoutMs}ms elapsed).`));
     }, timeoutMs);
 
     try {
-      video.currentTime = Math.max(0, time);
+      video.currentTime = targetTime;
     } catch (err) {
       cleanup();
       reject(
         new Error(
-          `Video seek failed at ${time.toFixed(2)}s: ${
+          `Video seek failed at ${targetTime.toFixed(2)}s: ${
             err instanceof Error ? err.message : String(err)
           }`
         )
@@ -345,9 +471,13 @@ export async function exportTimelineToMp4({
   }
 
   const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
-  const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  const dedicatedAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  const videoClipsWithAudio = visualClips.filter(
+    (c) => (c.type === "video" || !isAudioTrack(c.trackId)) && (c.volume ?? 1) > 0
+  );
+  const hasAudioSources = dedicatedAudioClips.length > 0 || videoClipsWithAudio.length > 0;
   const hasAudio =
-    audioClips.length > 0 &&
+    hasAudioSources &&
     typeof (window as unknown as { AudioEncoder?: unknown }).AudioEncoder !== "undefined";
 
   onProgress({
@@ -381,12 +511,17 @@ export async function exportTimelineToMp4({
           console.warn(`Could not preload image ${asset.name}:`, err);
         }
       } else if (asset.category === "video" && !videoElements.has(asset.id)) {
-        const vid = document.createElement("video");
-        vid.crossOrigin = "anonymous";
-        vid.src = asset.url;
-        vid.muted = true;
-        vid.playsInline = true;
-        videoElements.set(asset.id, vid);
+        try {
+          const vid = await preloadVideo(asset.url, signal);
+          videoElements.set(asset.id, vid);
+        } catch (err) {
+          if (signal?.aborted) throw err;
+          throw new Error(
+            `Failed to load video asset "${asset.name}": ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        }
       }
     }
 
@@ -395,6 +530,17 @@ export async function exportTimelineToMp4({
     canvas.height = height;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("Failed to get 2D rendering context for video canvas.");
+
+    // Isolated offscreen canvases for normalized cross-dissolve compositing
+    const blendCanvasA = document.createElement("canvas");
+    blendCanvasA.width = width;
+    blendCanvasA.height = height;
+    const blendCtxA = blendCanvasA.getContext("2d", { alpha: true });
+
+    const blendCanvasB = document.createElement("canvas");
+    blendCanvasB.width = width;
+    blendCanvasB.height = height;
+    const blendCtxB = blendCanvasB.getContext("2d", { alpha: true });
 
     // Setup MP4 Muxer with fastStart: false to prevent caching all chunks in duplicate RAM arrays
     const muxer = new Muxer({
@@ -470,12 +616,17 @@ export async function exportTimelineToMp4({
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
 
-      const drawClip = async (clip: TimelineClip, alpha: number = 1.0, xOffset: number = 0) => {
+      const drawClipToContext = async (
+        targetCtx: CanvasRenderingContext2D,
+        clip: TimelineClip,
+        alpha: number = 1.0,
+        xOffset: number = 0
+      ) => {
         const asset = assetMap.get(clip.assetId);
         if (!asset) return;
 
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+        targetCtx.save();
+        targetCtx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
         // Animated Ken Burns zoom & pan motion
         const motion = getClipMotionAtTime(clip, currentTime);
@@ -496,11 +647,11 @@ export async function exportTimelineToMp4({
               panX: motion.offsetX,
               panY: motion.offsetY,
             });
-            ctx.translate(centerX, centerY);
+            targetCtx.translate(centerX, centerY);
             if (rotation) {
-              ctx.rotate((rotation * Math.PI) / 180);
+              targetCtx.rotate((rotation * Math.PI) / 180);
             }
-            ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+            targetCtx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
           }
         } else if (asset.category === "video") {
           const vid = videoElements.get(asset.id);
@@ -521,16 +672,19 @@ export async function exportTimelineToMp4({
               panX: motion.offsetX,
               panY: motion.offsetY,
             });
-            ctx.translate(centerX, centerY);
+            targetCtx.translate(centerX, centerY);
             if (rotation) {
-              ctx.rotate((rotation * Math.PI) / 180);
+              targetCtx.rotate((rotation * Math.PI) / 180);
             }
-            ctx.drawImage(vid, -dw / 2, -dh / 2, dw, dh);
+            targetCtx.drawImage(vid, -dw / 2, -dh / 2, dw, dh);
           }
         }
 
-        ctx.restore();
+        targetCtx.restore();
       };
+
+      const drawClip = (clip: TimelineClip, alpha: number = 1.0, xOffset: number = 0) =>
+        drawClipToContext(ctx, clip, alpha, xOffset);
 
       // Check if an active transition is currently taking effect at currentTime
       let activeTransitionData: {
@@ -574,10 +728,33 @@ export async function exportTimelineToMp4({
           }
         }
 
-        // 2. Draw the transition on its track layer
+        // 2. Draw the transition on its track layer (Normalized isolated compositing for cross-dissolve)
         if (transition.type === "cross-dissolve") {
-          await drawClip(fromClip, 1 - progress, 0);
-          await drawClip(toClip, progress, 0);
+          if (blendCtxA && blendCtxB) {
+            blendCtxA.clearRect(0, 0, width, height);
+            blendCtxB.clearRect(0, 0, width, height);
+
+            // Draw outgoing clip at full opacity onto layer A
+            await drawClipToContext(blendCtxA, fromClip, 1.0, 0);
+
+            // Draw incoming clip at full opacity onto layer B
+            await drawClipToContext(blendCtxB, toClip, 1.0, 0);
+
+            // Blend incoming clip over outgoing clip with opacity = progress
+            // Formula: C_result = (1 - progress) * fromClip + progress * toClip
+            // No background leakage because fromClip is drawn at 1.0 underneath
+            blendCtxA.save();
+            blendCtxA.globalAlpha = Math.max(0, Math.min(1, progress));
+            blendCtxA.globalCompositeOperation = "source-over";
+            blendCtxA.drawImage(blendCanvasB, 0, 0);
+            blendCtxA.restore();
+
+            // Composite the normalized blended transition layer onto main canvas
+            ctx.drawImage(blendCanvasA, 0, 0);
+          } else {
+            await drawClip(fromClip, 1 - progress, 0);
+            await drawClip(toClip, progress, 0);
+          }
         } else if (transition.type === "fade-black") {
           if (progress < 0.5) {
             await drawClip(fromClip, 1 - progress * 2, 0);
@@ -651,8 +828,8 @@ export async function exportTimelineToMp4({
     canvas.width = 0;
     canvas.height = 0;
 
-    // 2. AUDIO ENCODING (IF AUDIO TRACKS EXIST)
-    if (hasAudio && audioClips.length > 0) {
+    // 2. AUDIO ENCODING (IF DEDICATED OR EMBEDDED AUDIO EXISTS)
+    if (hasAudio) {
       if (signal?.aborted) throw new Error("Export cancelled by user");
 
       onProgress({
@@ -666,25 +843,45 @@ export async function exportTimelineToMp4({
       const sampleRate = 48000;
       const totalAudioSamples = Math.ceil(sampleRate * plan.totalDuration);
       const offlineCtx = new OfflineAudioContext(2, Math.max(128, totalAudioSamples), sampleRate);
+      const decodedBuffersCache = new Map<string, AudioBuffer | null>();
 
-      for (const clip of audioClips) {
+      // 2A. Mix embedded audio from video clips on visual tracks
+      for (const clip of videoClipsWithAudio) {
         if (signal?.aborted) throw new Error("Export cancelled by user");
+        const asset = assetMap.get(clip.assetId);
+        if (!asset || !asset.blob) continue;
 
-        const asset = assets.find((a) => a.id === clip.assetId);
-        if (!asset || !asset.blob) {
-          throw new Error(`Audio asset for "${clip.name}" is missing or unavailable.`);
+        let decodedBuffer: AudioBuffer | null = null;
+        if (decodedBuffersCache.has(asset.id)) {
+          decodedBuffer = decodedBuffersCache.get(asset.id)!;
+        } else {
+          const arrayBuffer = await asset.blob.arrayBuffer();
+          const hasTrack = detectAudioTrackInVideo(arrayBuffer);
+          if (hasTrack) {
+            try {
+              decodedBuffer = await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
+              decodedBuffersCache.set(asset.id, decodedBuffer);
+            } catch {
+              throw new Error(
+                `Failed to decode embedded audio in video "${clip.name}": The audio track format is unsupported by your browser or corrupt. Please ensure the video uses AAC, MP3, or Opus audio.`
+              );
+            }
+          } else {
+            // Video has no audio track (silent video); do not throw, mark as null
+            decodedBuffersCache.set(asset.id, null);
+          }
         }
 
-        try {
-          const arrayBuffer = await asset.blob.arrayBuffer();
-          const decodedBuffer = await offlineCtx.decodeAudioData(arrayBuffer);
+        if (decodedBuffer) {
+          const speed = typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1.0;
+          const baseVol = typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
+          if (baseVol <= 0) continue;
 
           const source = offlineCtx.createBufferSource();
           source.buffer = decodedBuffer;
+          source.playbackRate.setValueAtTime(speed, clip.startTime);
 
           const gain = offlineCtx.createGain();
-          const baseVol =
-            typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
           const fadeIn = Math.max(0, Math.min(clip.duration, clip.fadeInDuration ?? 0));
           const fadeOut = Math.max(0, Math.min(clip.duration, clip.fadeOutDuration ?? 0));
 
@@ -705,7 +902,63 @@ export async function exportTimelineToMp4({
           source.connect(gain);
           gain.connect(offlineCtx.destination);
 
-          source.start(clip.startTime, clip.inPoint, clip.duration);
+          // AudioBufferSourceNode.start(when, offset, duration): duration is amount to read from buffer
+          const sourceDurationToPlay = clip.duration * speed;
+          source.start(clip.startTime, Math.max(0, clip.inPoint), sourceDurationToPlay);
+        }
+      }
+
+      // 2B. Mix dedicated audio clips (voiceover, music, SFX)
+      for (const clip of dedicatedAudioClips) {
+        if (signal?.aborted) throw new Error("Export cancelled by user");
+
+        const asset = assetMap.get(clip.assetId);
+        if (!asset || !asset.blob) {
+          throw new Error(`Audio asset for "${clip.name}" is missing or unavailable.`);
+        }
+
+        try {
+          let decodedBuffer: AudioBuffer;
+          if (decodedBuffersCache.has(asset.id) && decodedBuffersCache.get(asset.id)) {
+            decodedBuffer = decodedBuffersCache.get(asset.id)!;
+          } else {
+            const arrayBuffer = await asset.blob.arrayBuffer();
+            decodedBuffer = await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
+            decodedBuffersCache.set(asset.id, decodedBuffer);
+          }
+
+          const speed = typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1.0;
+          const baseVol =
+            typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
+          if (baseVol <= 0) continue;
+
+          const source = offlineCtx.createBufferSource();
+          source.buffer = decodedBuffer;
+          source.playbackRate.setValueAtTime(speed, clip.startTime);
+
+          const gain = offlineCtx.createGain();
+          const fadeIn = Math.max(0, Math.min(clip.duration, clip.fadeInDuration ?? 0));
+          const fadeOut = Math.max(0, Math.min(clip.duration, clip.fadeOutDuration ?? 0));
+
+          if (fadeIn > 0) {
+            gain.gain.setValueAtTime(0, clip.startTime);
+            gain.gain.linearRampToValueAtTime(baseVol, clip.startTime + fadeIn);
+          } else {
+            gain.gain.setValueAtTime(baseVol, clip.startTime);
+          }
+
+          if (fadeOut > 0) {
+            const fadeOutStart = clip.startTime + clip.duration - fadeOut;
+            const holdUntil = Math.max(clip.startTime + fadeIn, fadeOutStart);
+            gain.gain.setValueAtTime(baseVol, holdUntil);
+            gain.gain.linearRampToValueAtTime(0, clip.startTime + clip.duration);
+          }
+
+          source.connect(gain);
+          gain.connect(offlineCtx.destination);
+
+          const sourceDurationToPlay = clip.duration * speed;
+          source.start(clip.startTime, Math.max(0, clip.inPoint), sourceDurationToPlay);
         } catch (err) {
           throw new Error(
             `Failed to decode audio track "${clip.name}": ${

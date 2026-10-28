@@ -1,4 +1,5 @@
 import { type TimelineClip, isVisualTrack } from "@/types/timeline";
+import { clampLeftTrimToPreventOverlap } from "./timeline-overlap";
 
 export const MIN_CLIP_DURATION = 0.5; // 500ms minimum clip duration
 
@@ -66,6 +67,51 @@ export function calculateLeftTrim(
     duration: Math.max(minDuration, newDuration),
     inPoint: Math.max(0, newInPoint),
     outPoint: newOutPoint,
+  };
+}
+
+/**
+ * Calculate left-edge trimming for a clip, respecting both media source bounds
+ * and adjacent track clips to prevent overlapping, while keeping source inPoint and
+ * timeline duration perfectly synchronized.
+ */
+export function calculateLeftTrimWithOverlap(
+  clip: TimelineClip,
+  deltaSeconds: number,
+  allClips: TimelineClip[],
+  minDuration: number = MIN_CLIP_DURATION
+): TrimResult {
+  // Step 1: Calculate raw bounded trim based on source limits and minDuration
+  const rawTrim = calculateLeftTrim(clip, deltaSeconds, minDuration);
+
+  // Step 2: Clamp proposed start time against any preceding clip on the same track
+  const nonOverlapping = clampLeftTrimToPreventOverlap(
+    clip,
+    rawTrim.startTime,
+    rawTrim.duration,
+    allClips
+  );
+
+  // Step 3: Recalculate the effective delta that was actually permitted by the clamp!
+  const effectiveDelta = nonOverlapping.startTime - clip.startTime;
+  const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+  const isMediaWithSource =
+    (clip.type === "video" || clip.type === "audio") &&
+    typeof clip.sourceDuration === "number" &&
+    clip.sourceDuration > 0;
+
+  const originalInPoint = clip.inPoint;
+  const originalOutPoint = clip.outPoint || originalInPoint + clip.duration * speed;
+
+  const recalculatedInPoint = isMediaWithSource
+    ? parseFloat(Math.max(0, originalInPoint + effectiveDelta * speed).toFixed(3))
+    : 0;
+
+  return {
+    startTime: nonOverlapping.startTime,
+    duration: nonOverlapping.duration,
+    inPoint: recalculatedInPoint,
+    outPoint: originalOutPoint,
   };
 }
 

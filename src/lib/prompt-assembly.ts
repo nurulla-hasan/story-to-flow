@@ -11,18 +11,18 @@ import { loadMasterPrompt } from "@/prompts/loader";
 import type { ResolvedSettings } from "./settings";
 import type { VisualAssetMode, VideoSoundMode } from "./validation";
 
-function getAssetModeDirective(mode: VisualAssetMode): string {
+function getAssetModeDirective(mode: VisualAssetMode, videoDurationSec: number = 4): string {
   switch (mode) {
     case "All Images":
       return `VISUAL ASSET MODE DIRECTIVE:
 All Images Mode selected. Generate static-image prompts [🖼️ STATIC IMAGE] for every shot. Do not generate video-shot prompts. Every shot must be a static image.`;
     case "All Videos":
       return `VISUAL ASSET MODE DIRECTIVE:
-All Videos Mode selected. Generate video-shot prompts [🎥 HERO VIDEO — 4.0s] for every shot. Do not generate static-image prompts. Every shot must be an animated video shot of strictly 4.0 seconds.`;
+All Videos Mode selected. Generate video-shot prompts [🎥 HERO VIDEO — ${videoDurationSec}.0s] for every shot. Do not generate static-image prompts. Every shot must be an animated video shot of strictly ${videoDurationSec}.0 seconds.`;
     case "Hybrid":
     default:
       return `VISUAL ASSET MODE DIRECTIVE:
-Hybrid Mode selected (Default). Choose a sensible mix of static-image shots [🖼️ STATIC IMAGE] and video shots [🎥 HERO VIDEO — 4.0s] based on narrative importance, action, emotional beats, and continuity. High-impact moments, climaxes, and key action beats should be video shots (strictly 4.0 seconds); atmospheric, reflective, or dialogue scenes can be static images. Do not require every shot to be video, and avoid arbitrary alternating patterns.`;
+Hybrid Mode selected (Default). Choose a sensible mix of static-image shots [🖼️ STATIC IMAGE] and video shots [🎥 HERO VIDEO — ${videoDurationSec}.0s] based on narrative importance, action, emotional beats, and continuity. High-impact moments, climaxes, and key action beats should be video shots (strictly ${videoDurationSec}.0 seconds); atmospheric, reflective, or dialogue scenes can be static images. Do not require every shot to be video, and avoid arbitrary alternating patterns.`;
   }
 }
 
@@ -89,14 +89,14 @@ export function assembleSceneSystemMessage(
     ? "Auto (AI recommends and selects the most fitting visual style based on the story's genre, characters, environment, and emotional tone)"
     : settings.visualStyle;
 
-  const pacingText =
-    settings.staticFramePacing === "Auto"
-      ? "Auto (Default 4.0s per static image)"
-      : `${settings.staticFramePacing} seconds per static image`;
-
   const videoDurationSec = settings.videoAssetDuration || 4;
 
-  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode);
+  const pacingText =
+    settings.staticFramePacing === "Auto"
+      ? "Auto (AI recommends appropriate natural storytelling pacing, defaulting to approximately 4.0 seconds per static shot)"
+      : `${settings.staticFramePacing} seconds per static image`;
+
+  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode, videoDurationSec);
   const soundModeDirective = getVideoSoundDirective(settings.videoSoundMode);
 
   const sceneContext = `
@@ -185,10 +185,12 @@ export function assembleSystemMessage(settings: ResolvedSettings): string {
     ? "Auto (AI recommends and selects the most fitting visual style based on the story's genre, characters, environment, and emotional tone)"
     : settings.visualStyle;
 
+  const videoDurationSec = settings.videoAssetDuration || 4;
+
   // Format static frame pacing for display
   const pacingText =
     settings.staticFramePacing === "Auto"
-      ? "Auto (AI will choose appropriate pacing)"
+      ? "Auto (AI recommends appropriate natural storytelling pacing, defaulting to approximately 4.0 seconds per static shot)"
       : `${settings.staticFramePacing} seconds per static image`;
 
   const visualStyleDirective = isAutoStyle
@@ -203,10 +205,8 @@ Maintain this chosen visual style consistently across all scenes.`
 expressive characters, consistent character designs, cohesive environments, attractive colors,
 and cinematic lighting appropriate to the story. Maintain consistent style across all scenes.`;
 
-  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode);
+  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode, videoDurationSec);
   const soundModeDirective = getVideoSoundDirective(settings.videoSoundMode);
-
-  const videoDurationSec = settings.videoAssetDuration || 4;
 
   // Production context instruction
   const productionContext = `

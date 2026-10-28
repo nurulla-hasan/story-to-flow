@@ -43,10 +43,7 @@ import {
   isVisualTrack,
 } from "@/types/timeline";
 import { findAdjacentClipPairs } from "@/lib/transition-helpers";
-import { calculateLeftTrim, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
-import {
-  clampLeftTrimToPreventOverlap,
-} from "@/lib/timeline-overlap";
+import { calculateLeftTrimWithOverlap, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
 import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import {
   getPixelsPerSecond,
@@ -498,20 +495,14 @@ export function TimelineDock() {
         setActiveSnapGuide(null);
       }
 
-      const trimResult = calculateLeftTrim(clip, deltaSec);
-      const nonOverlapping = clampLeftTrimToPreventOverlap(
-        clip,
-        trimResult.startTime,
-        trimResult.duration,
-        initialClips
-      );
+      const trimResult = calculateLeftTrimWithOverlap(clip, deltaSec, initialClips);
 
       latestClips = initialClips.map((c) =>
         c.id === clip.id
           ? {
               ...c,
-              startTime: nonOverlapping.startTime,
-              duration: nonOverlapping.duration,
+              startTime: trimResult.startTime,
+              duration: trimResult.duration,
               inPoint: trimResult.inPoint,
               outPoint: trimResult.outPoint,
             }

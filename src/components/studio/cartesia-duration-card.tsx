@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   ArrowRight,
   AlertCircle,
+  AlertTriangle,
   Info,
 } from "lucide-react";
 import {
@@ -234,6 +235,19 @@ export function CartesiaDurationCard({
               </div>
             </Field>
           </div>
+
+          {/* Export Duration Safety Limit Notice */}
+          {totalSeconds > 300 && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-3xs text-warning-foreground leading-relaxed mt-2 animate-in fade-in">
+              <AlertTriangle className="size-3.5 shrink-0 mt-0.5 text-warning" />
+              <div>
+                <span className="font-semibold">Browser Export Limit Notice (5 minutes / 300s):</span>
+                <p className="mt-0.5">
+                  Your voiceover duration ({totalSeconds.toFixed(1)}s) exceeds the 5-minute safe limit of the in-browser MP4 exporter. You can generate scene &amp; shot prompts for this story, but in-browser video rendering requires timelines to be within 5:00 (300s).
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 2. Visual Generation Settings Grid */}

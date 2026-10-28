@@ -149,7 +149,7 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
 
     expect(systemMessage).toContain("VISUAL STYLE: 3D Animated Cartoon");
     expect(systemMessage).toContain("ASPECT RATIO: 16:9");
-    expect(systemMessage).toContain("STATIC FRAME PACING: Auto (AI will choose appropriate pacing)");
+    expect(systemMessage).toContain("STATIC FRAME PACING: Auto (AI recommends appropriate natural storytelling pacing, defaulting to approximately 4.0 seconds per static shot)");
     expect(systemMessage).toContain("VIDEO SOURCE ASSET DURATION: 4.0 seconds");
     expect(systemMessage).not.toContain("TARGET DURATION:");
     expect(systemMessage).toContain("The visual style \"3D Animated Cartoon\" should use polished animation");

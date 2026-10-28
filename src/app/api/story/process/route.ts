@@ -61,10 +61,21 @@ export async function POST(request: NextRequest) {
       stage = "complete",
       voiceoverScript: bodyVoiceoverScript,
       actualVoiceoverDuration: bodyActualDuration,
+      videoAssetDuration: bodyVideoAssetDuration,
     } = parseResult.data;
 
+    // Documented Precedence Rule for videoAssetDuration:
+    // 1. Explicit nested requestSettings.videoAssetDuration takes precedence
+    // 2. Top-level bodyVideoAssetDuration is used if nested setting is not specified
+    // 3. Defaults to 4s if neither is specified
+    const effectiveVideoAssetDuration =
+      requestSettings?.videoAssetDuration ?? bodyVideoAssetDuration;
+
     // Resolve settings with defaults
-    const resolvedSettings = resolveSettings(requestSettings);
+    const resolvedSettings = resolveSettings({
+      ...requestSettings,
+      videoAssetDuration: effectiveVideoAssetDuration,
+    });
 
     const voiceoverScript = bodyVoiceoverScript || requestSettings?.voiceoverScript;
     const actualVoiceoverDuration = bodyActualDuration ?? requestSettings?.actualVoiceoverDuration;
@@ -106,6 +117,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const pacingDisplay =
+      resolvedSettings.staticFramePacing === "Auto"
+        ? "Auto (AI chooses appropriate natural pacing, default ~4.0s)"
+        : `${resolvedSettings.staticFramePacing} seconds per static image`;
+
     let systemMessage: string;
     let userMessageContent: string;
 
@@ -132,7 +148,7 @@ Visual Asset Mode: ${resolvedSettings.visualAssetMode}
 Video Sound Mode: ${resolvedSettings.videoSoundMode}
 Visual Style: ${resolvedSettings.visualStyle}
 Aspect Ratio: ${resolvedSettings.aspectRatio}
-Static Frame Pacing: ${resolvedSettings.staticFramePacing} seconds per static image
+Static Frame Pacing: ${pacingDisplay}
 Video Source Asset Duration: ${resolvedSettings.videoAssetDuration} seconds per video source asset
 
 Generate the complete Story Scene and Shot prompt plan covering the full ${actualVoiceoverDuration!.toFixed(2)}s duration. Output each complete Story Scene in ONE code block containing all its sequential shots.`;
@@ -145,7 +161,7 @@ ${story}
 Configured Production Settings (Selected and Confirmed):
 - Visual Style: ${resolvedSettings.visualStyle}
 - Aspect Ratio: ${resolvedSettings.aspectRatio}
-- Static Frame Pacing: ${resolvedSettings.staticFramePacing === "Auto" ? "Auto" : `${resolvedSettings.staticFramePacing} seconds per static image`}
+- Static Frame Pacing: ${pacingDisplay}
 - Video Source Asset Duration: ${resolvedSettings.videoAssetDuration} seconds per video source asset
 - Visual Asset Mode: ${resolvedSettings.visualAssetMode}
 - Video Sound Mode: ${resolvedSettings.videoSoundMode}

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { TimelineClip } from "@/types/timeline";
 import {
   calculateLeftTrim,
+  calculateLeftTrimWithOverlap,
   calculateRightTrim,
   snapTimestamp,
   MIN_CLIP_DURATION,
@@ -200,5 +201,89 @@ describe("Snap Timestamp Helper", () => {
     expect(res.isSnapped).toBe(false);
     expect(res.snappedTime).toBe(4.05);
     expect(res.snapGuide).toBeNull();
+  });
+});
+
+describe("P1 — Left Trim Overlap Clamping & Source Synchronization", () => {
+  const clip1: TimelineClip = {
+    id: "clip-1",
+    assetId: "a1",
+    name: "first.mp4",
+    type: "video",
+    trackId: "visual-1",
+    startTime: 0,
+    duration: 4.0, // Ends at 4.0s
+    inPoint: 0,
+    outPoint: 4.0,
+    sourceDuration: 10.0,
+  };
+
+  const clip2: TimelineClip = {
+    id: "clip-2",
+    assetId: "a2",
+    name: "second.mp4",
+    type: "video",
+    trackId: "visual-1",
+    startTime: 6.0, // Gap of 2.0s between clip1 and clip2
+    duration: 4.0, // Ends at 10.0s (anchored)
+    inPoint: 3.0,
+    outPoint: 7.0,
+    sourceDuration: 10.0,
+  };
+
+  const allClips = [clip1, clip2];
+
+  it("recalculates inPoint accurately when left trim is clamped by preceding clip", () => {
+    // User tries to drag left handle leftward by -5.0s (would reach 1.0s, deep inside clip1 which ends at 4.0s)
+    const result = calculateLeftTrimWithOverlap(clip2, -5.0, allClips);
+
+    // Overlap prevention must clamp startTime to clip1's right edge (4.0s)
+    expect(result.startTime).toBe(4.0);
+
+    // The effective delta applied to timeline start is 4.0 - 6.0 = -2.0s
+    // The duration expanded by 2.0s (from 4.0s to 6.0s), ending at 10.0s (anchored)
+    expect(result.duration).toBe(6.0);
+
+    // CRITICAL: inPoint must be recalculated from the CLAMPED effective delta (-2.0s), NOT the unclamped -5.0s!
+    // Original inPoint: 3.0, effectiveDelta: -2.0 -> new inPoint must be 1.0 (not 0 or negative)!
+    expect(result.inPoint).toBe(1.0);
+
+    // Anchored outPoint
+    expect(result.outPoint).toBe(7.0);
+
+    // Ensure mathematical synchronization: outPoint - inPoint === duration
+    expect(result.outPoint - result.inPoint).toBeCloseTo(result.duration, 3);
+  });
+
+  it("recalculates inPoint accurately with speed multiplier during clamped trim", () => {
+    const fastClip2: TimelineClip = {
+      ...clip2,
+      speed: 2.0, // 2x speed
+      inPoint: 4.0,
+      outPoint: 12.0, // 4.0 + 4.0 * 2 = 12.0
+    };
+
+    // Try to drag left by -4.0s (blocked by clip1 ending at 4.0s, allowed delta is -2.0s)
+    const result = calculateLeftTrimWithOverlap(fastClip2, -4.0, [clip1, fastClip2]);
+
+    expect(result.startTime).toBe(4.0);
+    expect(result.duration).toBe(6.0);
+
+    // Effective delta is -2.0s. At 2x speed, inPoint decreases by 2.0 * 2 = 4.0s
+    // New inPoint: 4.0 - 4.0 = 0.0
+    expect(result.inPoint).toBe(0.0);
+    expect(result.outPoint).toBe(12.0);
+
+    // Math check: (outPoint - inPoint) / speed === duration -> (12.0 - 0.0) / 2 === 6.0
+    expect((result.outPoint - result.inPoint) / fastClip2.speed!).toBeCloseTo(result.duration, 3);
+  });
+
+  it("respects minimum clip duration when shrinking rightward", () => {
+    // User tries to drag left handle rightward by +3.8s (would leave duration at 0.2s, below 0.5s min)
+    const result = calculateLeftTrimWithOverlap(clip2, 3.8, allClips, MIN_CLIP_DURATION);
+
+    expect(result.duration).toBe(MIN_CLIP_DURATION);
+    expect(result.startTime).toBe(10.0 - MIN_CLIP_DURATION); // Anchored at 10.0s
+    expect(result.outPoint - result.inPoint).toBeCloseTo(MIN_CLIP_DURATION, 3);
   });
 });

@@ -7,6 +7,8 @@ import {
   validateExportSafety,
   waitForEncoderQueue,
   seekVideoElement,
+  preloadVideo,
+  detectAudioTrackInVideo,
   MAX_SAFE_EXPORT_DURATION,
 } from "./video-export-engine";
 
@@ -420,5 +422,217 @@ describe("Export Cancellation and Resource Cleanup Guarantees", () => {
     expect(() => simulateAudioDecode("voiceover.mp3", true)).toThrow(
       'Failed to decode audio track "voiceover.mp3"'
     );
+  });
+
+  describe("P0 — Frame-Level Video Seeking & Readiness", () => {
+    it("does not skip 30fps frames (33.3ms difference must perform seek, not shortcut)", async () => {
+      let seekAttempted = false;
+      let currentTimeVal = 0.0;
+      const listeners: Record<string, (() => void) | undefined> = {};
+      const mockVideo = {
+        get currentTime() {
+          return currentTimeVal;
+        },
+        set currentTime(val: number) {
+          seekAttempted = true;
+          currentTimeVal = val;
+        },
+        readyState: 4,
+        addEventListener: (event: string, cb: () => void) => {
+          listeners[event] = cb;
+        },
+        removeEventListener: (event: string) => {
+          delete listeners[event];
+        },
+      } as unknown as HTMLVideoElement;
+
+      // Frame 1 at 30fps (approx 0.0333s)
+      const promise = seekVideoElement(mockVideo, 0.0333);
+      expect(seekAttempted).toBe(true);
+      listeners["seeked"]?.();
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("never shortcuts initial frame seek if video readyState < 2", async () => {
+      let seekAttempted = false;
+      let currentTimeVal = 0.0;
+      const listeners: Record<string, (() => void) | undefined> = {};
+      const mockVideo = {
+        get currentTime() {
+          return currentTimeVal;
+        },
+        set currentTime(val: number) {
+          seekAttempted = true;
+          currentTimeVal = val;
+        },
+        readyState: 1, // HAVE_METADATA only, not yet HAVE_CURRENT_DATA
+        addEventListener: (event: string, cb: () => void) => {
+          listeners[event] = cb;
+        },
+        removeEventListener: (event: string) => {
+          delete listeners[event];
+        },
+      } as unknown as HTMLVideoElement;
+
+      const promise = seekVideoElement(mockVideo, 0.0);
+      expect(seekAttempted).toBe(true);
+      listeners["seeked"]?.();
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("shortcuts seek only when readyState >= 2 and time difference <= 2ms", async () => {
+      let seekAttempted = false;
+      let currentTimeVal = 1.0;
+      const mockVideo = {
+        get currentTime() {
+          return currentTimeVal;
+        },
+        set currentTime(val: number) {
+          seekAttempted = true;
+          currentTimeVal = val;
+        },
+        readyState: 4,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      } as unknown as HTMLVideoElement;
+
+      // Seeking to 1.001s (1ms delta <= 2ms tolerance)
+      const promise = seekVideoElement(mockVideo, 1.001);
+      expect(seekAttempted).toBe(false);
+      await expect(promise).resolves.toBeUndefined();
+    });
+  });
+
+  describe("P0 — Video Preloading & Decoded Frame Readiness", () => {
+    it("preloadVideo: resolves when loadeddata event is dispatched", async () => {
+      const listeners: Record<string, (() => void) | undefined> = {};
+      const mockVideoElement = {
+        crossOrigin: "",
+        muted: false,
+        playsInline: false,
+        preload: "",
+        src: "",
+        readyState: 0,
+        load: vi.fn(),
+        pause: vi.fn(),
+        removeAttribute: vi.fn(),
+        addEventListener: (event: string, cb: () => void) => {
+          listeners[event] = cb;
+        },
+        removeEventListener: (event: string) => {
+          delete listeners[event];
+        },
+      };
+
+      const originalDocument = globalThis.document;
+      globalThis.document = {
+        createElement: (tag: string) => (tag === "video" ? mockVideoElement : {}) as unknown as HTMLElement,
+      } as unknown as Document;
+
+      try {
+        const promise = preloadVideo("blob:http://localhost/video1");
+        expect(mockVideoElement.preload).toBe("auto");
+        expect(mockVideoElement.muted).toBe(true);
+        expect(mockVideoElement.playsInline).toBe(true);
+
+        // Dispatch loadeddata
+        listeners["loadeddata"]?.();
+
+        const res = await promise;
+        expect(res).toBe(mockVideoElement);
+      } finally {
+        globalThis.document = originalDocument;
+      }
+    });
+
+    it("preloadVideo: rejects with clear error when media fails to load", async () => {
+      const listeners: Record<string, (() => void) | undefined> = {};
+      const mockVideoElement = {
+        crossOrigin: "",
+        muted: false,
+        playsInline: false,
+        preload: "",
+        src: "",
+        readyState: 0,
+        load: vi.fn(),
+        pause: vi.fn(),
+        removeAttribute: vi.fn(),
+        addEventListener: (event: string, cb: () => void) => {
+          listeners[event] = cb;
+        },
+        removeEventListener: (event: string) => {
+          delete listeners[event];
+        },
+      };
+
+      const originalDocument = globalThis.document;
+      globalThis.document = {
+        createElement: (tag: string) => (tag === "video" ? mockVideoElement : {}) as unknown as HTMLElement,
+      } as unknown as Document;
+
+      try {
+        const promise = preloadVideo("blob:http://localhost/bad-video");
+        listeners["error"]?.();
+
+        await expect(promise).rejects.toThrow("Failed to load video: blob:http://localhost/bad-video");
+      } finally {
+        globalThis.document = originalDocument;
+      }
+    });
+
+    it("preloadVideo: rejects immediately if signal is aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(preloadVideo("blob:http://localhost/video", controller.signal)).rejects.toThrow(
+        "Export cancelled by user"
+      );
+    });
+  });
+
+  describe("P0 — Embedded Video Audio Container Detection", () => {
+    it("detectAudioTrackInVideo: detects MP4 audio track from soun handler box", () => {
+      // Mock MP4 header containing 'soun' (0x73, 0x6f, 0x75, 0x6e)
+      const buffer = new ArrayBuffer(64);
+      const view = new Uint8Array(buffer);
+      // 'moov' ... 'hdlr' ... 'soun'
+      view[20] = 0x73; // 's'
+      view[21] = 0x6f; // 'o'
+      view[22] = 0x75; // 'u'
+      view[23] = 0x6e; // 'n'
+
+      expect(detectAudioTrackInVideo(buffer)).toBe(true);
+    });
+
+    it("detectAudioTrackInVideo: returns false for silent MP4 without soun handler", () => {
+      const buffer = new ArrayBuffer(64);
+      const view = new Uint8Array(buffer);
+      // 'moov' ... 'hdlr' ... 'vide' (0x76, 0x69, 0x64, 0x65)
+      view[20] = 0x76;
+      view[21] = 0x69;
+      view[22] = 0x64;
+      view[23] = 0x65;
+
+      expect(detectAudioTrackInVideo(buffer)).toBe(false);
+    });
+
+    it("detectAudioTrackInVideo: detects WebM audio track from EBML tags", () => {
+      const buffer = new ArrayBuffer(64);
+      const view = new Uint8Array(buffer);
+      // WebM signature: 0x1A 0x45 0xDF 0xA3
+      view[0] = 0x1a;
+      view[1] = 0x45;
+      view[2] = 0xdf;
+      view[3] = 0xa3;
+      // TrackType 0x83 0x02 (Audio)
+      view[10] = 0x83;
+      view[11] = 0x02;
+
+      expect(detectAudioTrackInVideo(buffer)).toBe(true);
+    });
+
+    it("detectAudioTrackInVideo: returns false for empty or short buffer", () => {
+      expect(detectAudioTrackInVideo(new ArrayBuffer(4))).toBe(false);
+    });
   });
 });

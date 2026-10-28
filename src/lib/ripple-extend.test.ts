@@ -210,4 +210,30 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     expect(currentClips.find((c) => c.id === "clip-C")?.startTime).toBe(17.0);
     expect(currentClips.find((c) => c.id === "sfx-downstream")?.startTime).toBe(18.0);
   });
+
+  it("QA Bug Fix: handles back-and-forth slider movement during one gesture without leaving unwanted gaps", () => {
+    // Scenario from prompt:
+    // Clip B initially occupies 5–13s (duration 8s); Clip C starts at 13s.
+    // During a single Inspector gesture, user extends Clip B to 14s duration and then reduces it to 10s duration.
+    // The final Clip B end must be 15s (5 + 10), and Clip C must start at 15s, with no 4-second gap.
+    const initialSnapshot = JSON.parse(JSON.stringify(initialClips));
+
+    // Step 1: User moves slider to 14s
+    const intermediate14s = applyRippleExtend("clip-B", 14.0, initialSnapshot);
+    const b14 = intermediate14s.find((c) => c.id === "clip-B")!;
+    const c14 = intermediate14s.find((c) => c.id === "clip-C")!;
+    expect(b14.startTime + b14.duration).toBe(19.0); // 5 + 14 = 19
+    expect(c14.startTime).toBe(19.0); // 13 + (14 - 8) = 19
+
+    // Step 2: During the same gesture (without releasing pointer), user pulls slider back to 10s:
+    // When calculated against the initial pre-gesture snapshot:
+    const intermediate10s = applyRippleExtend("clip-B", 10.0, initialSnapshot);
+    const b10 = intermediate10s.find((c) => c.id === "clip-B")!;
+    const c10 = intermediate10s.find((c) => c.id === "clip-C")!;
+
+    expect(b10.startTime).toBe(5.0);
+    expect(b10.duration).toBe(10.0);
+    expect(b10.startTime + b10.duration).toBe(15.0); // 5 + 10 = 15s
+    expect(c10.startTime).toBe(15.0); // 13 + (10 - 8) = 15s! Zero gap!
+  });
 });

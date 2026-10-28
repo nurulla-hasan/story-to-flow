@@ -144,7 +144,7 @@ export interface SpecRow {
 export const specRows: SpecRow[] = [
   { label: "Voiceover language", value: "Bangladeshi Bengali" },
   { label: "Visual prompts", value: "English (Google Flow)" },
-  { label: "Master prompt", value: "v1.5.7", badge: "Active" },
+  { label: "Master prompt", value: "v1.5.8", badge: "Active" },
   { label: "Default model", value: "gemini-3.8-flash", mono: true },
   { label: "BGM / SFX", value: "Excluded by design" },
   { label: "Drafts & plans", value: "Browser local storage" },

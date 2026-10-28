@@ -11,6 +11,10 @@ import {
   Smartphone,
   Eye,
   Sparkles,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Hand,
 } from "lucide-react";
 import {
   Card,
@@ -51,10 +55,157 @@ export function PreviewCanvasPanel() {
     commitPlayhead,
     totalDuration,
     aspectRatio,
+    playbackSpeed,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
   const videoRefs = React.useRef<Map<string, HTMLVideoElement>>(new Map());
+
+  // Viewport Zoom & Pan Navigation State (strictly visual viewport - never affects export or clip transforms)
+  const [viewportZoom, setViewportZoom] = React.useState<number>(100); // 25% to 400%, default 100%
+  const [viewportPan, setViewportPan] = React.useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = React.useState<boolean>(false);
+  const [isCtrlPressed, setIsCtrlPressed] = React.useState<boolean>(false);
+  const [isPanning, setIsPanning] = React.useState<boolean>(false);
+  const isHoveringCanvasRef = React.useRef<boolean>(false);
+  const canvasOuterStageRef = React.useRef<HTMLDivElement>(null);
+  const panStartRef = React.useRef<{ x: number; y: number; panX: number; panY: number }>({
+    x: 0,
+    y: 0,
+    panX: 0,
+    panY: 0,
+  });
+
+  const handleZoomIn = () => setViewportZoom((prev) => Math.min(400, prev + 25));
+  const handleZoomOut = () => setViewportZoom((prev) => Math.max(25, prev - 25));
+  const handleResetView = () => {
+    setViewportZoom(100);
+    setViewportPan({ x: 0, y: 0 });
+  };
+  const handleFitToView = () => {
+    setViewportZoom(100);
+    setViewportPan({ x: 0, y: 0 });
+  };
+
+  // Modifier keys detection for Pan and Zoom
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") {
+        setIsCtrlPressed(true);
+      }
+      if (e.code === "Space" || e.key === " ") {
+        const activeEl = document.activeElement;
+        const isInput =
+          activeEl?.tagName === "INPUT" ||
+          activeEl?.tagName === "TEXTAREA" ||
+          activeEl?.getAttribute("contenteditable") === "true";
+        if (isInput) return;
+        setIsSpacePressed(true);
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") {
+        setIsCtrlPressed(false);
+      }
+      if (e.code === "Space" || e.key === " ") {
+        setIsSpacePressed(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
+  // CapCut-style Canvas Zoom & Pan with Mouse Wheel
+  // CRITICAL: Must use native `{ passive: false }` listener with `e.preventDefault()`
+  // to prevent Chromium from triggering native browser window zoom (page scale)!
+  React.useEffect(() => {
+    const stageEl = canvasOuterStageRef.current;
+    if (!stageEl) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      // When Ctrl or Meta is held: zoom the canvas and PREVENT browser zoom
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const zoomDelta = e.deltaY < 0 ? 15 : -15;
+        setViewportZoom((prev) => Math.max(25, Math.min(400, prev + zoomDelta)));
+      } else {
+        // Normal wheel (without Ctrl): smoothly pan the canvas (CapCut UX)
+        e.preventDefault();
+        const dx = e.shiftKey ? -e.deltaY : -e.deltaX;
+        const dy = e.shiftKey ? 0 : -e.deltaY;
+        setViewportPan((prev) => ({
+          x: Math.round(prev.x + dx),
+          y: Math.round(prev.y + dy),
+        }));
+      }
+    };
+
+    stageEl.addEventListener("wheel", handleNativeWheel, { passive: false });
+    return () => {
+      stageEl.removeEventListener("wheel", handleNativeWheel);
+    };
+  }, []);
+
+  // Window-level guard: unconditionally block browser zoom if mouse is over canvas
+  React.useEffect(() => {
+    const preventBrowserZoom = (e: WheelEvent) => {
+      if (isHoveringCanvasRef.current && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("wheel", preventBrowserZoom, { passive: false });
+    return () => {
+      window.removeEventListener("wheel", preventBrowserZoom);
+    };
+  }, []);
+
+  const handleViewportPointerDown = (e: React.PointerEvent) => {
+    // Pan trigger: middle click (button 1) OR left click with Space held OR left click with Ctrl held
+    const isPanTrigger = e.button === 1 || (e.button === 0 && isSpacePressed) || (e.button === 0 && e.ctrlKey);
+    if (!isPanTrigger) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    if (isPlaying) {
+      togglePlay();
+    }
+    setIsPanning(true);
+    panStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: viewportPan.x,
+      panY: viewportPan.y,
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      const dx = moveEvent.clientX - panStartRef.current.x;
+      const dy = moveEvent.clientY - panStartRef.current.y;
+      setViewportPan({
+        x: panStartRef.current.panX + dx,
+        y: panStartRef.current.panY + dy,
+      });
+    };
+
+    const onPointerUp = () => {
+      setIsPanning(false);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+  };
 
   // Measure stage dimensions dynamically with ResizeObserver for gizmo coordinate mapping
   const stageContainerRef = React.useRef<HTMLDivElement>(null);
@@ -237,40 +388,127 @@ export function PreviewCanvasPanel() {
             <Eye className="size-4 text-primary" />
             <CardTitle>{aspectRatio === "16:9" ? "16:9 Landscape Canvas" : "9:16 Preview Canvas"}</CardTitle>
           </div>
-          <Badge variant="outline">
-            {activeTransitionData ? (
-              <span className="flex items-center gap-1">
-                <Sparkles className="size-3 text-primary" />
-                <span>Transition: {activeTransitionData.transition.type} ({Math.round(activeTransitionData.progress * 100)}%)</span>
-              </span>
-            ) : isHydrated && topActiveClip ? (
-              `${topActiveClip.name} (${activeVisuals.length > 1 ? `${activeVisuals.length} Layers` : "Layer 1"})`
-            ) : (
-              aspectRatio === "16:9" ? "1920 × 1080" : "1080 × 1920"
-            )}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {/* Viewport Zoom & Pan Controls */}
+            <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-md border border-border">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleZoomOut}
+                disabled={viewportZoom <= 25}
+                title="Zoom out preview canvas (-)"
+                aria-label="Zoom out preview canvas"
+                className="size-6 cursor-pointer"
+              >
+                <ZoomOut className="size-3" />
+              </Button>
+              <button
+                type="button"
+                onClick={handleResetView}
+                title="Click to reset canvas view (100%)"
+                className="px-1.5 py-0.5 text-3xs font-mono font-semibold text-foreground hover:text-primary transition-colors cursor-pointer"
+              >
+                {viewportZoom}%
+              </button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleZoomIn}
+                disabled={viewportZoom >= 400}
+                title="Zoom in preview canvas (+)"
+                aria-label="Zoom in preview canvas"
+                className="size-6 cursor-pointer"
+              >
+                <ZoomIn className="size-3" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleFitToView}
+                title="Fit canvas to workspace"
+                aria-label="Fit canvas to workspace"
+                className="size-6 cursor-pointer"
+              >
+                <RotateCcw className="size-2.5" />
+              </Button>
+            </div>
+
+            <Badge variant="outline">
+              {activeTransitionData ? (
+                <span className="flex items-center gap-1">
+                  <Sparkles className="size-3 text-primary" />
+                  <span>Transition: {activeTransitionData.transition.type} ({Math.round(activeTransitionData.progress * 100)}%)</span>
+                </span>
+              ) : isHydrated && topActiveClip ? (
+                `${topActiveClip.name} (${activeVisuals.length > 1 ? `${activeVisuals.length} Layers` : "Layer 1"})`
+              ) : (
+                aspectRatio === "16:9" ? "1920 × 1080" : "1080 × 1920"
+              )}
+            </Badge>
+          </div>
         </div>
-        <CardDescription>
-          {aspectRatio === "16:9"
-            ? "Real-time landscape widescreen canvas rendered for YouTube & Desktop"
-            : "Real-time vertical canvas rendered for Reels, TikTok & Shorts"}
+        <CardDescription className="flex items-center justify-between">
+          <span>
+            {aspectRatio === "16:9"
+              ? "Real-time landscape widescreen canvas rendered for YouTube & Desktop"
+              : "Real-time vertical canvas rendered for Reels, TikTok & Shorts"}
+          </span>
+          <span className="text-3xs text-muted-foreground flex items-center gap-1">
+            <Hand className="size-2.5 text-primary" />
+            <span>Ctrl+Wheel to zoom • Ctrl+drag or Space+drag to pan</span>
+          </span>
         </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-2">
-        {/* Stage Container with dark backdrop */}
-        <div className="flex items-center justify-center bg-muted/40 rounded-xl p-2 flex-1 min-h-0 overflow-hidden">
-          {/* Canvas Mockup matching active aspect ratio */}
+        {/* Stage Container with dark backdrop and viewport pan & zoom navigation */}
+        <div
+          ref={canvasOuterStageRef}
+          data-canvas-stage="true"
+          onPointerDown={handleViewportPointerDown}
+          onMouseEnter={() => {
+            isHoveringCanvasRef.current = true;
+          }}
+          onMouseLeave={() => {
+            isHoveringCanvasRef.current = false;
+            setIsSpacePressed(false);
+          }}
+          className={`flex items-center justify-center bg-muted/40 rounded-xl p-2 flex-1 min-h-0 overflow-hidden relative select-none ${
+            isPanning ? "cursor-grabbing" : isCtrlPressed || isSpacePressed ? "cursor-grab" : ""
+          }`}
+        >
+          {/* CapCut-style 2X fast forward indicator while Space is held */}
+          {playbackSpeed === 2.0 && (
+            <div
+              data-testid="playback-speed-badge"
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-mono font-bold shadow-lg backdrop-blur-sm animate-pulse pointer-events-none select-none"
+            >
+              <span>▶▶</span>
+              <span>2X FAST FORWARD</span>
+            </div>
+          )}
+          {/* Viewport Transform Wrapper: strictly handles viewing zoom and pan */}
           <div
-            style={{ aspectRatio: aspectRatio === "16:9" ? "16/9" : "9/16" }}
-            className={`relative rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-visible ${
-              aspectRatio === "16:9"
-                ? "w-full max-w-xl h-auto aspect-video max-h-72 sm:max-h-84 md:max-h-96"
-                : "h-full max-h-72 sm:max-h-84 md:max-h-96"
-            }`}
+            style={{
+              transform: `translate(${viewportPan.x}px, ${viewportPan.y}px) scale(${viewportZoom / 100})`,
+              transformOrigin: "center center",
+              transition: isPanning ? "none" : "transform 75ms ease-out",
+            }}
+            className="w-full h-full flex items-center justify-center pointer-events-auto"
           >
-            {/* Top Phone Notch / Camera indicator */}
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
+            {/* Canvas Mockup matching active aspect ratio */}
+            <div
+              style={{ aspectRatio: aspectRatio === "16:9" ? "16/9" : "9/16" }}
+              className={`relative rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-visible ${
+                aspectRatio === "16:9"
+                  ? "w-full max-w-xl h-auto aspect-video max-h-72 sm:max-h-84 md:max-h-96"
+                  : "h-full max-h-72 sm:max-h-84 md:max-h-96"
+              }`}
+            >
+            {/* Top Phone Notch / Camera indicator (Vertical 9:16 only) */}
+            {aspectRatio === "9:16" && (
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
+            )}
 
             {/* Stage Media Display Container with transition & multi-track layering */}
             <div
@@ -422,8 +660,11 @@ export function PreviewCanvasPanel() {
                 )}
             </div>
 
-            {/* Bottom Home Indicator Bar */}
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
+            {/* Bottom Home Indicator Bar (Vertical 9:16 only) */}
+            {aspectRatio === "9:16" && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
+            )}
+          </div>
           </div>
         </div>
 

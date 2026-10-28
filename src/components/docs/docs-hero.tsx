@@ -37,7 +37,7 @@ export function DocsHero() {
               <BookOpen className="size-3.5" />
               Documentation
               <span className="h-3 w-px bg-brand-border" />
-              <span className="font-mono">Master Prompt v1.5.7</span>
+              <span className="font-mono">Master Prompt v1.5.8</span>
             </span>
           </Reveal>
 

@@ -11,7 +11,7 @@ import * as path from "node:path";
 /**
  * Current active Master Prompt version
  */
-export const MASTER_PROMPT_VERSION = "v1.5.7";
+export const MASTER_PROMPT_VERSION = "v1.5.8";
 
 /**
  * Metadata for the loaded master prompt.
@@ -34,7 +34,8 @@ export interface MasterPrompt {
  * Load the active Master Prompt from the file system.
  * 
  * This function is server-side only and will fail if called in client code.
- * The prompt file must exist at src/prompts/master-prompt-v1.4.4.txt
+ * The prompt file path is resolved dynamically using MASTER_PROMPT_VERSION
+ * (e.g. src/prompts/master-prompt-v1.5.8.txt).
  * 
  * @throws {Error} If the prompt file is missing, empty, or unreadable
  * @returns {MasterPrompt} The loaded prompt with metadata

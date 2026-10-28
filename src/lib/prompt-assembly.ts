@@ -61,7 +61,9 @@ PRODUCTION CONTEXT — SETTINGS ALREADY CONFIRMED
 
 The website has already collected and confirmed all production settings.
 Do NOT display or repeat the Phase 1 settings menu.
-Generate the complete production package immediately using these settings:
+Auto duration does not require an extra confirmation round in app mode.
+Unless the Clarification Exception below applies, generate the complete
+production package immediately using these confirmed settings:
 
 VISUAL STYLE: ${visualStyleHeader}
 ASPECT RATIO: ${settings.aspectRatio}
@@ -81,7 +83,14 @@ ${visualStyleDirective}
 Do not invent story facts when processing a complete source story.
 Follow all retention hook, narration, and output format rules exactly.
 
-Proceed directly to generating the production package.
+CLARIFICATION EXCEPTION (STRICT PRECEDENCE OVER IMMEDIATE GENERATION):
+If processing a complete source story reveals a material contradiction or essential ambiguity
+that cannot be resolved without inventing story facts, this requirement takes absolute precedence
+over immediate generation: ask exactly ONE concise standalone clarification question instead of
+generating the production package, and wait for the user's answer.
+Do NOT display or repeat the full Phase 1 settings menu when asking for clarification.
+If the story has no material contradiction or essential ambiguity, proceed directly using the
+confirmed settings without an extra confirmation round.
 
 ==================================================
 `.trim();

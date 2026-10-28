@@ -79,6 +79,15 @@ export function ClipInspectorPanel() {
     }
   };
 
+  const getBaseClips = () => {
+    if (!initialClipsRef.current) {
+      const snapshot: TimelineClip[] = JSON.parse(JSON.stringify(clips));
+      initialClipsRef.current = snapshot;
+      return snapshot;
+    }
+    return initialClipsRef.current;
+  };
+
   const [applyFeedback, setApplyFeedback] = React.useState<string | null>(null);
 
   const handleApplyToAll = (transitionId: string) => {
@@ -90,6 +99,7 @@ export function ClipInspectorPanel() {
   // Intermediate transient handler for smooth slider scrubbing with ripple extension
   const handleTransientDurationChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
+    const baseClips = getBaseClips();
     const val = parseFloat((e.target as HTMLInputElement).value);
     if (!isNaN(val) && val >= 0.5) {
       const speed = selectedClip.speed && selectedClip.speed > 0 ? selectedClip.speed : 1.0;
@@ -98,36 +108,43 @@ export function ClipInspectorPanel() {
         const remaining = (selectedClip.sourceDuration - selectedClip.inPoint) / speed;
         clampedDur = Math.min(clampedDur, remaining);
       }
-      const transientClips = applyRippleExtend(selectedClip.id, clampedDur, clips);
+      const transientClips = applyRippleExtend(
+        selectedClip.id,
+        clampedDur,
+        baseClips
+      );
       setClipsTransient(transientClips);
     }
   };
 
   const handleTransientVolumeChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
+    const baseClips = getBaseClips();
     const val = parseFloat((e.target as HTMLInputElement).value);
     if (!isNaN(val)) {
       setClipsTransient(
-        clips.map((c) => (c.id === selectedClip.id ? { ...c, volume: val } : c))
+        baseClips.map((c) => (c.id === selectedClip.id ? { ...c, volume: val } : c))
       );
     }
   };
 
   const handleTransientFadeInChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
+    const baseClips = getBaseClips();
     const val = parseFloat((e.target as HTMLInputElement).value);
     const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeOutDuration ?? 0);
     setClipsTransient(
-      clips.map((c) => (c.id === selectedClip.id ? { ...c, fadeInDuration: safeFade } : c))
+      baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeInDuration: safeFade } : c))
     );
   };
 
   const handleTransientFadeOutChange = (e: React.FormEvent<HTMLInputElement>) => {
     if (!selectedClip) return;
+    const baseClips = getBaseClips();
     const val = parseFloat((e.target as HTMLInputElement).value);
     const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
     setClipsTransient(
-      clips.map((c) => (c.id === selectedClip.id ? { ...c, fadeOutDuration: safeFade } : c))
+      baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeOutDuration: safeFade } : c))
     );
   };
 
@@ -469,9 +486,10 @@ export function ClipInspectorPanel() {
                       onKeyDown={handleSliderPointerDown}
                       onKeyUp={handleSliderPointerUp}
                       onChange={(e) => {
+                        const baseClips = getBaseClips();
                         const scaleVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
                         setClipsTransient(
-                          clips.map((c) =>
+                          baseClips.map((c) =>
                             c.id === selectedClip.id
                               ? {
                                   ...c,
@@ -507,9 +525,10 @@ export function ClipInspectorPanel() {
                         onKeyDown={handleSliderPointerDown}
                         onKeyUp={handleSliderPointerUp}
                         onChange={(e) => {
+                          const baseClips = getBaseClips();
                           const xVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
                           setClipsTransient(
-                            clips.map((c) =>
+                            baseClips.map((c) =>
                               c.id === selectedClip.id
                                 ? { ...c, transform: sanitizeClipTransform({ ...transform, x: xVal }) }
                                 : c
@@ -540,9 +559,10 @@ export function ClipInspectorPanel() {
                         onKeyDown={handleSliderPointerDown}
                         onKeyUp={handleSliderPointerUp}
                         onChange={(e) => {
+                          const baseClips = getBaseClips();
                           const yVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
                           setClipsTransient(
-                            clips.map((c) =>
+                            baseClips.map((c) =>
                               c.id === selectedClip.id
                                 ? { ...c, transform: sanitizeClipTransform({ ...transform, y: yVal }) }
                                 : c
@@ -576,9 +596,10 @@ export function ClipInspectorPanel() {
                         onKeyDown={handleSliderPointerDown}
                         onKeyUp={handleSliderPointerUp}
                         onChange={(e) => {
+                          const baseClips = getBaseClips();
                           const rotVal = Number(e.target.value);
                           setClipsTransient(
-                            clips.map((c) =>
+                            baseClips.map((c) =>
                               c.id === selectedClip.id
                                 ? { ...c, transform: sanitizeClipTransform({ ...transform, rotation: rotVal }) }
                                 : c

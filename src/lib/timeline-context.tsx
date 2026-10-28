@@ -36,7 +36,7 @@ import {
 } from "@/lib/transition-helpers";
 import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
 import { calculateAudioGain } from "@/lib/audio-fade-helpers";
-import { applyRippleExtend } from "@/lib/timeline-trim";
+import { applyRippleExtend, applyRippleDelete } from "@/lib/timeline-trim";
 import {
   hasVisualOverlap,
   clampMoveToPreventOverlap,
@@ -71,6 +71,8 @@ export interface TimelineContextType {
   stepFrameBackward: () => void;
   togglePlay: () => void;
   pause: () => void;
+  playbackSpeed: number;
+  setPlaybackSpeed: (speed: number) => void;
   setZoom: (zoom: number) => void;
   selectClip: (clipId: string | null) => void;
   selectTransition: (transitionId: string | null) => void;
@@ -327,6 +329,17 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     setIsPlaying(false);
   }, []);
 
+  const [playbackSpeed, setPlaybackSpeed] = React.useState<number>(1.0);
+  const playbackSpeedRef = React.useRef(playbackSpeed);
+  React.useEffect(() => {
+    playbackSpeedRef.current = playbackSpeed;
+  }, [playbackSpeed]);
+
+  const isPlayingRef = React.useRef(isPlaying);
+  React.useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
   // Persist the final playhead when playback pauses or reaches the end.
   const wasPlayingRef = React.useRef(false);
   React.useEffect(() => {
@@ -356,7 +369,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       setLocalPlayhead((prev) => {
         const current = prev ?? playheadRef.current;
-        const next = current + dt;
+        const next = current + dt * playbackSpeedRef.current;
         if (next >= totalDuration) {
           setIsPlaying(false);
           return 0;
@@ -421,6 +434,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       );
 
       audioEl.volume = Math.max(0, Math.min(1.0, currentGain));
+      const targetRate = (clip.speed || 1.0) * playbackSpeedRef.current;
+      if (audioEl.playbackRate !== targetRate) {
+        audioEl.playbackRate = targetRate;
+      }
 
       if (isPlaying) {
         audioEl.play().catch(() => {});
@@ -744,7 +761,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [clips, transitions, selectedClipId, playhead, pushHistorySnapshot, persistTimeline]
   );
 
-  // 6. DELETE SELECTED CLIP (Delete/Backspace)
+  // 6. DELETE SELECTED CLIP (Delete/Backspace) with Ripple Delete
   const deleteClip = React.useCallback(
     (clipId: string) => {
       const exists = clips.some((c) => c.id === clipId);
@@ -752,18 +769,35 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       pushHistorySnapshot(clips, transitions);
 
-      const updatedClips = clips.filter((c) => c.id !== clipId);
-      // Clean up any transitions connected to this deleted clip
-      const updatedTransitions = transitions.filter(
+      const { updatedClips } = applyRippleDelete(clipId, clips);
+
+      // Reconcile transitions:
+      // - Remove any transitions connected to the deleted clip
+      // - For remaining transitions, ensure their connecting clips are still adjacent and durations valid
+      const remainingTransitions = transitions.filter(
         (t) => t.fromClipId !== clipId && t.toClipId !== clipId
       );
 
+      const validTransitions = remainingTransitions
+        .filter((t) => {
+          const from = updatedClips.find((c) => c.id === t.fromClipId);
+          const to = updatedClips.find((c) => c.id === t.toClipId);
+          if (!from || !to) return false;
+          return areClipsAdjacentForTransition(from, to);
+        })
+        .map((t) => {
+          const from = updatedClips.find((c) => c.id === t.fromClipId);
+          const to = updatedClips.find((c) => c.id === t.toClipId);
+          const safeDur = validateTransitionDuration(t.duration, from, to);
+          return { ...t, duration: safeDur };
+        });
+
       setLocalClips(updatedClips);
-      setLocalTransitions(updatedTransitions);
+      setLocalTransitions(validTransitions);
       const newSelected = selectedClipId === clipId ? null : selectedClipId;
       setLocalSelectedClipId(newSelected);
       setLocalSelectedTransitionId(null);
-      persistTimeline(updatedClips, updatedTransitions, newSelected, null);
+      persistTimeline(updatedClips, validTransitions, newSelected, null);
     },
     [clips, transitions, selectedClipId, pushHistorySnapshot, persistTimeline]
   );
@@ -944,6 +978,11 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     syncHistoryFlags();
   }, [clips, transitions, persistTimeline, syncHistoryFlags]);
 
+  // Space Key Hold / Tap State Refs (persistent across renders)
+  const spaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHoldingSpaceRef = React.useRef<boolean>(false);
+  const wasPlayingBeforeHoldRef = React.useRef<boolean>(false);
+
   // Keyboard Shortcuts Listener
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1006,13 +1045,58 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           deleteTransition(selectedTransitionId);
         }
       } else if (e.key === " " || e.code === "Space") {
+        if (e.defaultPrevented) return;
         e.preventDefault();
-        togglePlay();
+
+        // Avoid repeated keydown handling while holding Space
+        if (e.repeat) return;
+
+        wasPlayingBeforeHoldRef.current = isPlayingRef.current;
+        isHoldingSpaceRef.current = false;
+
+        if (spaceTimerRef.current) {
+          clearTimeout(spaceTimerRef.current);
+        }
+
+        // CapCut-style 2X fast forward when Space is held down (>200ms)
+        spaceTimerRef.current = setTimeout(() => {
+          isHoldingSpaceRef.current = true;
+          setPlaybackSpeed(2.0);
+          if (!isPlayingRef.current) {
+            setIsPlaying(true);
+          }
+        }, 200);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " " || e.code === "Space") {
+        if (spaceTimerRef.current) {
+          clearTimeout(spaceTimerRef.current);
+          spaceTimerRef.current = null;
+        }
+
+        if (isHoldingSpaceRef.current) {
+          // Released after holding Space: restore 1.0x playback
+          isHoldingSpaceRef.current = false;
+          setPlaybackSpeed(1.0);
+          // If it wasn't playing prior to holding Space, pause it
+          if (!wasPlayingBeforeHoldRef.current) {
+            setIsPlaying(false);
+          }
+        } else {
+          // Short tap (< 200ms): standard Play / Pause toggle
+          togglePlay();
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, [
     undo,
     redo,
@@ -1057,6 +1141,8 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         stepFrameBackward,
         togglePlay,
         pause,
+        playbackSpeed,
+        setPlaybackSpeed,
         setZoom,
         selectClip,
         selectTransition,

@@ -52,7 +52,7 @@ export function StudioHeader({ className = "" }: StudioHeaderProps) {
                       Flow Production Suite
                     </p>
                   </div>
-                  <Badge variant="secondary">v1.5.7</Badge>
+                  <Badge variant="secondary">v1.5.8</Badge>
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
 

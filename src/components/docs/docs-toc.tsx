@@ -88,7 +88,7 @@ export function DocsToc() {
         <div className="mt-4 border-t border-border pt-3">
           <div className="flex items-center justify-between text-3xs text-muted-foreground">
             <span>Reading progress</span>
-            <span className="font-mono">v1.5.7</span>
+            <span className="font-mono">v1.5.8</span>
           </div>
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-border">
             <motion.div

@@ -127,16 +127,18 @@ export function snapTimestamp(
 export const RIPPLE_EPSILON = 0.01; // 10ms tolerance for identifying downstream clips
 
 /**
- * Applies ripple editing to shift downstream clips rightward when a clip's duration is extended.
+ * Applies ripple editing to shift downstream clips rightward when a clip's duration is extended,
+ * or leftward when reduced during an ongoing interactive gesture relative to its original end boundary.
  *
  * Rules:
- * - Edited clip's duration increases by durationDelta (durationDelta > 0).
+ * - Edited clip's duration becomes newDuration.
  * - Downstream clips whose start times are at or after the edited clip's original end time
- *   (originalEndTime - RIPPLE_EPSILON) are shifted right by durationDelta.
+ *   (originalEndTime - RIPPLE_EPSILON) are shifted right by durationDelta = newDuration - originalDuration.
+ * - If durationDelta < 0 (shrinking relative to original snapshot): downstream clips are shifted left
+ *   by durationDelta, but clamped so they never precede the edited clip's new end.
  * - Clips that start strictly before originalEndTime (e.g. voiceover starting at 0s, earlier
  *   visual clips, or pre-existing cross-track overlays) remain anchored at their positions.
  * - Downstream audio/music/sound effect clips starting at or after the boundary shift with the ripple.
- * - When durationDelta <= 0 (shrinking), ripple shift is 0 (standard right-edge trim behavior).
  */
 export function applyRippleExtend(
   editedClipId: string,
@@ -148,10 +150,10 @@ export function applyRippleExtend(
 
   const originalEndTime = target.startTime + target.duration;
   const durationDelta = parseFloat((newDuration - target.duration).toFixed(3));
+  const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
 
   if (durationDelta <= 0) {
-    // Shrinking or unchanged: only update the target clip duration
-    const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
+    // Shrinking or unchanged relative to baseline: only update the target clip duration
     return allClips.map((c) =>
       c.id === editedClipId
         ? {
@@ -162,8 +164,6 @@ export function applyRippleExtend(
         : c
     );
   }
-
-  const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
 
   return allClips.map((clip) => {
     if (clip.id === editedClipId) {
@@ -186,4 +186,52 @@ export function applyRippleExtend(
     // Unaffected clips (earlier clips, or clips starting before originalEndTime such as voiceovers at 0s)
     return clip;
   });
+}
+
+/**
+ * Applies ripple deletion: closes the gap left by a deleted clip by shifting all applicable
+ * downstream clips leftward by the deleted clip's duration.
+ *
+ * Rules:
+ * - Deleted clip is removed from the timeline.
+ * - Downstream clips whose start times are at or after the deleted clip's original end
+ *   (deletedEndTime - RIPPLE_EPSILON) shift left by deletedClip.duration.
+ * - Clips starting before the deleted clip's original end (e.g. voiceover starting at 0s,
+ *   earlier clips on any track, or overlays starting before deletedEndTime) remain untouched.
+ * - Downstream clips across all relevant tracks (visual-1, visual-2, audio-1, sfx) shift consistently,
+ *   preserving relative downstream arrangement without introducing negative start times.
+ */
+export function applyRippleDelete(
+  deletedClipId: string,
+  allClips: TimelineClip[]
+): {
+  updatedClips: TimelineClip[];
+  deletedClip: TimelineClip | null;
+} {
+  const target = allClips.find((c) => c.id === deletedClipId);
+  if (!target) {
+    return { updatedClips: allClips, deletedClip: null };
+  }
+
+  const deletedEndTime = target.startTime + target.duration;
+  const shiftAmount = target.duration;
+
+  const remainingClips = allClips.filter((c) => c.id !== deletedClipId);
+
+  const updatedClips = remainingClips.map((clip) => {
+    // Only shift clips that started at or after the deleted clip's end time
+    if (clip.startTime >= deletedEndTime - RIPPLE_EPSILON) {
+      const newStart = parseFloat(Math.max(0, clip.startTime - shiftAmount).toFixed(3));
+      return {
+        ...clip,
+        startTime: newStart,
+      };
+    }
+    return clip;
+  });
+
+  return {
+    updatedClips,
+    deletedClip: target,
+  };
 }

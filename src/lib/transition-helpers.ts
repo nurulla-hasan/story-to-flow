@@ -3,7 +3,12 @@ import type {
   TimelineTransition,
   TransitionType,
 } from "../types/timeline";
-import { areClipsOnSameTrack, isAudioTrack } from "../types/timeline";
+import {
+  areClipsOnSameTrack,
+  isAudioTrack,
+  isVisualTrack,
+  normalizeVisualTrackId,
+} from "../types/timeline";
 
 export const MIN_TRANSITION_DURATION = 0.2; // 200ms
 export const DEFAULT_TRANSITION_DURATION = 0.5; // 500ms
@@ -114,58 +119,149 @@ export function findAdjacentClipPairs(
   return pairs;
 }
 
+/**
+ * Find every eligible transition boundary across all visual tracks.
+ * Clips are grouped by normalized track id so legacy "visual" clips and
+ * "visual-1" clips are treated as the same lane, and audio lanes are excluded.
+ */
+export function findEligibleTransitionPairs(
+  allClips: TimelineClip[]
+): Array<{ fromClip: TimelineClip; toClip: TimelineClip }> {
+  const clipsByTrack = new Map<string, TimelineClip[]>();
+
+  for (const clip of allClips) {
+    if (!isVisualTrack(clip.trackId)) continue;
+    const key = normalizeVisualTrackId(clip.trackId);
+    const lane = clipsByTrack.get(key) ?? [];
+    lane.push(clip);
+    clipsByTrack.set(key, lane);
+  }
+
+  const pairs: Array<{ fromClip: TimelineClip; toClip: TimelineClip }> = [];
+  for (const lane of clipsByTrack.values()) {
+    pairs.push(...findAdjacentClipPairs(lane));
+  }
+  return pairs;
+}
+
 export interface ApplyToAllTransitionsResult {
   updatedTransitions: TimelineTransition[];
   count: number;
   clampedCount: number;
+  createdCount: number;
   message: string;
 }
 
+function createTransitionId(): string {
+  return `trans_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+}
+
 /**
- * Apply a source transition's type and duration to all eligible existing transitions.
- * - Preserves transition IDs and clip associations.
- * - Validates each duration against the specific connecting clips' boundaries.
- * - Returns updated transitions and a user-facing summary message.
+ * Apply a source transition's type and duration to every eligible visual clip
+ * boundary on the timeline.
+ *
+ * - Existing transitions are updated in place (IDs and clip associations are
+ *   preserved) and duplicate boundary records are collapsed.
+ * - Missing transitions are created for eligible adjacent pairs, so the action
+ *   never silently does nothing when only one transition exists.
+ * - Each duration is clamped to the connecting clips' limits; boundaries that
+ *   cannot fit are skipped.
+ * - Audio lanes and cross-track pairs are never touched.
  */
 export function applyToAllTransitions(
   sourceTransition: TimelineTransition,
   allTransitions: TimelineTransition[],
   allClips: TimelineClip[]
 ): ApplyToAllTransitionsResult {
-  if (allTransitions.length === 0) {
+  // The source transition must belong to the current timeline state.
+  if (!allTransitions.some((t) => t.id === sourceTransition.id)) {
     return {
       updatedTransitions: allTransitions,
       count: 0,
       clampedCount: 0,
+      createdCount: 0,
       message: "No transitions found to update.",
     };
   }
 
+  const eligiblePairs = findEligibleTransitionPairs(allClips);
+  if (eligiblePairs.length === 0) {
+    return {
+      updatedTransitions: allTransitions,
+      count: 0,
+      clampedCount: 0,
+      createdCount: 0,
+      message: "No eligible visual clip boundaries found.",
+    };
+  }
+
   let clampedCount = 0;
-  const updatedTransitions = allTransitions.map((t) => {
-    // If it's the source transition itself, keep its current validated parameters
-    if (t.id === sourceTransition.id) {
-      return { ...t, type: sourceTransition.type, duration: sourceTransition.duration };
+  let createdCount = 0;
+  let updatedCount = 0;
+  const usedTransitionIds = new Set<string>();
+  const updatedTransitions: TimelineTransition[] = [];
+
+  for (const { fromClip, toClip } of eligiblePairs) {
+    // Skip boundaries where even the minimum transition length cannot fit.
+    const maxFittingDuration = Math.min(
+      MAX_TRANSITION_DURATION,
+      fromClip.duration * 0.5,
+      toClip.duration * 0.5
+    );
+    if (maxFittingDuration < MIN_TRANSITION_DURATION) {
+      continue;
     }
 
-    const fromClip = allClips.find((c) => c.id === t.fromClipId);
-    const toClip = allClips.find((c) => c.id === t.toClipId);
-
-    const safeDuration = validateTransitionDuration(sourceTransition.duration, fromClip, toClip);
+    const safeDuration = validateTransitionDuration(
+      sourceTransition.duration,
+      fromClip,
+      toClip
+    );
     if (safeDuration !== sourceTransition.duration) {
       clampedCount++;
     }
 
-    return {
-      ...t,
-      type: sourceTransition.type,
-      duration: safeDuration,
-    };
-  });
+    // Prefer the canonical direction, but reuse a reverse record's ID so the
+    // same boundary never ends up with two transition records.
+    const existing =
+      allTransitions.find(
+        (t) => t.fromClipId === fromClip.id && t.toClipId === toClip.id
+      ) ??
+      allTransitions.find(
+        (t) => t.fromClipId === toClip.id && t.toClipId === fromClip.id
+      );
+
+    if (existing && !usedTransitionIds.has(existing.id)) {
+      usedTransitionIds.add(existing.id);
+      updatedTransitions.push({
+        ...existing,
+        type: sourceTransition.type,
+        duration: safeDuration,
+        fromClipId: fromClip.id,
+        toClipId: toClip.id,
+        trackId: normalizeVisualTrackId(fromClip.trackId),
+      });
+      updatedCount++;
+    } else if (!existing) {
+      updatedTransitions.push({
+        id: createTransitionId(),
+        type: sourceTransition.type,
+        duration: safeDuration,
+        fromClipId: fromClip.id,
+        toClipId: toClip.id,
+        trackId: normalizeVisualTrackId(fromClip.trackId),
+      });
+      createdCount++;
+    }
+  }
 
   const count = updatedTransitions.length;
   const typeLabel = sourceTransition.type.replace("-", " ");
-  let message = `Applied ${typeLabel} (${sourceTransition.duration.toFixed(2)}s) to all ${count} transitions.`;
+  let message = `Applied ${typeLabel} (${sourceTransition.duration.toFixed(2)}s) to ${updatedCount} transition${updatedCount === 1 ? "" : "s"}`;
+  if (createdCount > 0) {
+    message += ` and created ${createdCount} new one${createdCount === 1 ? "" : "s"}`;
+  }
+  message += ".";
   if (clampedCount > 0) {
     message += ` (${clampedCount} were clamped to fit shorter clips).`;
   }
@@ -174,6 +270,7 @@ export function applyToAllTransitions(
     updatedTransitions,
     count,
     clampedCount,
+    createdCount,
     message,
   };
 }

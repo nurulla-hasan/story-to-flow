@@ -7,20 +7,21 @@ import {
   SkipBack,
   SkipForward,
   Volume2,
+  Volume1,
+  VolumeX,
   Maximize2,
-  Smartphone,
+  Minimize2,
+  Grid3X3,
   Eye,
   Sparkles,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
-  Hand,
+  Film,
 } from "lucide-react";
 import {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import { isVisualTrack, getVisualTrackLayerIndex } from "@/types/timeline";
 import { getTransitionProgress } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
 import { sanitizeClipTransform } from "@/lib/clip-transform";
+import { getClipMotionAtTime } from "@/lib/zoom-effect";
 import { PreviewTransformGizmo } from "@/components/editor/preview-transform-gizmo";
 
 function formatTimecode(seconds: number): string {
@@ -56,6 +58,10 @@ export function PreviewCanvasPanel() {
     totalDuration,
     aspectRatio,
     playbackSpeed,
+    masterVolume,
+    setMasterVolume,
+    isMuted,
+    setIsMuted,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
@@ -67,8 +73,12 @@ export function PreviewCanvasPanel() {
   const [isSpacePressed, setIsSpacePressed] = React.useState<boolean>(false);
   const [isCtrlPressed, setIsCtrlPressed] = React.useState<boolean>(false);
   const [isPanning, setIsPanning] = React.useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = React.useState<boolean>(false);
+  const [showGrid, setShowGrid] = React.useState<boolean>(false);
+  const [showVolumeSlider, setShowVolumeSlider] = React.useState<boolean>(false);
   const isHoveringCanvasRef = React.useRef<boolean>(false);
   const canvasOuterStageRef = React.useRef<HTMLDivElement>(null);
+  const volumeDropdownRef = React.useRef<HTMLDivElement>(null);
   const panStartRef = React.useRef<{ x: number; y: number; panX: number; panY: number }>({
     x: 0,
     y: 0,
@@ -82,25 +92,92 @@ export function PreviewCanvasPanel() {
     setViewportZoom(100);
     setViewportPan({ x: 0, y: 0 });
   };
-  const handleFitToView = () => {
-    setViewportZoom(100);
-    setViewportPan({ x: 0, y: 0 });
+
+  // Sync video volume with master volume & mute
+  React.useEffect(() => {
+    const vol = isMuted ? 0 : Math.max(0, Math.min(1.0, masterVolume));
+    for (const vid of videoRefs.current.values()) {
+      vid.volume = vol;
+    }
+  }, [isMuted, masterVolume]);
+
+  // Close the master-volume dropdown on outside click or Escape
+  React.useEffect(() => {
+    if (!showVolumeSlider) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (
+        volumeDropdownRef.current &&
+        !volumeDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowVolumeSlider(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowVolumeSlider(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showVolumeSlider]);
+
+  // Synchronize fullscreen state with document events
+  React.useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const handleToggleFullscreen = async () => {
+    const stageEl = canvasOuterStageRef.current;
+    if (!stageEl) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await stageEl.requestFullscreen();
+      }
+    } catch (err) {
+      console.warn("Fullscreen toggle warning:", err);
+    }
   };
+
+  const handleToggleMute = React.useCallback(() => {
+    setIsMuted((prev) => !prev);
+  }, [setIsMuted]);
 
   // Modifier keys detection for Pan and Zoom
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl?.tagName === "INPUT" ||
+        activeEl?.tagName === "TEXTAREA" ||
+        activeEl?.getAttribute("contenteditable") === "true";
+      if (isInput) return;
+
       if (e.key === "Control" || e.key === "Meta") {
         setIsCtrlPressed(true);
       }
       if (e.code === "Space" || e.key === " ") {
-        const activeEl = document.activeElement;
-        const isInput =
-          activeEl?.tagName === "INPUT" ||
-          activeEl?.tagName === "TEXTAREA" ||
-          activeEl?.getAttribute("contenteditable") === "true";
-        if (isInput) return;
         setIsSpacePressed(true);
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key.toLowerCase() === "m") {
+          e.preventDefault();
+          handleToggleMute();
+        } else if (e.key.toLowerCase() === "f") {
+          e.preventDefault();
+          handleToggleFullscreen();
+        }
       }
     };
 
@@ -119,7 +196,7 @@ export function PreviewCanvasPanel() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, []);
+  }, [handleToggleMute]);
 
   // CapCut-style Canvas Zoom & Pan with Mouse Wheel
   // CRITICAL: Must use native `{ passive: false }` listener with `e.preventDefault()`
@@ -317,6 +394,13 @@ export function PreviewCanvasPanel() {
         if (vid.playbackRate !== speed) {
           vid.playbackRate = speed;
         }
+
+        // Apply video clip volume & master volume
+        const clipVol = typeof clip.volume === "number" ? clip.volume : 1.0;
+        const effectiveVol = isMuted ? 0 : Math.max(0, Math.min(1.0, clipVol * masterVolume));
+        vid.volume = effectiveVol;
+        vid.muted = isMuted || effectiveVol === 0;
+
         if (isPlaying) {
           vid.play().catch(() => {});
         } else {
@@ -324,7 +408,7 @@ export function PreviewCanvasPanel() {
         }
       }
     });
-  }, [activeTransitionData, activeVisuals, playhead, isPlaying]);
+  }, [activeTransitionData, activeVisuals, playhead, isPlaying, isMuted, masterVolume]);
 
   const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
@@ -335,8 +419,13 @@ export function PreviewCanvasPanel() {
 
     const transform = sanitizeClipTransform(clip.transform);
     const isSelected = clip.id === selectedClipId;
+    const motion = getClipMotionAtTime(clip, playhead);
 
-    const transformStr = `translate(${transform.x * 100}%, ${transform.y * 100}%) scale(${transform.scale}) rotate(${transform.rotation || 0}deg)`;
+    const netX = (transform.x + motion.offsetX) * 100;
+    const netY = (transform.y + motion.offsetY) * 100;
+    const netScale = parseFloat((transform.scale * motion.scale).toFixed(4));
+
+    const transformStr = `translate(${netX}%, ${netY}%) scale(${netScale}) rotate(${transform.rotation || 0}deg)`;
     const nodeStyle: React.CSSProperties = {
       ...baseStyle,
       transform: baseStyle?.transform
@@ -372,7 +461,6 @@ export function PreviewCanvasPanel() {
             }}
             src={asset.url}
             playsInline
-            muted
             className="w-full h-full object-cover rounded-xl pointer-events-none"
           />
         ) : null}
@@ -382,86 +470,76 @@ export function PreviewCanvasPanel() {
 
   return (
     <Card size="sm" className="flex flex-col h-full">
-      <CardHeader className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Eye className="size-4 text-primary" />
-            <CardTitle>{aspectRatio === "16:9" ? "16:9 Landscape Canvas" : "9:16 Preview Canvas"}</CardTitle>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {/* Viewport Zoom & Pan Controls */}
-            <div className="flex items-center gap-0.5 bg-muted/60 p-0.5 rounded-md border border-border">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={handleZoomOut}
-                disabled={viewportZoom <= 25}
-                title="Zoom out preview canvas (-)"
-                aria-label="Zoom out preview canvas"
-                className="size-6 cursor-pointer"
-              >
-                <ZoomOut className="size-3" />
-              </Button>
-              <button
-                type="button"
-                onClick={handleResetView}
-                title="Click to reset canvas view (100%)"
-                className="px-1.5 py-0.5 text-3xs font-mono font-semibold text-foreground hover:text-primary transition-colors cursor-pointer"
-              >
-                {viewportZoom}%
-              </button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={handleZoomIn}
-                disabled={viewportZoom >= 400}
-                title="Zoom in preview canvas (+)"
-                aria-label="Zoom in preview canvas"
-                className="size-6 cursor-pointer"
-              >
-                <ZoomIn className="size-3" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={handleFitToView}
-                title="Fit canvas to workspace"
-                aria-label="Fit canvas to workspace"
-                className="size-6 cursor-pointer"
-              >
-                <RotateCcw className="size-2.5" />
-              </Button>
-            </div>
-
-            <Badge variant="outline">
-              {activeTransitionData ? (
-                <span className="flex items-center gap-1">
-                  <Sparkles className="size-3 text-primary" />
-                  <span>Transition: {activeTransitionData.transition.type} ({Math.round(activeTransitionData.progress * 100)}%)</span>
-                </span>
-              ) : isHydrated && topActiveClip ? (
-                `${topActiveClip.name} (${activeVisuals.length > 1 ? `${activeVisuals.length} Layers` : "Layer 1"})`
-              ) : (
-                aspectRatio === "16:9" ? "1920 × 1080" : "1080 × 1920"
-              )}
-            </Badge>
-          </div>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        {/* Left: Panel identity + active output resolution */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Eye className="size-4 shrink-0 text-primary" />
+          <CardTitle>Preview</CardTitle>
+          <span className="truncate font-mono text-2xs text-muted-foreground tabular-nums">
+            {aspectRatio === "16:9" ? "16:9 · 1920 × 1080" : "9:16 · 1080 × 1920"}
+          </span>
         </div>
-        <CardDescription className="flex items-center justify-between">
-          <span>
-            {aspectRatio === "16:9"
-              ? "Real-time landscape widescreen canvas rendered for YouTube & Desktop"
-              : "Real-time vertical canvas rendered for Reels, TikTok & Shorts"}
-          </span>
-          <span className="text-3xs text-muted-foreground flex items-center gap-1">
-            <Hand className="size-2.5 text-primary" />
-            <span>Ctrl+Wheel to zoom • Ctrl+drag or Space+drag to pan</span>
-          </span>
-        </CardDescription>
+
+        {/* Right: Compact viewport zoom + contextual status badge */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div
+            className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
+            title="Ctrl + scroll to zoom · Ctrl / Space + drag to pan"
+          >
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={handleZoomOut}
+              disabled={viewportZoom <= 25}
+              title="Zoom out"
+              aria-label="Zoom out preview canvas"
+            >
+              <ZoomOut />
+            </Button>
+            <button
+              type="button"
+              onClick={handleResetView}
+              title="Reset canvas view to 100%"
+              className="min-w-9 cursor-pointer px-1 font-mono text-2xs font-semibold text-foreground tabular-nums transition-colors hover:text-primary"
+            >
+              {viewportZoom}%
+            </button>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={handleZoomIn}
+              disabled={viewportZoom >= 400}
+              title="Zoom in"
+              aria-label="Zoom in preview canvas"
+            >
+              <ZoomIn />
+            </Button>
+          </div>
+
+          {activeTransitionData ? (
+            <Badge variant="outline">
+              <span className="flex items-center gap-1">
+                <Sparkles className="size-3 shrink-0 text-primary" />
+                <span>
+                  {activeTransitionData.transition.type} · {Math.round(activeTransitionData.progress * 100)}%
+                </span>
+              </span>
+            </Badge>
+          ) : isHydrated && topActiveClip ? (
+            <Badge variant="outline">
+              <span className="flex max-w-40 items-center gap-1">
+                <span className="truncate">{topActiveClip.name}</span>
+                {activeVisuals.length > 1 && (
+                  <span className="shrink-0 text-muted-foreground">{activeVisuals.length} layers</span>
+                )}
+              </span>
+            </Badge>
+          ) : null}
+        </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-2">
-        {/* Stage Container with dark backdrop and viewport pan & zoom navigation */}
+      <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-3">
+        {/* Stage Container with dark backdrop, dot-grid pattern, and viewport pan & zoom navigation */}
         <div
           ref={canvasOuterStageRef}
           data-canvas-stage="true"
@@ -473,7 +551,11 @@ export function PreviewCanvasPanel() {
             isHoveringCanvasRef.current = false;
             setIsSpacePressed(false);
           }}
-          className={`flex items-center justify-center bg-muted/40 rounded-xl p-2 flex-1 min-h-0 overflow-hidden relative select-none ${
+          style={{
+            backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.08) 1px, transparent 0)",
+            backgroundSize: "20px 20px",
+          }}
+          className={`flex items-center justify-center bg-editor-stage rounded-2xl p-4 flex-1 min-h-0 overflow-hidden relative select-none border border-border shadow-inner ${
             isPanning ? "cursor-grabbing" : isCtrlPressed || isSpacePressed ? "cursor-grab" : ""
           }`}
         >
@@ -481,7 +563,7 @@ export function PreviewCanvasPanel() {
           {playbackSpeed === 2.0 && (
             <div
               data-testid="playback-speed-badge"
-              className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-mono font-bold shadow-lg backdrop-blur-sm animate-pulse pointer-events-none select-none"
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-primary-foreground font-mono font-bold shadow-lg backdrop-blur-sm animate-pulse pointer-events-none select-none"
             >
               <span>▶▶</span>
               <span>2X FAST FORWARD</span>
@@ -496,26 +578,44 @@ export function PreviewCanvasPanel() {
             }}
             className="w-full h-full flex items-center justify-center pointer-events-auto"
           >
-            {/* Canvas Mockup matching active aspect ratio */}
+            {/* Canvas Mockup matching active aspect ratio with premium hardware framing */}
             <div
               style={{ aspectRatio: aspectRatio === "16:9" ? "16/9" : "9/16" }}
-              className={`relative rounded-2xl border-2 border-border bg-card shadow-md flex flex-col items-center justify-between p-2.5 overflow-visible ${
+              className={`relative bg-editor-screen flex flex-col items-center justify-between overflow-visible transition-all duration-200 select-none ${
                 aspectRatio === "16:9"
-                  ? "w-full max-w-xl h-auto aspect-video max-h-72 sm:max-h-84 md:max-h-96"
-                  : "h-full max-h-72 sm:max-h-84 md:max-h-96"
+                  ? "w-full max-w-3xl h-auto aspect-video max-h-96 sm:max-h-100 md:max-h-125 rounded-2xl border-2 border-border shadow-2xl p-2"
+                  : "h-full max-h-96 sm:max-h-100 md:max-h-125 rounded-3xl border-2 border-border shadow-2xl p-2"
               }`}
             >
-            {/* Top Phone Notch / Camera indicator (Vertical 9:16 only) */}
-            {aspectRatio === "9:16" && (
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
-            )}
+              {/* Dynamic Island Phone Camera Pill (Vertical 9:16 only) */}
+              {aspectRatio === "9:16" && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-4 rounded-full bg-editor-screen border border-border z-30 flex items-center justify-end pr-2.5 shadow-md pointer-events-none">
+                  <div className="size-2 rounded-full bg-card border border-primary/40 ring-1 ring-primary/20 shadow-inner" />
+                </div>
+              )}
 
-            {/* Stage Media Display Container with transition & multi-track layering */}
-            <div
-              ref={stageContainerRef}
-              onClick={() => selectClip(null)}
-              className="relative w-full h-full rounded-xl flex items-center justify-center bg-muted/20 select-none overflow-visible"
-            >
+              {/* Stage Media Display Container with transition & multi-track layering */}
+              <div
+                ref={stageContainerRef}
+                onClick={() => selectClip(null)}
+                className="relative w-full h-full rounded-xl flex items-center justify-center bg-muted/10 select-none overflow-visible"
+              >
+                {/* Rule-of-Thirds Composition Grid Overlay */}
+                {showGrid && (
+                  <div className="absolute inset-0 z-20 pointer-events-none rounded-xl overflow-hidden grid grid-cols-3 grid-rows-3 border border-primary/20">
+                    <div className="border-r border-b border-primary/25 border-dashed" />
+                    <div className="border-r border-b border-primary/25 border-dashed" />
+                    <div className="border-b border-primary/25 border-dashed" />
+                    <div className="border-r border-b border-primary/25 border-dashed" />
+                    <div className="border-r border-b border-primary/25 border-dashed flex items-center justify-center">
+                      <div className="size-2 rounded-full border border-primary/60 bg-primary/20" />
+                    </div>
+                    <div className="border-b border-primary/25 border-dashed" />
+                    <div className="border-r border-primary/25 border-dashed" />
+                    <div className="border-r border-primary/25 border-dashed" />
+                    <div />
+                  </div>
+                )}
               {/* Media clips container (clipped to phone boundary) */}
               <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-auto">
                 {isHydrated && activeTransitionData ? (
@@ -541,7 +641,7 @@ export function PreviewCanvasPanel() {
                         const fromOpacity = progress < 0.5 ? 1 - progress * 2 : 0;
                         const toOpacity = progress >= 0.5 ? (progress - 0.5) * 2 : 0;
                         return (
-                          <div className="relative w-full h-full bg-black z-1">
+                          <div className="relative w-full h-full bg-editor-screen z-1">
                             {renderVisualNode(fromClip, { opacity: fromOpacity, zIndex: 1 })}
                             {renderVisualNode(toClip, { opacity: toOpacity, zIndex: 2 })}
                           </div>
@@ -612,26 +712,31 @@ export function PreviewCanvasPanel() {
                     });
                   })
                 ) : (
-                  /* Empty Canvas Placeholder */
-                  <div className="flex flex-col items-center justify-center text-center space-y-2 p-2 h-full">
-                    <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                      <Smartphone className="size-5" />
+                  /* High-End Studio Cinema Empty State */
+                  <div className="flex flex-col items-center justify-center text-center space-y-3 p-4 h-full bg-radial from-card/30 to-editor-screen">
+                    <div className="size-12 rounded-2xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shadow-inner">
+                      <Film className="size-6 stroke-[1.75]" />
                     </div>
 
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-semibold text-foreground">
-                        Canvas is empty
+                    <div className="space-y-1">
+                      <p className="font-semibold text-foreground tracking-wide">
+                        {aspectRatio === "16:9" ? "16:9 Cinema Canvas" : "9:16 Reel Canvas"}
                       </p>
-                      <p className="text-2xs text-muted-foreground max-w-40 leading-tight">
+                      <p className="text-muted-foreground/80 max-w-56 leading-relaxed">
                         {!isHydrated || clips.length === 0
-                          ? "Add clips to timeline to preview vertical video."
-                          : "Playhead is on an empty timeline space."}
+                          ? "Add clips to timeline or media library to begin preview."
+                          : "Move playhead over an active clip to preview."}
                       </p>
                     </div>
 
-                    <Badge variant="secondary">
-                      9:16 • 30 FPS • 1.0x
-                    </Badge>
+                    <div className="flex items-center gap-2 pt-1">
+                      <Badge variant="outline" className="font-mono py-0 px-2">
+                        {aspectRatio === "16:9" ? "1920 × 1080" : "1080 × 1920"}
+                      </Badge>
+                      <Badge variant="secondary" className="font-mono py-0 px-2">
+                        30 FPS
+                      </Badge>
+                    </div>
                   </div>
                 )}
               </div>
@@ -662,7 +767,7 @@ export function PreviewCanvasPanel() {
 
             {/* Bottom Home Indicator Bar (Vertical 9:16 only) */}
             {aspectRatio === "9:16" && (
-              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-muted-foreground/30 z-30 pointer-events-none" />
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-20 h-1 rounded-full bg-border shadow-sm z-30 pointer-events-none" />
             )}
           </div>
           </div>
@@ -717,26 +822,100 @@ export function PreviewCanvasPanel() {
             </div>
           </div>
 
-          {/* Secondary Controls: Volume & Fullscreen */}
-          <div className="flex items-center gap-1">
+          {/* Secondary Controls: Dynamic Volume, Grid & Fullscreen */}
+          <div className="flex items-center gap-1 relative">
+            {/* Master Volume: click-to-open dropdown with slider + mute */}
+            <div ref={volumeDropdownRef} className="relative flex items-center">
+              <Button
+                size="icon"
+                variant={isMuted ? "destructive" : "ghost"}
+                onClick={() => setShowVolumeSlider((prev) => !prev)}
+                aria-haspopup="true"
+                aria-expanded={showVolumeSlider}
+                title={isMuted ? "Master volume: muted (M)" : `Master volume: ${Math.round(masterVolume * 100)}% (M)`}
+                aria-label="Master volume"
+                className="cursor-pointer transition-colors"
+              >
+                {isMuted || masterVolume === 0 ? (
+                  <VolumeX className="size-3.5" />
+                ) : masterVolume < 0.5 ? (
+                  <Volume1 className="size-3.5" />
+                ) : (
+                  <Volume2 className="size-3.5" />
+                )}
+              </Button>
+
+              {showVolumeSlider && (
+                <div
+                  role="dialog"
+                  aria-label="Master volume controls"
+                  className="absolute bottom-full right-0 z-50 mb-2 flex w-48 flex-col gap-2 rounded-xl border border-border bg-popover/95 p-3 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xs font-medium text-foreground">Master volume</span>
+                    <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                      {isMuted ? "Muted" : `${Math.round(masterVolume * 100)}%`}
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={isMuted ? 0 : masterVolume}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setMasterVolume(v);
+                      if (isMuted && v > 0) setIsMuted(false);
+                      if (v === 0) setIsMuted(true);
+                    }}
+                    aria-label="Master preview volume slider"
+                    className="h-1.5 w-full cursor-pointer rounded-full bg-muted accent-primary"
+                  />
+
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={handleToggleMute}
+                    className="w-full justify-start gap-1.5"
+                    aria-label={isMuted ? "Unmute master audio" : "Mute master audio"}
+                  >
+                    {isMuted ? <VolumeX /> : <Volume2 />}
+                    <span>{isMuted ? "Unmute" : "Mute"}</span>
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Rule-of-Thirds Composition Grid Toggle Button */}
             <Button
               size="icon"
-              variant="ghost"
-              disabled
-              title="Master audio volume"
-              aria-label="Master audio volume"
+              variant={showGrid ? "secondary" : "ghost"}
+              onClick={() => setShowGrid((prev) => !prev)}
+              title={showGrid ? "Hide rule-of-thirds composition grid" : "Show rule-of-thirds composition grid"}
+              aria-label={showGrid ? "Hide composition grid" : "Show composition grid"}
+              className={`size-8 cursor-pointer transition-colors ${
+                showGrid ? "text-primary border border-primary/30 bg-primary/10" : ""
+              }`}
             >
-              <Volume2 className="size-3.5" />
+              <Grid3X3 className="size-3.5" />
             </Button>
 
+            {/* Fullscreen Preview Toggle Button */}
             <Button
               size="icon"
-              variant="ghost"
-              disabled
-              title="Fullscreen preview"
-              aria-label="Fullscreen preview"
+              variant={isFullscreen ? "secondary" : "ghost"}
+              onClick={handleToggleFullscreen}
+              title={isFullscreen ? "Exit fullscreen preview (Esc or F)" : "Fullscreen preview (F)"}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen preview"}
+              className="size-8 cursor-pointer transition-colors"
             >
-              <Maximize2 className="size-3.5" />
+              {isFullscreen ? (
+                <Minimize2 className="size-3.5 text-primary" />
+              ) : (
+                <Maximize2 className="size-3.5" />
+              )}
             </Button>
           </div>
         </div>

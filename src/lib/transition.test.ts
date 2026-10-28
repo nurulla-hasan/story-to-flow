@@ -6,6 +6,7 @@ import {
   getTransitionWindow,
   getTransitionProgress,
   findAdjacentClipPairs,
+  findEligibleTransitionPairs,
   applyToAllTransitions,
   TRANSITION_PRESETS,
   MIN_TRANSITION_DURATION,
@@ -239,5 +240,126 @@ describe("Apply to All Transitions Engine", () => {
     const res = applyToAllTransitions(source, [], allClips);
     expect(res.count).toBe(0);
     expect(res.updatedTransitions.length).toBe(0);
+  });
+
+  it("creates transitions for eligible boundaries that do not have one yet", () => {
+    const source: TimelineTransition = { ...t1, type: "slide-left", duration: 0.4 };
+    const res = applyToAllTransitions(source, [t1], allClips);
+
+    expect(res.count).toBe(2);
+    expect(res.createdCount).toBe(1);
+    expect(res.updatedTransitions).toHaveLength(2);
+    expect(res.updatedTransitions[0].id).toBe("t1");
+    expect(res.updatedTransitions[0].type).toBe("slide-left");
+    expect(res.updatedTransitions[1].fromClipId).toBe("c2");
+    expect(res.updatedTransitions[1].toClipId).toBe("c3");
+    expect(res.updatedTransitions[1].type).toBe("slide-left");
+  });
+
+  it("only targets eligible adjacent visual boundaries", () => {
+    const gapClip: TimelineClip = {
+      ...c3,
+      id: "c4",
+      startTime: 20.0, // intentional gap after c3
+    };
+    const audioClip: TimelineClip = {
+      ...c1,
+      id: "audio-1",
+      type: "audio",
+      trackId: "audio",
+      startTime: 0,
+      duration: 8.0,
+    };
+    const overlayClip: TimelineClip = {
+      ...c1,
+      id: "overlay-1",
+      trackId: "visual-2",
+      startTime: 0,
+      duration: 2.0,
+    };
+
+    const source: TimelineTransition = { ...t1, type: "fade-black", duration: 0.5 };
+    const res = applyToAllTransitions(source, [t1], [
+      c1,
+      c2,
+      c3,
+      gapClip,
+      audioClip,
+      overlayClip,
+    ]);
+
+    expect(res.count).toBe(2);
+    expect(
+      res.updatedTransitions.every(
+        (transition) =>
+          transition.fromClipId !== "audio-1" &&
+          transition.toClipId !== "audio-1"
+      )
+    ).toBe(true);
+    expect(
+      res.updatedTransitions.some((transition) => transition.fromClipId === "c3")
+    ).toBe(false);
+  });
+
+  it("collapses reverse duplicate records for the same boundary", () => {
+    const reverse: TimelineTransition = {
+      id: "t-reverse",
+      type: "cross-dissolve",
+      duration: 0.5,
+      fromClipId: "c2",
+      toClipId: "c1",
+      trackId: "visual-1",
+    };
+    const source: TimelineTransition = { ...t1, type: "slide-right", duration: 0.4 };
+    const res = applyToAllTransitions(source, [t1, reverse], [c1, c2, c3]);
+
+    const c1c2 = res.updatedTransitions.filter(
+      (transition) =>
+        (transition.fromClipId === "c1" && transition.toClipId === "c2") ||
+        (transition.fromClipId === "c2" && transition.toClipId === "c1")
+    );
+    expect(c1c2).toHaveLength(1);
+    expect(c1c2[0].fromClipId).toBe("c1");
+    expect(c1c2[0].toClipId).toBe("c2");
+  });
+
+  it("skips boundaries that are too short for the minimum transition duration", () => {
+    const tinyA: TimelineClip = { ...c1, id: "tiny-a", startTime: 0, duration: 0.3 };
+    const tinyB: TimelineClip = { ...c2, id: "tiny-b", startTime: 0.3, duration: 0.3 };
+    const source: TimelineTransition = {
+      ...t1,
+      fromClipId: "tiny-a",
+      toClipId: "tiny-b",
+    };
+
+    const res = applyToAllTransitions(source, [source], [tinyA, tinyB]);
+    expect(res.count).toBe(0);
+    expect(res.updatedTransitions).toHaveLength(0);
+  });
+
+  it("finds eligible boundaries across normalized visual tracks only", () => {
+    const legacyClip: TimelineClip = {
+      ...c1,
+      id: "legacy-1",
+      trackId: "visual",
+      startTime: 0,
+      duration: 4.0,
+    };
+    const pairs = findEligibleTransitionPairs([
+      legacyClip,
+      { ...c2, id: "legacy-2", startTime: 4.0 },
+      {
+        ...c1,
+        id: "voice-1",
+        type: "audio",
+        trackId: "audio",
+        startTime: 0,
+        duration: 8.0,
+      },
+    ]);
+
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].fromClip.id).toBe("legacy-1");
+    expect(pairs[0].toClip.id).toBe("legacy-2");
   });
 });

@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import type { TimelineProjectState, TimelineClip, TimelineTransition } from "@/types/timeline";
 
 import { sanitizeClipTransform } from "@/lib/clip-transform";
+import { sanitizeZoomEffect } from "@/lib/zoom-effect";
 
 export const TIMELINE_STORAGE_KEY = "story_forge_timeline_state_v1";
 export const TIMELINE_STORAGE_VERSION = 1;
@@ -187,6 +188,7 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
               ? clip.speed
               : 1.0,
           transform: clip.transform ? sanitizeClipTransform(clip.transform) : undefined,
+          zoomEffect: sanitizeZoomEffect(clip.zoomEffect),
         }))
       : [],
     transitions: Array.isArray(record.transitions)

@@ -45,7 +45,7 @@ export function MediaLibraryPanel() {
     clearError,
   } = useMediaLibrary();
 
-  const { addAssetToTimeline } = useTimeline();
+  const { addAssetToTimeline, playhead } = useTimeline();
 
   const filteredAssets = React.useMemo(() => {
     if (activeTab === "all") return assets;
@@ -308,7 +308,9 @@ export function MediaLibraryPanel() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        addAssetToTimeline(asset);
+                        // Insert at the playhead so media can be placed between
+                        // existing clips instead of always appending.
+                        addAssetToTimeline(asset, undefined, playhead);
                       }}
                       className="absolute top-1 left-1 size-6 rounded-md bg-primary text-primary-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:scale-105 cursor-pointer"
                       title="Add to timeline"

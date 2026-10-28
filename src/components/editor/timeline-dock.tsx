@@ -11,11 +11,19 @@ import {
   ZoomOut,
   Magnet,
   Volume2,
+  VolumeX,
   Eye,
   Lock,
   Wand2,
   Layers,
   Plus,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  CopyCheck,
+  Sparkles,
+  MousePointerClick,
 } from "lucide-react";
 import {
   Card,
@@ -24,7 +32,6 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
@@ -33,13 +40,14 @@ import {
   type TimelineClip,
   type TrackId,
   isAudioTrack,
+  isVisualTrack,
 } from "@/types/timeline";
 import { findAdjacentClipPairs } from "@/lib/transition-helpers";
 import { calculateLeftTrim, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
 import {
-  clampMoveToPreventOverlap,
   clampLeftTrimToPreventOverlap,
 } from "@/lib/timeline-overlap";
+import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import {
   getPixelsPerSecond,
   generateAdaptiveRulerTicks,
@@ -47,6 +55,14 @@ import {
   MAX_TIMELINE_ZOOM,
 } from "@/lib/ruler-scale";
 import { calculatePlayheadTimeFromPointer } from "@/lib/playhead-coordinates";
+import {
+  DEFAULT_ZOOM_EFFECT_AMOUNT,
+  MAX_ZOOM_EFFECT_AMOUNT,
+  MIN_ZOOM_EFFECT_AMOUNT,
+  sanitizeZoomEffect,
+  type ZoomEffectType,
+  type ClipZoomEffect,
+} from "@/lib/zoom-effect";
 
 export function TimelineDock() {
   const {
@@ -74,6 +90,8 @@ export function TimelineDock() {
     totalDuration,
     addAssetToTimeline,
     fitVisualsToVoiceover,
+    updateClip,
+    applyMotionToAllClips,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
@@ -81,6 +99,78 @@ export function TimelineDock() {
   // Magnetic snapping state & visual guide line
   const [snapEnabled, setSnapEnabled] = React.useState<boolean>(true);
   const [activeSnapGuide, setActiveSnapGuide] = React.useState<number | null>(null);
+  // Insertion point shown while dragging a clip body (reorder preview)
+  const [dragInsertTime, setDragInsertTime] = React.useState<number | null>(null);
+
+  // Selected clip resolution for timeline toolbar actions
+  const selectedClip = React.useMemo(() => {
+    if (!selectedClipId) return null;
+    return clips.find((c) => c.id === selectedClipId) || null;
+  }, [clips, selectedClipId]);
+
+  const selectedImageClip = selectedClip?.type === "image" ? selectedClip : null;
+  const imageClips = React.useMemo(
+    () => clips.filter((c) => isVisualTrack(c.trackId) && c.type === "image"),
+    [clips]
+  );
+  const imageClipsCount = imageClips.length;
+
+  const [motionFeedback, setMotionFeedback] = React.useState<string | null>(null);
+  const [unselectedPreset, setUnselectedPreset] = React.useState<ClipZoomEffect>({
+    type: "zoom-in",
+    amount: DEFAULT_ZOOM_EFFECT_AMOUNT,
+  });
+
+  const activeMotionEffect = selectedImageClip
+    ? sanitizeZoomEffect(selectedImageClip.zoomEffect)
+    : unselectedPreset;
+  const motionAmountPct = Math.round(
+    (activeMotionEffect?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT) * 100
+  );
+
+  const handleTimelineSetMotion = (type: "off" | ZoomEffectType) => {
+    if (type === "off") {
+      if (selectedImageClip) {
+        updateClip(selectedImageClip.id, { zoomEffect: undefined });
+      }
+      return;
+    }
+
+    const currentAmount = activeMotionEffect?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT;
+    const newEffect: ClipZoomEffect = {
+      type,
+      amount: currentAmount,
+    };
+
+    if (selectedImageClip) {
+      updateClip(selectedImageClip.id, { zoomEffect: newEffect });
+    } else {
+      setUnselectedPreset(newEffect);
+    }
+  };
+
+  const handleTimelineMotionAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value) / 100;
+    const safeAmount = Math.max(MIN_ZOOM_EFFECT_AMOUNT, Math.min(MAX_ZOOM_EFFECT_AMOUNT, val));
+
+    if (selectedImageClip && selectedImageClip.zoomEffect) {
+      const updated = sanitizeZoomEffect({ ...selectedImageClip.zoomEffect, amount: safeAmount });
+      updateClip(selectedImageClip.id, { zoomEffect: updated });
+    } else {
+      setUnselectedPreset((prev) => ({ ...prev, amount: safeAmount }));
+    }
+  };
+
+  const handleTimelineApplyMotionToAll = () => {
+    const effectToApply = selectedImageClip
+      ? sanitizeZoomEffect(selectedImageClip.zoomEffect)
+      : unselectedPreset;
+
+    if (!effectToApply) return;
+    const res = applyMotionToAllClips(effectToApply);
+    setMotionFeedback(res.message);
+    setTimeout(() => setMotionFeedback(null), 4000);
+  };
 
   // Pixels per second scaled by wide zoom range (10% to 1000%)
   const pxPerSec = getPixelsPerSecond(zoom);
@@ -283,8 +373,9 @@ export function TimelineDock() {
     [clips, playhead]
   );
 
-  // Interactive Clip Move Dragging Handler with Magnetic Snapping & Overlap Prevention
+  // Interactive Clip Move Dragging Handler with Magnetic Snapping & Track Reordering
   const startMoveDrag = (e: React.PointerEvent, clip: TimelineClip) => {
+    if (e.button !== 0) return;
     e.stopPropagation();
     selectClip(clip.id);
 
@@ -293,6 +384,7 @@ export function TimelineDock() {
     const initialStart = clip.startTime;
     const snapThresholdSec = 10 / pxPerSec;
     const snapPoints = getSnapPoints(clip.id);
+    const isVisualClip = !isAudioTrack(clip.trackId);
     let latestClips = initialClips;
 
     const onPointerMove = (moveEvent: PointerEvent) => {
@@ -323,17 +415,27 @@ export function TimelineDock() {
         setActiveSnapGuide(null);
       }
 
-      // Clamping to prevent overlapping on the same visual track
-      const nonOverlappingStart = clampMoveToPreventOverlap(clip, rawStart, initialClips);
+      if (isVisualClip) {
+        // Reorder within the lane: closes the source gap and opens an insertion
+        // gap at the drop position instead of clamping against occupied clips.
+        const result = reorderClipOnTrack(clip, rawStart, initialClips);
+        latestClips = result.clips;
+        setDragInsertTime(result.insertionTime);
+      } else {
+        // Audio clips keep free positioning so voiceovers can overlap music.
+        const safeStart = parseFloat(Math.max(0, rawStart).toFixed(3));
+        latestClips = initialClips.map((c) =>
+          c.id === clip.id ? { ...c, startTime: safeStart } : c
+        );
+        setDragInsertTime(safeStart);
+      }
 
-      latestClips = initialClips.map((c) =>
-        c.id === clip.id ? { ...c, startTime: nonOverlappingStart } : c
-      );
       setClipsTransient(latestClips);
     };
 
     const cleanup = () => {
       setActiveSnapGuide(null);
+      setDragInsertTime(null);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerCancel);
@@ -607,6 +709,11 @@ export function TimelineDock() {
                     <span className="text-3xs font-medium text-foreground truncate">
                       {clip.name}
                     </span>
+                    {clip.volume === 0 && (
+                      <span title="Scene audio muted" className="shrink-0">
+                        <VolumeX className="size-2.5 text-destructive" />
+                      </span>
+                    )}
                   </div>
 
                   <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none pr-1">
@@ -694,10 +801,10 @@ export function TimelineDock() {
     <Card size="sm" className="flex flex-col w-full shrink-0">
       {/* Timeline Controls Header — 100% Icon-Only Ghost Buttons with Tooltips */}
       <CardHeader className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Left: Icon-Only Ghost Action Buttons with Descriptive Tooltips */}
-          <div className="flex items-center gap-1">
-            <div className="mr-1.5 flex items-center">
+        <div className="flex flex-wrap items-center justify-between gap-2 w-full min-w-0">
+          {/* Left: Icon-Only Ghost Action Buttons + Playhead/Zoom/Snap */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="mr-1 flex items-center">
               <CardTitle className="flex items-center gap-1">
                 Timeline
               </CardTitle>
@@ -782,11 +889,11 @@ export function TimelineDock() {
                 <span>Auto-fit visual scenes to voiceover duration</span>
               </TooltipContent>
             </Tooltip>
-          </div>
 
-          {/* Right: Timeline Zoom, Snap & Playhead Position */}
-          <div className="flex items-center gap-2">
-            <div className="font-mono text-2xs bg-muted text-foreground font-semibold px-1.5 py-0.5 rounded">
+            <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+
+            {/* Playhead Time Display */}
+            <div className="font-mono text-2xs bg-muted text-foreground font-semibold px-1.5 py-0.5 rounded shrink-0">
               {isHydrated ? playhead.toFixed(2) : "0.00"}s
             </div>
 
@@ -816,7 +923,7 @@ export function TimelineDock() {
             </Tooltip>
 
             {/* Expanded Zoom Controls (10% to 500%) with Ghost Styling */}
-            <div className="flex items-center gap-1.5 p-0.5">
+            <div className="flex items-center gap-1 p-0.5 shrink-0">
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -845,7 +952,7 @@ export function TimelineDock() {
                 onInput={(e) => handleZoomChange(Number((e.target as HTMLInputElement).value))}
                 onChange={(e) => handleZoomChange(Number(e.target.value))}
                 aria-label="Timeline zoom scale"
-                className="w-16 sm:w-24 accent-primary cursor-pointer h-1"
+                className="w-16 sm:w-20 accent-primary cursor-pointer h-1"
               />
 
               <Tooltip>
@@ -867,10 +974,292 @@ export function TimelineDock() {
                 </TooltipContent>
               </Tooltip>
 
-              <Badge variant="ghost">
+              <span className="font-mono text-2xs text-muted-foreground tabular-nums w-8 shrink-0">
                 {isHydrated ? zoom : 100}%
-              </Badge>
+              </span>
             </div>
+          </div>
+
+          {/* Right: THE MARKED AREA — Contextual Selected Clip & Scene Controls */}
+          <div className="flex items-center gap-1 min-w-0 justify-end flex-1 overflow-x-auto py-0.5">
+            {selectedClip ? (
+              <div className="flex items-center gap-1 shrink-0 min-w-0">
+                <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+
+                {/* Visual Track Layer Switcher */}
+                {isVisualTrack(selectedClip.trackId) && (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={
+                              selectedClip.trackId === "visual-1" || selectedClip.trackId === "visual"
+                                ? "secondary"
+                                : "ghost"
+                            }
+                            size="icon"
+                            onClick={() => updateClip(selectedClip.id, { trackId: "visual-1" })}
+                            aria-label="Layer 1 (Base visual track)"
+                          >
+                            <Layers className="size-4" />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Layer 1 (Base visual track)</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.trackId === "visual-2" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => updateClip(selectedClip.id, { trackId: "visual-2" })}
+                            aria-label="Layer 2 (Overlay / PiP visual track)"
+                          >
+                            <Layers className={`size-4 ${selectedClip.trackId === "visual-2" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Layer 2 (Overlay / PiP visual track)</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+                  </>
+                )}
+
+                {/* Scene Motion (Images only) */}
+                {selectedClip.type === "image" && (
+                  <>
+                    {/* Motion Off */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={!selectedClip.zoomEffect ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("off")}
+                            aria-label="Scene Motion: Off"
+                          >
+                            <Sparkles className={`size-4 ${!selectedClip.zoomEffect ? "text-muted-foreground" : "opacity-40"}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Scene Motion: Off</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Zoom In */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect?.type === "zoom-in" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("zoom-in")}
+                            aria-label="Motion: Zoom In"
+                          >
+                            <ZoomIn className={`size-4 ${selectedClip.zoomEffect?.type === "zoom-in" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Motion: Zoom In</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Zoom Out */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect?.type === "zoom-out" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("zoom-out")}
+                            aria-label="Motion: Zoom Out"
+                          >
+                            <ZoomOut className={`size-4 ${selectedClip.zoomEffect?.type === "zoom-out" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Motion: Zoom Out</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Pan Left */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect?.type === "pan-left" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("pan-left")}
+                            aria-label="Motion: Pan Left"
+                          >
+                            <ArrowLeft className={`size-4 ${selectedClip.zoomEffect?.type === "pan-left" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Motion: Pan Left</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Pan Right */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect?.type === "pan-right" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("pan-right")}
+                            aria-label="Motion: Pan Right"
+                          >
+                            <ArrowRight className={`size-4 ${selectedClip.zoomEffect?.type === "pan-right" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Motion: Pan Right</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Pan Up */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect?.type === "pan-up" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("pan-up")}
+                            aria-label="Motion: Pan Up"
+                          >
+                            <ArrowUp className={`size-4 ${selectedClip.zoomEffect?.type === "pan-up" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Motion: Pan Up</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Pan Down */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect?.type === "pan-down" ? "secondary" : "ghost"}
+                            size="icon"
+                            onClick={() => handleTimelineSetMotion("pan-down")}
+                            aria-label="Motion: Pan Down"
+                          >
+                            <ArrowDown className={`size-4 ${selectedClip.zoomEffect?.type === "pan-down" ? "text-primary" : ""}`} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>Motion: Pan Down</span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {/* Strength Slider */}
+                    {selectedClip.zoomEffect && (
+                      <div className="flex items-center gap-1.5 p-0.5 shrink-0">
+                        <input
+                          type="range"
+                          min={MIN_ZOOM_EFFECT_AMOUNT * 100}
+                          max={MAX_ZOOM_EFFECT_AMOUNT * 100}
+                          step="1"
+                          value={motionAmountPct}
+                          onChange={handleTimelineMotionAmountChange}
+                          aria-label="Scene motion strength"
+                          className="w-16 sm:w-20 accent-primary cursor-pointer h-1"
+                        />
+                        <span className="font-mono text-2xs text-muted-foreground tabular-nums w-8 shrink-0">
+                          {motionAmountPct}%
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Apply to All Scenes Button */}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={imageClipsCount <= 1 || !selectedClip.zoomEffect}
+                            onClick={handleTimelineApplyMotionToAll}
+                            aria-label="Apply motion to all scenes"
+                          >
+                            <CopyCheck className="size-4" />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <span>
+                          {!selectedClip.zoomEffect
+                            ? "Select a motion to apply to all scenes"
+                            : imageClipsCount <= 1
+                            ? "Only 1 image scene on timeline"
+                            : `Apply ${selectedClip.zoomEffect.type} (${motionAmountPct}%) to all ${imageClipsCount} scenes`}
+                        </span>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {motionFeedback && (
+                      <span className="font-mono text-2xs text-primary font-semibold animate-in fade-in pl-1">
+                        {motionFeedback}
+                      </span>
+                    )}
+
+                    <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+                  </>
+                )}
+
+                {/* Volume & Mute for Audio & Video clips */}
+                {(isAudioTrack(selectedClip.trackId) || selectedClip.type === "video") && (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant={(selectedClip.volume ?? 1.0) === 0 ? "secondary" : "ghost"}
+                          size="icon"
+                          onClick={() => {
+                            const isMuted = (selectedClip.volume ?? 1.0) === 0;
+                            updateClip(selectedClip.id, { volume: isMuted ? 1.0 : 0 });
+                          }}
+                          aria-label={(selectedClip.volume ?? 1.0) === 0 ? "Unmute scene" : "Mute scene"}
+                        >
+                          {(selectedClip.volume ?? 1.0) === 0 ? (
+                            <VolumeX className="size-4 text-destructive" />
+                          ) : (
+                            <Volume2 className="size-4" />
+                          )}
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      <span>
+                        {(selectedClip.volume ?? 1.0) === 0 ? "Unmute scene audio" : "Mute scene audio"}
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-2xs text-muted-foreground select-none pr-1">
+                <MousePointerClick className="size-3.5 text-muted-foreground/70" />
+                <span>Select a scene to edit motion &amp; layers</span>
+              </div>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -989,6 +1378,17 @@ export function TimelineDock() {
                 />
               )}
 
+              {/* Clip Reorder Insertion Indicator */}
+              {dragInsertTime !== null && (
+                <div
+                  style={{ left: `${dragInsertTime * pxPerSec}px` }}
+                  className="absolute top-0 bottom-0 z-50 -translate-x-1/2 flex flex-col items-center pointer-events-none"
+                >
+                  <div className="w-2 h-2 rounded-full bg-primary shadow-sm" />
+                  <div className="w-0.5 flex-1 bg-primary rounded-full shadow-sm" />
+                </div>
+              )}
+
               {/* Layer 2: Visual Track 2 (Overlay / Top Visual Layer) */}
               <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors min-w-full">
                 {renderVisualTrackLane("visual-2", visualLayer2Clips)}
@@ -1068,6 +1468,11 @@ export function TimelineDock() {
                             <span className="text-3xs font-medium text-foreground truncate">
                               {clip.name}
                             </span>
+                            {clip.volume === 0 && (
+                              <span title="Track audio muted" className="shrink-0">
+                                <VolumeX className="size-2.5 text-destructive" />
+                              </span>
+                            )}
                           </div>
 
                           <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10 pr-1">

@@ -13,12 +13,19 @@ import {
   Mic,
   Image as ImageIcon,
   Volume2,
+  VolumeX,
   Layers,
   Sparkles,
   CopyCheck,
   CheckCircle2,
   Move,
   RotateCcw,
+  ZoomIn,
+  ZoomOut,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   Card,
@@ -36,8 +43,16 @@ import {
   sanitizeClipTransform,
 } from "@/lib/clip-transform";
 import {
+  DEFAULT_ZOOM_EFFECT_AMOUNT,
+  MAX_ZOOM_EFFECT_AMOUNT,
+  MIN_ZOOM_EFFECT_AMOUNT,
+  sanitizeZoomEffect,
+  type ZoomEffectType,
+} from "@/lib/zoom-effect";
+import {
   TRANSITION_PRESETS,
   areClipsAdjacentForTransition,
+  findEligibleTransitionPairs,
   validateTransitionDuration,
   MAX_TRANSITION_DURATION,
   MIN_TRANSITION_DURATION,
@@ -61,6 +76,7 @@ export function ClipInspectorPanel() {
     updateTransition,
     deleteTransition,
     applyToAllTransitions,
+    applyMotionToAllClips,
     setClipsTransient,
     commitClipGesture,
   } = useTimeline();
@@ -110,6 +126,12 @@ export function ClipInspectorPanel() {
 
   const [applyFeedback, setApplyFeedback] = React.useState<string | null>(null);
 
+  // Apply-to-all targets every eligible visual boundary, not only existing transitions.
+  const eligibleTransitionBoundaryCount = React.useMemo(
+    () => findEligibleTransitionPairs(clips).length,
+    [clips]
+  );
+
   const handleApplyToAll = (transitionId: string) => {
     const res = applyToAllTransitions(transitionId);
     setApplyFeedback(res.message);
@@ -143,10 +165,17 @@ export function ClipInspectorPanel() {
     const baseClips = getBaseClips();
     const val = parseFloat((e.target as HTMLInputElement).value);
     if (!isNaN(val)) {
-      setClipsTransient(
-        baseClips.map((c) => (c.id === selectedClip.id ? { ...c, volume: val } : c))
-      );
+      const updated = baseClips.map((c) => (c.id === selectedClip.id ? { ...c, volume: val } : c));
+      latestClipsRef.current = updated;
+      setClipsTransient(updated);
     }
+  };
+
+  const handleToggleClipMute = () => {
+    if (!selectedClip) return;
+    const isCurrentlyMuted = (selectedClip.volume ?? 1.0) === 0;
+    const newVol = isCurrentlyMuted ? 1.0 : 0;
+    updateClip(selectedClip.id, { volume: newVol });
   };
 
   const handleTransientFadeInChange = (e: React.FormEvent<HTMLInputElement>) => {
@@ -166,6 +195,52 @@ export function ClipInspectorPanel() {
     const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
     setClipsTransient(
       baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeOutDuration: safeFade } : c))
+    );
+  };
+
+  // Scene Motion & Zoom (Ken Burns): pick a preset or remove the effect entirely
+  const handleSetZoomEffect = (type: "off" | ZoomEffectType) => {
+    if (!selectedClip) return;
+    if (type === "off") {
+      updateClip(selectedClip.id, { zoomEffect: undefined });
+      return;
+    }
+    const current = sanitizeZoomEffect(selectedClip.zoomEffect);
+    updateClip(selectedClip.id, {
+      zoomEffect: {
+        type,
+        amount: current?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT,
+      },
+    });
+  };
+
+  const [motionApplyFeedback, setMotionApplyFeedback] = React.useState<string | null>(null);
+
+  // Eligible image scenes for applying motion across the project
+  const imageClipsCount = React.useMemo(
+    () => clips.filter((c) => isVisualTrack(c.trackId) && c.type === "image").length,
+    [clips]
+  );
+
+  const handleApplyMotionToAll = () => {
+    if (!selectedClip) return;
+    const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
+    if (!effect) return;
+    const res = applyMotionToAllClips(effect);
+    setMotionApplyFeedback(res.message);
+    setTimeout(() => setMotionApplyFeedback(null), 4000);
+  };
+
+  // Transient strength scrubbing keeps a single history entry per drag
+  const handleTransientZoomAmountChange = (e: React.FormEvent<HTMLInputElement>) => {
+    if (!selectedClip) return;
+    const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
+    if (!effect) return;
+    const baseClips = getBaseClips();
+    const amount = parseFloat((e.target as HTMLInputElement).value) / 100;
+    const zoomEffect = sanitizeZoomEffect({ ...effect, amount });
+    setClipsTransient(
+      baseClips.map((c) => (c.id === selectedClip.id ? { ...c, zoomEffect } : c))
     );
   };
 
@@ -347,16 +422,16 @@ export function ClipInspectorPanel() {
                 variant="outline"
                 size="sm"
                 onClick={() => handleApplyToAll(selectedTransition.id)}
-                disabled={transitions.length <= 1}
+                disabled={eligibleTransitionBoundaryCount === 0}
                 className="w-full gap-1.5 text-xs"
                 title={
-                  transitions.length <= 1
-                    ? "Only 1 transition on timeline"
-                    : `Apply ${selectedTransition.type.replace("-", " ")} (${selectedTransition.duration.toFixed(2)}s) to all ${transitions.length} transitions`
+                  eligibleTransitionBoundaryCount === 0
+                    ? "No eligible adjacent visual clip boundaries"
+                    : `Apply ${selectedTransition.type.replace("-", " ")} (${selectedTransition.duration.toFixed(2)}s) to all ${eligibleTransitionBoundaryCount} eligible clip boundaries`
                 }
               >
                 <CopyCheck className="size-3.5" />
-                <span>Apply to All Transitions ({transitions.length})</span>
+                <span>Apply to All Transitions ({eligibleTransitionBoundaryCount})</span>
               </Button>
 
               {applyFeedback && (
@@ -653,6 +728,203 @@ export function ClipInspectorPanel() {
               );
             })()}
 
+            {/* Scene Motion & Zoom (Ken Burns) — image scenes only */}
+            {selectedClip.type === "image" && (() => {
+              const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
+              const amountPct = Math.round(
+                (effect?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT) * 100
+              );
+              const zoomOptions: Array<{
+                value: "off" | "zoom-in" | "zoom-out";
+                label: string;
+              }> = [
+                { value: "off", label: "Off" },
+                { value: "zoom-in", label: "Zoom In" },
+                { value: "zoom-out", label: "Zoom Out" },
+              ];
+              const panOptions: Array<{
+                value: ZoomEffectType;
+                label: string;
+                title: string;
+              }> = [
+                { value: "pan-left", label: "Left", title: "Pan Left" },
+                { value: "pan-right", label: "Right", title: "Pan Right" },
+                { value: "pan-up", label: "Up", title: "Pan Up" },
+                { value: "pan-down", label: "Down", title: "Pan Down" },
+              ];
+
+              const getMotionDescription = () => {
+                if (!effect) return "";
+                switch (effect.type) {
+                  case "zoom-in":
+                    return `Zooms in ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
+                  case "zoom-out":
+                    return `Zooms out ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
+                  case "pan-left":
+                    return `Pans left ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
+                  case "pan-right":
+                    return `Pans right ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
+                  case "pan-up":
+                    return `Pans up ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
+                  case "pan-down":
+                    return `Pans down ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
+                }
+              };
+
+              return (
+                <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 font-medium text-foreground">
+                      <ZoomIn className="size-3 text-primary" />
+                      <span>Scene Motion</span>
+                    </span>
+                    {effect && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateClip(selectedClip.id, { zoomEffect: undefined })
+                        }
+                        className="text-3xs text-muted-foreground hover:text-destructive flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Remove motion effect from this scene"
+                      >
+                        <RotateCcw className="size-2.5" />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Zoom Options */}
+                  <div className="grid grid-cols-3 gap-1">
+                    {zoomOptions.map((option) => {
+                      const isActive =
+                        option.value === "off"
+                          ? !effect
+                          : effect?.type === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => handleSetZoomEffect(option.value)}
+                          className={`py-1 text-2xs rounded-md border transition-colors cursor-pointer ${
+                            isActive
+                              ? "border-primary bg-primary/10 text-primary font-bold"
+                              : "border-border text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {option.value === "zoom-in" ? (
+                            <span className="flex items-center justify-center gap-1">
+                              <ZoomIn className="size-3" />
+                              {option.label}
+                            </span>
+                          ) : option.value === "zoom-out" ? (
+                            <span className="flex items-center justify-center gap-1">
+                              <ZoomOut className="size-3" />
+                              {option.label}
+                            </span>
+                          ) : (
+                            option.label
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pan & Drift Options */}
+                  <div className="space-y-1">
+                    <span className="text-3xs text-muted-foreground font-medium">Pan &amp; Drift</span>
+                    <div className="grid grid-cols-4 gap-1">
+                      {panOptions.map((option) => {
+                        const isActive = effect?.type === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => handleSetZoomEffect(option.value)}
+                            title={option.title}
+                            className={`py-1 text-2xs rounded-md border transition-colors cursor-pointer ${
+                              isActive
+                                ? "border-primary bg-primary/10 text-primary font-bold"
+                                : "border-border text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <span className="flex items-center justify-center gap-1">
+                              {option.value === "pan-left" ? (
+                                <ArrowLeft className="size-3" />
+                              ) : option.value === "pan-right" ? (
+                                <ArrowRight className="size-3" />
+                              ) : option.value === "pan-up" ? (
+                                <ArrowUp className="size-3" />
+                              ) : (
+                                <ArrowDown className="size-3" />
+                              )}
+                              <span>{option.label}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {effect && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-3xs">
+                          <span className="text-muted-foreground">Strength</span>
+                          <span className="font-mono font-semibold text-primary">
+                            {amountPct}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={MIN_ZOOM_EFFECT_AMOUNT * 100}
+                          max={MAX_ZOOM_EFFECT_AMOUNT * 100}
+                          step="1"
+                          value={amountPct}
+                          onPointerDown={handleSliderPointerDown}
+                          onPointerUp={handleSliderPointerUp}
+                          onPointerCancel={handleSliderPointerUp}
+                          onKeyDown={handleSliderPointerDown}
+                          onKeyUp={handleSliderPointerUp}
+                          onChange={handleTransientZoomAmountChange}
+                          aria-label="Scene motion strength"
+                          className="w-full accent-primary cursor-pointer h-1"
+                        />
+                        <p className="text-3xs text-muted-foreground">
+                          {getMotionDescription()}
+                        </p>
+                      </div>
+
+                      {/* Apply to All Clips Button */}
+                      <div className="space-y-1.5 pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleApplyMotionToAll}
+                          disabled={imageClipsCount <= 1}
+                          className="w-full gap-1.5"
+                          title={
+                            imageClipsCount <= 1
+                              ? "Only 1 image scene on timeline"
+                              : `Apply this motion (${amountPct}%) to all ${imageClipsCount} image scenes`
+                          }
+                        >
+                          <CopyCheck className="size-3.5" />
+                          <span>Apply to All Scenes ({imageClipsCount})</span>
+                        </Button>
+
+                        {motionApplyFeedback && (
+                          <div className="flex items-start gap-1.5 p-2 rounded-md bg-primary/10 border border-primary/20 text-3xs text-primary font-medium animate-in fade-in leading-relaxed">
+                            <CheckCircle2 className="size-3.5 shrink-0 mt-0.5" />
+                            <span>{motionApplyFeedback}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Start Time Position Display */}
             <div className="flex items-center justify-between text-2xs rounded-md bg-muted/20 p-2 border border-border">
               <span className="text-muted-foreground font-medium">Timeline Position</span>
@@ -783,16 +1055,16 @@ export function ClipInspectorPanel() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleApplyToAll(transitionToNext.existing!.id)}
-                      disabled={transitions.length <= 1}
+                      disabled={eligibleTransitionBoundaryCount === 0}
                       className="w-full gap-1 text-xs"
                       title={
-                        transitions.length <= 1
-                          ? "Only 1 transition on timeline"
-                          : `Apply ${transitionToNext.existing.type.replace("-", " ")} (${transitionToNext.existing.duration.toFixed(2)}s) to all ${transitions.length} transitions`
+                        eligibleTransitionBoundaryCount === 0
+                          ? "No eligible adjacent visual clip boundaries"
+                          : `Apply ${transitionToNext.existing.type.replace("-", " ")} (${transitionToNext.existing.duration.toFixed(2)}s) to all ${eligibleTransitionBoundaryCount} eligible clip boundaries`
                       }
                     >
                       <CopyCheck className="size-3" />
-                      <span>Apply to All Transitions ({transitions.length})</span>
+                      <span>Apply to All Transitions ({eligibleTransitionBoundaryCount})</span>
                     </Button>
 
                     {applyFeedback && (
@@ -832,17 +1104,32 @@ export function ClipInspectorPanel() {
               </div>
             )}
 
-            {/* Audio Specific: Volume Control Slider */}
-            {isAudioTrack(selectedClip.trackId) && (
-              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+            {/* Audio & Video Scene Volume & Mute Controls */}
+            {(isAudioTrack(selectedClip.trackId) || selectedClip.type === "video") && (
+              <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
-                    <Volume2 className="size-3 text-muted-foreground" />
-                    <span>Track Volume</span>
+                    {(selectedClip.volume ?? 1.0) === 0 ? (
+                      <VolumeX className="size-3.5 text-destructive" />
+                    ) : (
+                      <Volume2 className="size-3.5 text-muted-foreground" />
+                    )}
+                    <span>{selectedClip.type === "video" ? "Video Sound / Audio" : "Track Volume"}</span>
                   </span>
-                  <span className="font-mono text-xs font-semibold text-primary">
-                    {Math.round((selectedClip.volume ?? 1.0) * 100)}%
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`font-mono text-xs font-semibold ${(selectedClip.volume ?? 1.0) === 0 ? "text-destructive" : "text-primary"}`}>
+                      {(selectedClip.volume ?? 1.0) === 0 ? "Muted (0%)" : `${Math.round((selectedClip.volume ?? 1.0) * 100)}%`}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={(selectedClip.volume ?? 1.0) === 0 ? "destructive" : "outline"}
+                      onClick={handleToggleClipMute}
+                      className="h-6 px-2 text-3xs font-medium cursor-pointer"
+                    >
+                      {(selectedClip.volume ?? 1.0) === 0 ? "Unmute" : "Mute"}
+                    </Button>
+                  </div>
                 </div>
 
                 <input
@@ -857,12 +1144,35 @@ export function ClipInspectorPanel() {
                   onKeyDown={handleSliderPointerDown}
                   onKeyUp={handleSliderPointerUp}
                   onChange={handleTransientVolumeChange}
-                  aria-label="Audio clip volume"
+                  aria-label={selectedClip.type === "video" ? "Video volume" : "Audio clip volume"}
                   className="w-full accent-primary cursor-pointer"
                 />
 
                 <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
                   <span>0% (Mute)</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => updateClip(selectedClip.id, { volume: 0 })}
+                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted cursor-pointer transition-colors"
+                    >
+                      0% (Mute)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateClip(selectedClip.id, { volume: 0.5 })}
+                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted cursor-pointer transition-colors"
+                    >
+                      50%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateClip(selectedClip.id, { volume: 1.0 })}
+                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted cursor-pointer transition-colors"
+                    >
+                      100%
+                    </button>
+                  </div>
                   <span>100%</span>
                 </div>
               </div>

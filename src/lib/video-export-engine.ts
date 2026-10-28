@@ -11,6 +11,7 @@ import {
 import type { MediaAssetItem } from "./media-storage";
 import { getTransitionProgress } from "./transition-helpers";
 import { calculateCanvasDrawParams } from "./clip-transform";
+import { getClipMotionAtTime } from "./zoom-effect";
 
 export const MAX_SAFE_EXPORT_DURATION = 300; // 5 minutes max safe browser export duration
 export const MAX_VIDEO_QUEUE_SIZE = 5; // Conservative max pending frames in GPU/RAM encoder queue
@@ -476,6 +477,9 @@ export async function exportTimelineToMp4({
         ctx.save();
         ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
+        // Animated Ken Burns zoom & pan motion
+        const motion = getClipMotionAtTime(clip, currentTime);
+
         if (asset.category === "image") {
           const img = imageElements.get(asset.id);
           if (img) {
@@ -488,6 +492,9 @@ export async function exportTimelineToMp4({
               canvasHeight: height,
               transform: clip.transform,
               xOffset,
+              scaleMultiplier: motion.scale,
+              panX: motion.offsetX,
+              panY: motion.offsetY,
             });
             ctx.translate(centerX, centerY);
             if (rotation) {
@@ -510,6 +517,9 @@ export async function exportTimelineToMp4({
               canvasHeight: height,
               transform: clip.transform,
               xOffset,
+              scaleMultiplier: motion.scale,
+              panX: motion.offsetX,
+              panY: motion.offsetY,
             });
             ctx.translate(centerX, centerY);
             if (rotation) {

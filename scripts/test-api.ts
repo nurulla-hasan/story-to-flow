@@ -13,7 +13,7 @@ interface TestResult {
   name: string;
   passed: boolean;
   details: string;
-  response?: any;
+  response?: unknown;
 }
 
 const results: TestResult[] = [];

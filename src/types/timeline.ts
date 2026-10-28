@@ -1,5 +1,6 @@
 import type { ClipTransform } from "@/lib/clip-transform";
-export type { ClipTransform };
+import type { ClipZoomEffect } from "@/lib/zoom-effect";
+export type { ClipTransform, ClipZoomEffect };
 
 export type TrackId = "visual" | "visual-1" | "visual-2" | "audio" | "audio-1";
 
@@ -53,6 +54,7 @@ export interface TimelineClip {
   fadeInDuration?: number; // audio fade-in duration in seconds (default 0)
   fadeOutDuration?: number; // audio fade-out duration in seconds (default 0)
   transform?: ClipTransform;
+  zoomEffect?: ClipZoomEffect; // animated Ken Burns zoom across the clip (images)
 }
 
 export interface TimelineTrack {

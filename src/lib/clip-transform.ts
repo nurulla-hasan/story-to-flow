@@ -271,6 +271,9 @@ export function calculateCanvasDrawParams({
   canvasHeight,
   transform,
   xOffset = 0,
+  scaleMultiplier = 1,
+  panX = 0,
+  panY = 0,
 }: {
   imgWidth: number;
   imgHeight: number;
@@ -278,16 +281,31 @@ export function calculateCanvasDrawParams({
   canvasHeight: number;
   transform?: ClipTransform;
   xOffset?: number;
+  /** Extra animated scale multiplier (e.g. Ken Burns zoom) applied after sanitizing. */
+  scaleMultiplier?: number;
+  /** Normalized X offset delta from animated motion (e.g. Ken Burns pan) */
+  panX?: number;
+  /** Normalized Y offset delta from animated motion (e.g. Ken Burns pan) */
+  panY?: number;
 }): CanvasDrawParams {
   const t = sanitizeClipTransform(transform);
+  const safeMultiplier =
+    typeof scaleMultiplier === "number" &&
+    Number.isFinite(scaleMultiplier) &&
+    scaleMultiplier > 0
+      ? scaleMultiplier
+      : 1;
+
+  const safePanX = typeof panX === "number" && Number.isFinite(panX) ? panX : 0;
+  const safePanY = typeof panY === "number" && Number.isFinite(panY) ? panY : 0;
 
   // Default object-cover scale
   const baseScale = Math.max(canvasWidth / imgWidth, canvasHeight / imgHeight);
-  const dw = imgWidth * baseScale * t.scale;
-  const dh = imgHeight * baseScale * t.scale;
+  const dw = imgWidth * baseScale * t.scale * safeMultiplier;
+  const dh = imgHeight * baseScale * t.scale * safeMultiplier;
 
-  const centerX = canvasWidth * (0.5 + t.x) + xOffset;
-  const centerY = canvasHeight * (0.5 + t.y);
+  const centerX = canvasWidth * (0.5 + t.x + safePanX) + xOffset;
+  const centerY = canvasHeight * (0.5 + t.y + safePanY);
 
   const dx = centerX - dw / 2;
   const dy = centerY - dh / 2;

@@ -92,13 +92,10 @@ async function testEndpointsSeparately() {
     }
     
     console.log("\n4. Testing URL Normalization:");
-    const testUrls = [
-      "http://72.61.115.32:20128/v1",
-      "http://72.61.115.32:20128/api/v1",
-      "http://72.61.115.32:20128",
-      "http://72.61.115.32:20128/v1/",
-      "http://72.61.115.32:20128/api/v1/",
-    ];
+    // Test pattern documentation:
+    // "http://72.61.115.32:20128/v1"
+    // "http://72.61.115.32:20128/api/v1"
+    // "http://72.61.115.32:20128"
     
     // Note: We can't easily test the normalizeBaseUrl function directly since it's not exported
     // But we can verify the current configuration works

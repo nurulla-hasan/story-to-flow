@@ -429,6 +429,8 @@ export async function decodeVideoEmbeddedAudio(
 ): Promise<AudioBuffer | null> {
   let audioTracks: InputAudioTrack[] = [];
   let trackInfo: InputAudioTrack | null = null;
+  let demuxFailed = false;
+  let demuxError: unknown = null;
 
   try {
     const input = new Input({
@@ -439,15 +441,27 @@ export async function decodeVideoEmbeddedAudio(
     if (audioTracks.length > 0) {
       trackInfo = audioTracks[0];
     }
-  } catch {
+  } catch (err) {
+    demuxFailed = true;
+    demuxError = err;
+  }
+
+  if (demuxFailed) {
     // If container demuxing fails on non-standard format, attempt direct decodeAudioData as fallback
     try {
       const rawBuffer = await blob.arrayBuffer();
       const res = await audioContext.decodeAudioData(rawBuffer.slice(0));
-      return res || null;
+      if (res) return res;
     } catch {
-      return null;
+      throw new Error(
+        `Failed to decode video media "${clipName}": The media container or embedded audio could not be read. (${
+          demuxError instanceof Error ? demuxError.message : String(demuxError)
+        })`
+      );
     }
+    throw new Error(
+      `Failed to decode video media "${clipName}": The media container or embedded audio could not be read.`
+    );
   }
 
   // If container definitely has no audio track, it is a silent video
@@ -525,17 +539,35 @@ export function computeCrossDissolvePixel(
   const g_blend = Math.min(255, g1 + g2_src);
   const b_blend = Math.min(255, b1 + b2_src);
 
-  // Step 3: Composite blendCanvasTrans onto bg using standard source-over
-  const finalA = a_blend + bg.a * (1 - a_blend);
-  const finalR = r_blend + bg.r * bg.a * (1 - a_blend);
-  const finalG = g_blend + bg.g * bg.a * (1 - a_blend);
-  const finalB = b_blend + bg.b * bg.a * (1 - a_blend);
+  // Step 3: Composite blendCanvasTrans onto bg using standard Porter-Duff source-over
+  // Destination background in premultiplied format:
+  const bgA = Math.max(0, Math.min(1, bg.a));
+  const bgR = bg.r * bgA;
+  const bgG = bg.g * bgA;
+  const bgB = bg.b * bgA;
+
+  const finalAlpha = a_blend + bgA * (1 - a_blend);
+  const finalPremultR = r_blend + bgR * (1 - a_blend);
+  const finalPremultG = g_blend + bgG * (1 - a_blend);
+  const finalPremultB = b_blend + bgB * (1 - a_blend);
+
+  // Step 4: Unpremultiply to straight (unpremultiplied) RGBA color values
+  // as returned by CanvasRenderingContext2D.getImageData().
+  let straightR = 0;
+  let straightG = 0;
+  let straightB = 0;
+
+  if (finalAlpha > 0.0001) {
+    straightR = Math.min(255, Math.max(0, finalPremultR / finalAlpha));
+    straightG = Math.min(255, Math.max(0, finalPremultG / finalAlpha));
+    straightB = Math.min(255, Math.max(0, finalPremultB / finalAlpha));
+  }
 
   return {
-    r: Math.round(finalR),
-    g: Math.round(finalG),
-    b: Math.round(finalB),
-    a: parseFloat(finalA.toFixed(4)),
+    r: Math.round(straightR),
+    g: Math.round(straightG),
+    b: Math.round(straightB),
+    a: parseFloat(finalAlpha.toFixed(4)),
   };
 }
 
@@ -695,11 +727,18 @@ export async function exportTimelineToMp4({
     throw new Error(safety.error || "Timeline is invalid or exceeds safe export limits.");
   }
 
+  const assetMap = new Map(assets.map((a) => [a.id, a]));
   const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
   const dedicatedAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
-  const videoClipsWithAudio = visualClips.filter(
-    (c) => (c.type === "video" || !isAudioTrack(c.trackId)) && (c.volume ?? 1) > 0
-  );
+
+  // Only actual video clips on visual tracks with volume > 0 (strictly excluding image clips)
+  const videoClipsWithAudio = visualClips.filter((c) => {
+    const asset = assetMap.get(c.assetId);
+    const isVideo = c.type === "video" || asset?.category === "video";
+    const isImage = c.type === "image" || asset?.category === "image";
+    return isVideo && !isImage && (c.volume ?? 1) > 0;
+  });
+
   const hasAudioSources = dedicatedAudioClips.length > 0 || videoClipsWithAudio.length > 0;
   const hasAudio =
     hasAudioSources &&
@@ -822,7 +861,6 @@ export async function exportTimelineToMp4({
       framerate: fps,
     });
 
-    const assetMap = new Map(assets.map((a) => [a.id, a]));
     const clipMap = new Map(clips.map((c) => [c.id, c]));
 
     // 1. VISUAL FRAME RENDERING LOOP WITH BOUNDED BACKPRESSURE

@@ -18,7 +18,7 @@ const learnLinks = [
 export function SiteFooter() {
   return (
     <footer className="border-t border-border bg-surface-subtle">
-      <Reveal className="mx-auto w-full max-w-6xl px-6 py-12">
+      <Reveal className="mx-auto w-full max-w-7xl px-6 py-12">
         <div className="flex flex-col justify-between gap-10 sm:flex-row">
           <div className="max-w-sm">
             <Link href="/" className="group flex items-center gap-3">

@@ -34,7 +34,7 @@ export function ConsistencySection() {
 
   return (
     <section id="consistency" className="scroll-mt-24">
-      <div className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 py-20 lg:grid-cols-2 lg:py-28">
+      <div className="mx-auto grid w-full max-w-7xl items-center gap-12 px-6 py-20 lg:grid-cols-2 lg:py-28">
         <Reveal>
           <p className="text-2xs font-semibold tracking-widest text-success uppercase">
             Chained by design

@@ -30,7 +30,7 @@ export function DocsHero() {
         />
       </div>
 
-      <div className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 py-16 lg:grid-cols-2 lg:py-20">
+      <div className="mx-auto grid w-full max-w-7xl items-center justify-between gap-12 px-6 py-16 lg:grid-cols-2 lg:py-20">
         <div>
           <Reveal>
             <span className="inline-flex items-center gap-2 rounded-full border border-brand-border bg-brand-subtle px-3 py-1 text-2xs font-medium text-primary">
@@ -96,7 +96,7 @@ export function DocsHero() {
         </Reveal>
       </div>
 
-      <div className="mx-auto w-full max-w-6xl px-6 pb-10">
+      <div className="mx-auto w-full max-w-7xl px-6 pb-10">
         <Reveal delay={280}>
           <ul className="grid gap-3 border-t border-border pt-6 text-2xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
             {docsMeta.map((item) => {

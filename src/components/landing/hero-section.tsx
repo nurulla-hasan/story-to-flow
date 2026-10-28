@@ -90,7 +90,7 @@ export function HeroSection() {
         />
       </div>
 
-      <div className="mx-auto grid w-full max-w-6xl items-center gap-16 px-6 py-20 lg:grid-cols-2 lg:py-28">
+      <div className="mx-auto grid w-full max-w-7xl items-center gap-16 px-6 py-20 lg:grid-cols-2 lg:py-28">
         <div>
           <Reveal>
             <span className="inline-flex items-center gap-2 rounded-full border border-brand-border bg-brand-subtle px-3 py-1 text-2xs font-medium text-primary">

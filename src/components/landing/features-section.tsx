@@ -25,7 +25,7 @@ export function FeaturesSection() {
 
   return (
     <section id="features" className="scroll-mt-24">
-      <div className="mx-auto w-full max-w-6xl px-6 py-20 lg:py-28">
+      <div className="mx-auto w-full max-w-7xl px-6 py-20 lg:py-28">
         <Reveal className="mx-auto max-w-2xl text-center">
           <p className="text-2xs font-semibold tracking-widest text-primary uppercase">
             Built for continuity

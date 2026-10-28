@@ -14,7 +14,7 @@ export default function DocsPage() {
     <>
       <DocsHero />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-8 px-6 py-12 lg:grid-cols-4 lg:gap-10 lg:py-16">
+      <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-12 lg:grid-cols-4 lg:gap-10 lg:py-16">
         <aside className="lg:col-span-1">
           <DocsToc />
         </aside>

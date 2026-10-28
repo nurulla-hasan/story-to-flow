@@ -43,7 +43,7 @@ import {
   isVisualTrack,
 } from "@/types/timeline";
 import { findAdjacentClipPairs } from "@/lib/transition-helpers";
-import { calculateLeftTrim, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
+import { calculateLeftTrim, calculateRightTrim, applyRippleExtend, recalculateLeftTrimInPoint } from "@/lib/timeline-trim";
 import {
   clampLeftTrimToPreventOverlap,
 } from "@/lib/timeline-overlap";
@@ -512,7 +512,7 @@ export function TimelineDock() {
               ...c,
               startTime: nonOverlapping.startTime,
               duration: nonOverlapping.duration,
-              inPoint: trimResult.inPoint,
+              inPoint: recalculateLeftTrimInPoint(clip, nonOverlapping.startTime),
               outPoint: trimResult.outPoint,
             }
           : c

@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import { isVisualTrack, getVisualTrackLayerIndex } from "@/types/timeline";
-import { getTransitionProgress } from "@/lib/transition-helpers";
+import { getTransitionProgress, getCrossDissolveWeights } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
 import { sanitizeClipTransform } from "@/lib/clip-transform";
 import { getClipMotionAtTime } from "@/lib/zoom-effect";
@@ -629,11 +629,23 @@ export function PreviewCanvasPanel() {
 
                     const renderTransitionContent = () => {
                       if (transition.type === "cross-dissolve") {
+                        const { fromOpacity, toOpacity } = getCrossDissolveWeights(progress);
                         return (
-                          <>
-                            {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
-                            {renderVisualNode(toClip, { opacity: progress, zIndex: 2 })}
-                          </>
+                          <div
+                            className="absolute inset-0"
+                            style={{ isolation: "isolate", backgroundColor: "#000" }}
+                          >
+                            {renderVisualNode(fromClip, {
+                              opacity: fromOpacity,
+                              zIndex: 1,
+                              mixBlendMode: "plus-lighter" as React.CSSProperties["mixBlendMode"],
+                            })}
+                            {renderVisualNode(toClip, {
+                              opacity: toOpacity,
+                              zIndex: 2,
+                              mixBlendMode: "plus-lighter" as React.CSSProperties["mixBlendMode"],
+                            })}
+                          </div>
                         );
                       }
 

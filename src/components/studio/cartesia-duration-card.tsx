@@ -236,6 +236,12 @@ export function CartesiaDurationCard({
           </div>
         </div>
 
+        {totalSeconds > 300 && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs leading-relaxed text-destructive">
+            This voiceover is longer than the browser MP4 export limit of 5 minutes (300 seconds). Scene generation can continue, but this project must be shortened or exported through another supported path.
+          </div>
+        )}
+
         {/* 2. Visual Generation Settings Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {/* Visual Asset Mode */}

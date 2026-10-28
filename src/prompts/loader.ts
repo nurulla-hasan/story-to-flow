@@ -75,6 +75,15 @@ export function loadMasterPrompt(version: string = MASTER_PROMPT_VERSION): Maste
     );
   }
 
+  // A prompt file that contains only a title/version marker is not a valid historical prompt.
+  // Reject truncated version stubs instead of silently treating them as production instructions.
+  if (trimmedContent.length < 1000) {
+    throw new Error(
+      `Master Prompt ${version} appears incomplete (${trimmedContent.length} characters). ` +
+      "Restore the complete prompt text before loading this version."
+    );
+  }
+
   // Return prompt with metadata
   return {
     content: trimmedContent,

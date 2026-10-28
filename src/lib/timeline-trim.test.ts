@@ -5,6 +5,7 @@ import {
   calculateRightTrim,
   snapTimestamp,
   MIN_CLIP_DURATION,
+  recalculateLeftTrimInPoint,
 } from "./timeline-trim";
 
 describe("Left-Edge Trim Math & Anchoring", () => {
@@ -201,4 +202,27 @@ describe("Snap Timestamp Helper", () => {
     expect(res.snappedTime).toBe(4.05);
     expect(res.snapGuide).toBeNull();
   });
+
+  it("keeps the source in-point aligned when left-trim collision prevention clamps the timeline start", () => {
+    const clip: TimelineClip = {
+      id: "video-clamp",
+      assetId: "asset-video",
+      name: "source.mp4",
+      type: "video",
+      trackId: "visual-1",
+      startTime: 5,
+      duration: 8,
+      inPoint: 2,
+      outPoint: 18,
+      sourceDuration: 30,
+      speed: 2,
+    };
+
+    // The clamped timeline start is 0.5s later than the clip's old start,
+    // so the source in-point must advance by 0.5 * 2 = 1 second.
+    expect(recalculateLeftTrimInPoint(clip, 5.5)).toBe(3);
+    // A requested leftward trim cannot move the source in-point below zero.
+    expect(recalculateLeftTrimInPoint(clip, 4)).toBe(0);
+  });
+
 });

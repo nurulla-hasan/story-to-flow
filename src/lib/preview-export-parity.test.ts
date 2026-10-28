@@ -11,6 +11,7 @@ import {
   validateTransitionDuration,
   areClipsAdjacentForTransition,
   getTransitionProgress,
+  getCrossDissolveWeights,
 } from "./transition-helpers";
 import { calculateExportPlan } from "./video-export-engine";
 import { calculateAudioGain } from "./audio-fade-helpers";
@@ -79,6 +80,23 @@ describe("Preview/Export Parity — Audio Tracks & Multi-Track Mixing (C-04)", (
     // Export plan counts both tracks
     const plan = calculateExportPlan([voiceover, bgMusic], 30);
     expect(plan.audioClipsCount).toBe(2);
+  });
+});
+
+describe("Preview/Export Parity — Cross-Dissolve Blending", () => {
+  it("uses linear additive weights that sum to one at all transition progress points", () => {
+    for (const progress of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]) {
+      const weights = getCrossDissolveWeights(progress);
+      expect(weights.fromOpacity).toBeCloseTo(1 - progress, 10);
+      expect(weights.toOpacity).toBeCloseTo(progress, 10);
+      expect(weights.fromOpacity + weights.toOpacity).toBeCloseTo(1, 10);
+    }
+  });
+
+  it("clamps invalid/out-of-range progress to safe endpoints", () => {
+    expect(getCrossDissolveWeights(-1)).toEqual({ fromOpacity: 1, toOpacity: 0 });
+    expect(getCrossDissolveWeights(2)).toEqual({ fromOpacity: 0, toOpacity: 1 });
+    expect(getCrossDissolveWeights(Number.NaN)).toEqual({ fromOpacity: 1, toOpacity: 0 });
   });
 });
 

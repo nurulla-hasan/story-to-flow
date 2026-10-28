@@ -138,6 +138,25 @@ export default function StudioPage() {
     setLocalStory(val);
     setValidationError(null);
 
+    // A changed source story invalidates every downstream artifact derived from it.
+    if (val !== story) {
+      setLocalVoiceoverScript("");
+      setLocalMinutes("");
+      setLocalSeconds("");
+      setLocalStage(1);
+      setLocalResult(null);
+      if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+      if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+      saveStoredStudioData({
+        voiceoverScript: "",
+        voiceoverDurationMinutes: "",
+        voiceoverDurationSeconds: "",
+        actualVoiceoverDuration: null,
+        currentStage: 1,
+        lastResult: null,
+      });
+    }
+
     if (storySaveTimeoutRef.current) {
       clearTimeout(storySaveTimeoutRef.current);
     }
@@ -148,19 +167,48 @@ export default function StudioPage() {
 
   const handleClear = () => {
     setLocalStory("");
+    setLocalVoiceoverScript("");
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalStage(1);
+    setLocalResult(null);
     setValidationError(null);
-    if (storySaveTimeoutRef.current) {
-      clearTimeout(storySaveTimeoutRef.current);
-    }
+    if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
     saveStoredStory("");
+    saveStoredStudioData({
+      voiceoverScript: "",
+      voiceoverDurationMinutes: "",
+      voiceoverDurationSeconds: "",
+      actualVoiceoverDuration: null,
+      currentStage: 1,
+      lastResult: null,
+    });
   };
 
   // Voiceover script change handler
   const handleVoiceoverChange = (val: string) => {
     setLocalVoiceoverScript(val);
-    if (voiceoverSaveTimeoutRef.current) {
-      clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+
+    // Any narration edit invalidates its previously measured Cartesia duration and scene plan.
+    if (val !== voiceoverScript) {
+      setLocalMinutes("");
+      setLocalSeconds("");
+      setLocalResult(null);
+      if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+      saveStoredStudioData({
+        voiceoverScript: val,
+        voiceoverDurationMinutes: "",
+        voiceoverDurationSeconds: "",
+        actualVoiceoverDuration: null,
+        currentStage: 2,
+        lastResult: null,
+      });
+      return;
     }
+
     voiceoverSaveTimeoutRef.current = setTimeout(() => {
       saveStoredStudioData({ voiceoverScript: val });
     }, 400);
@@ -201,6 +249,19 @@ export default function StudioPage() {
       setValidationError("Please enter your story first to generate the voiceover script.");
       return;
     }
+
+    // Regeneration creates a new audio script, so the old measured duration and scenes are stale.
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalResult(null);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    saveStoredStudioData({
+      voiceoverDurationMinutes: "",
+      voiceoverDurationSeconds: "",
+      actualVoiceoverDuration: null,
+      currentStage,
+      lastResult: null,
+    });
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();

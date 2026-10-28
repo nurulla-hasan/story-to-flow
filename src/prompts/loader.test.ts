@@ -8,7 +8,7 @@ import {
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 
 describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
-  it("loads active master prompt v1.6.1 without errors and preserves historical versions", () => {
+  it("loads active v1.6.1 and complete historical v1.5.8, while rejecting truncated version stubs", () => {
     expect(MASTER_PROMPT_VERSION).toBe("v1.6.1");
     const masterPrompt = loadMasterPrompt();
 
@@ -17,23 +17,16 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
     expect(masterPrompt.content.length).toBeGreaterThan(1000);
     expect(masterPrompt.content).toContain("Version 1.6.1");
 
-    // Historical v1.6.0 preservation verification
-    const v160Prompt = loadMasterPrompt("v1.6.0");
-    expect(v160Prompt).toBeDefined();
-    expect(v160Prompt.metadata.version).toBe("v1.6.0");
-    expect(v160Prompt.content).toContain("Version 1.6.0");
-
-    // Historical v1.5.9 preservation verification
-    const v159Prompt = loadMasterPrompt("v1.5.9");
-    expect(v159Prompt).toBeDefined();
-    expect(v159Prompt.metadata.version).toBe("v1.5.9");
-    expect(v159Prompt.content).toContain("Version 1.5.9");
+    // These two files currently contain only headers, not complete historical prompt bodies.
+    expect(() => loadMasterPrompt("v1.6.0")).toThrow("appears incomplete");
+    expect(() => loadMasterPrompt("v1.5.9")).toThrow("appears incomplete");
 
     // Historical v1.5.8 preservation verification
     const v158Prompt = loadMasterPrompt("v1.5.8");
     expect(v158Prompt).toBeDefined();
     expect(v158Prompt.metadata.version).toBe("v1.5.8");
     expect(v158Prompt.content).toContain("Version 1.5.8");
+    expect(v158Prompt.content.length).toBeGreaterThan(1000);
   });
 
   it("strictly enforces hero video source asset duration rule in v1.6.1", () => {
@@ -213,6 +206,8 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
     expect(msg6s).toContain("[🎥 HERO VIDEO — 6.0s]");
     expect(msg6s).toContain("Create one continuous 6.0-second animated video shot");
     expect(msg6s).toContain("Strictly 6.0 seconds duration.");
+    expect(msg6s).toContain("Every shot must be an animated video shot of strictly 6.0 seconds.");
+    expect(msg6s).not.toContain("Every shot must be an animated video shot of strictly 4.0 seconds.");
 
     // Test 8s duration
     const settings8s = {
@@ -229,5 +224,8 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
     expect(msg8s).toContain("[🎥 HERO VIDEO — 8.0s]");
     expect(msg8s).toContain("Create one continuous 8.0-second animated video shot");
     expect(msg8s).toContain("Strictly 8.0 seconds duration.");
+    expect(msg8s).toContain("High-impact moments, climaxes, and key action beats should be video shots (strictly 8.0 seconds)");
+    expect(msg8s).not.toContain("High-impact moments, climaxes, and key action beats should be video shots (strictly 4.0 seconds)");
+    expect(msg8s).not.toContain("Static-image shots should default to approximately Auto seconds per shot");
   });
 });

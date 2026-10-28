@@ -365,6 +365,23 @@ describe("Export Cancellation and Resource Cleanup Guarantees", () => {
     await expect(promise).rejects.toThrow("Failed to decode video frame at 2.50s.");
   });
 
+  it("does not skip a new 30fps frame because it is less than 50ms from the previous timestamp", async () => {
+    const listeners: Record<string, (() => void) | undefined> = {};
+    const mockVideo = {
+      currentTime: 0,
+      readyState: 2,
+      addEventListener: (event: string, cb: () => void) => { listeners[event] = cb; },
+      removeEventListener: (event: string) => { delete listeners[event]; },
+    } as unknown as HTMLVideoElement;
+
+    const nextFrame = 1 / 30;
+    const promise = seekVideoElement(mockVideo, nextFrame);
+    expect(mockVideo.currentTime).toBeCloseTo(nextFrame, 5);
+    expect(listeners.seeked).toBeTypeOf("function");
+    listeners.seeked?.();
+    await expect(promise).resolves.toBeUndefined();
+  });
+
   it("resolves promptly when video emits seeked event", async () => {
     const listeners: Record<string, (() => void) | undefined> = {};
     const mockVideo = {

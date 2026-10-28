@@ -9,7 +9,7 @@ import {
   getVisualTrackLayerIndex,
 } from "../types/timeline";
 import type { MediaAssetItem } from "./media-storage";
-import { getTransitionProgress } from "./transition-helpers";
+import { getTransitionProgress, getCrossDissolveWeights } from "./transition-helpers";
 import { calculateCanvasDrawParams } from "./clip-transform";
 import { getClipMotionAtTime } from "./zoom-effect";
 
@@ -241,6 +241,70 @@ function preloadImage(url: string, signal?: AbortSignal): Promise<HTMLImageEleme
 }
 
 /**
+ * Preload a video and wait until it has a decoded current frame before export begins.
+ * A source URL alone is not enough: currentTime=0 can otherwise be mistaken for a ready frame.
+ */
+export function preloadVideoElement(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs: number = 15_000
+): Promise<HTMLVideoElement> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Export cancelled by user"));
+      return;
+    }
+
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
+      video.removeEventListener("error", onError);
+      signal?.removeEventListener("abort", onAbort);
+      if (timer) clearTimeout(timer);
+    };
+
+    const onReady = () => {
+      if (video.readyState >= 2) {
+        cleanup();
+        resolve(video);
+      }
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error(`Failed to load video asset: ${url}`));
+    };
+    const onAbort = () => {
+      cleanup();
+      try {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } catch {}
+      reject(new Error("Export cancelled by user"));
+    };
+
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("canplay", onReady);
+    video.addEventListener("error", onError);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Video preload timed out after ${timeoutMs}ms: ${url}`));
+    }, timeoutMs);
+
+    video.src = url;
+    video.load();
+  });
+}
+
+/**
  * Seek HTMLVideoElement with safe timeout, error rejection, and abort signal.
  * Ensures an unresolved seek or decoding failure does not silently proceed and export a stale frame.
  */
@@ -256,7 +320,9 @@ export function seekVideoElement(
       return;
     }
 
-    if (Math.abs(video.currentTime - time) < 0.05) {
+    // 50ms is wider than a 30fps frame (33.3ms), which could reuse the previous frame.
+    // Only skip seeking when the timestamp is effectively identical AND a decoded frame exists.
+    if (Math.abs(video.currentTime - time) < 0.001 && video.readyState >= 2) {
       resolve();
       return;
     }
@@ -362,6 +428,7 @@ export async function exportTimelineToMp4({
   const imageElements = new Map<string, HTMLImageElement>();
   const videoElements = new Map<string, HTMLVideoElement>();
   const canvas = document.createElement("canvas");
+  const transitionCanvas = document.createElement("canvas");
   let videoEncoder: VideoEncoder | null = null;
   let audioEncoder: AudioEncoder | null = null;
 
@@ -381,11 +448,7 @@ export async function exportTimelineToMp4({
           console.warn(`Could not preload image ${asset.name}:`, err);
         }
       } else if (asset.category === "video" && !videoElements.has(asset.id)) {
-        const vid = document.createElement("video");
-        vid.crossOrigin = "anonymous";
-        vid.src = asset.url;
-        vid.muted = true;
-        vid.playsInline = true;
+        const vid = await preloadVideoElement(asset.url, signal);
         videoElements.set(asset.id, vid);
       }
     }
@@ -393,8 +456,11 @@ export async function exportTimelineToMp4({
     // Setup Canvas for composition
     canvas.width = width;
     canvas.height = height;
+    transitionCanvas.width = width;
+    transitionCanvas.height = height;
     const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) throw new Error("Failed to get 2D rendering context for video canvas.");
+    const transitionCtx = transitionCanvas.getContext("2d", { alpha: true });
+    if (!ctx || !transitionCtx) throw new Error("Failed to get 2D rendering context for video canvas.");
 
     // Setup MP4 Muxer with fastStart: false to prevent caching all chunks in duplicate RAM arrays
     const muxer = new Muxer({
@@ -470,12 +536,17 @@ export async function exportTimelineToMp4({
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
 
-      const drawClip = async (clip: TimelineClip, alpha: number = 1.0, xOffset: number = 0) => {
+      const drawClip = async (
+        clip: TimelineClip,
+        alpha: number = 1.0,
+        xOffset: number = 0,
+        targetCtx: CanvasRenderingContext2D = ctx
+      ) => {
         const asset = assetMap.get(clip.assetId);
         if (!asset) return;
 
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+        targetCtx.save();
+        targetCtx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
         // Animated Ken Burns zoom & pan motion
         const motion = getClipMotionAtTime(clip, currentTime);
@@ -496,11 +567,11 @@ export async function exportTimelineToMp4({
               panX: motion.offsetX,
               panY: motion.offsetY,
             });
-            ctx.translate(centerX, centerY);
+            targetCtx.translate(centerX, centerY);
             if (rotation) {
-              ctx.rotate((rotation * Math.PI) / 180);
+              targetCtx.rotate((rotation * Math.PI) / 180);
             }
-            ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+            targetCtx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
           }
         } else if (asset.category === "video") {
           const vid = videoElements.get(asset.id);
@@ -521,15 +592,15 @@ export async function exportTimelineToMp4({
               panX: motion.offsetX,
               panY: motion.offsetY,
             });
-            ctx.translate(centerX, centerY);
+            targetCtx.translate(centerX, centerY);
             if (rotation) {
-              ctx.rotate((rotation * Math.PI) / 180);
+              targetCtx.rotate((rotation * Math.PI) / 180);
             }
-            ctx.drawImage(vid, -dw / 2, -dh / 2, dw, dh);
+            targetCtx.drawImage(vid, -dw / 2, -dh / 2, dw, dh);
           }
         }
 
-        ctx.restore();
+        targetCtx.restore();
       };
 
       // Check if an active transition is currently taking effect at currentTime
@@ -576,8 +647,18 @@ export async function exportTimelineToMp4({
 
         // 2. Draw the transition on its track layer
         if (transition.type === "cross-dissolve") {
-          await drawClip(fromClip, 1 - progress, 0);
-          await drawClip(toClip, progress, 0);
+          const { fromOpacity, toOpacity } = getCrossDissolveWeights(progress);
+          transitionCtx.clearRect(0, 0, width, height);
+          // Blend the two weighted frames additively on a transparent layer. Drawing
+          // both opacities over the main opaque canvas would bias the result toward black.
+          transitionCtx.globalCompositeOperation = "lighter";
+          try {
+            await drawClip(fromClip, fromOpacity, 0, transitionCtx);
+            await drawClip(toClip, toOpacity, 0, transitionCtx);
+          } finally {
+            transitionCtx.globalCompositeOperation = "source-over";
+          }
+          ctx.drawImage(transitionCanvas, 0, 0);
         } else if (transition.type === "fade-black") {
           if (progress < 0.5) {
             await drawClip(fromClip, 1 - progress * 2, 0);
@@ -650,6 +731,8 @@ export async function exportTimelineToMp4({
     imageElements.clear();
     canvas.width = 0;
     canvas.height = 0;
+    transitionCanvas.width = 0;
+    transitionCanvas.height = 0;
 
     // 2. AUDIO ENCODING (IF AUDIO TRACKS EXIST)
     if (hasAudio && audioClips.length > 0) {
@@ -842,5 +925,7 @@ export async function exportTimelineToMp4({
     imageElements.clear();
     canvas.width = 0;
     canvas.height = 0;
+    transitionCanvas.width = 0;
+    transitionCanvas.height = 0;
   }
 }

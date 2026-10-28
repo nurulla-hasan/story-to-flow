@@ -9,20 +9,21 @@
 
 import { loadMasterPrompt } from "@/prompts/loader";
 import type { ResolvedSettings } from "./settings";
-import type { VisualAssetMode, VideoSoundMode } from "./validation";
+import type { VisualAssetMode, VideoSoundMode, VideoAssetDuration } from "./validation";
 
-function getAssetModeDirective(mode: VisualAssetMode): string {
+function getAssetModeDirective(mode: VisualAssetMode, videoDurationSec: VideoAssetDuration): string {
+  const videoDurationLabel = `${videoDurationSec}.0s`;
   switch (mode) {
     case "All Images":
       return `VISUAL ASSET MODE DIRECTIVE:
 All Images Mode selected. Generate static-image prompts [🖼️ STATIC IMAGE] for every shot. Do not generate video-shot prompts. Every shot must be a static image.`;
     case "All Videos":
       return `VISUAL ASSET MODE DIRECTIVE:
-All Videos Mode selected. Generate video-shot prompts [🎥 HERO VIDEO — 4.0s] for every shot. Do not generate static-image prompts. Every shot must be an animated video shot of strictly 4.0 seconds.`;
+All Videos Mode selected. Generate video-shot prompts [🎥 HERO VIDEO — ${videoDurationLabel}] for every shot. Do not generate static-image prompts. Every shot must be an animated video shot of strictly ${videoDurationSec}.0 seconds.`;
     case "Hybrid":
     default:
       return `VISUAL ASSET MODE DIRECTIVE:
-Hybrid Mode selected (Default). Choose a sensible mix of static-image shots [🖼️ STATIC IMAGE] and video shots [🎥 HERO VIDEO — 4.0s] based on narrative importance, action, emotional beats, and continuity. High-impact moments, climaxes, and key action beats should be video shots (strictly 4.0 seconds); atmospheric, reflective, or dialogue scenes can be static images. Do not require every shot to be video, and avoid arbitrary alternating patterns.`;
+Hybrid Mode selected (Default). Choose a sensible mix of static-image shots [🖼️ STATIC IMAGE] and video shots [🎥 HERO VIDEO — ${videoDurationLabel}] based on narrative importance, action, emotional beats, and continuity. High-impact moments, climaxes, and key action beats should be video shots (strictly ${videoDurationSec}.0 seconds); atmospheric, reflective, or dialogue scenes can be static images. Do not require every shot to be video, and avoid arbitrary alternating patterns.`;
   }
 }
 
@@ -96,7 +97,7 @@ export function assembleSceneSystemMessage(
 
   const videoDurationSec = settings.videoAssetDuration || 4;
 
-  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode);
+  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode, videoDurationSec);
   const soundModeDirective = getVideoSoundDirective(settings.videoSoundMode);
 
   const sceneContext = `
@@ -126,7 +127,7 @@ CRITICAL SCENE VS. SHOT ARCHITECTURE:
 - A Shot is one visual composition used to depict part of that scene.
 - One scene can contain multiple shots! Do not force every story scene to last exactly as long as one image.
 - Do not treat the duration of a whole story scene as the duration of a single static image.
-- Static-image shots should default to approximately ${settings.staticFramePacing} seconds per shot (or adjusted to fit the narration beat naturally).
+- Static-image shots should default to approximately ${pacingText} per shot (or adjusted to fit the narration beat naturally).
 - Hero-video source assets must strictly match the selected duration (${videoDurationSec}.0 SECONDS).
 - The overall visual plan must provide complete, continuous coverage matching the actual voiceover duration (${actualDuration.toFixed(2)}s).
 
@@ -203,7 +204,7 @@ Maintain this chosen visual style consistently across all scenes.`
 expressive characters, consistent character designs, cohesive environments, attractive colors,
 and cinematic lighting appropriate to the story. Maintain consistent style across all scenes.`;
 
-  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode);
+  const assetModeDirective = getAssetModeDirective(settings.visualAssetMode, videoDurationSec);
   const soundModeDirective = getVideoSoundDirective(settings.videoSoundMode);
 
   const videoDurationSec = settings.videoAssetDuration || 4;

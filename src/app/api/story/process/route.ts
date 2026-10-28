@@ -57,11 +57,20 @@ export async function POST(request: NextRequest) {
 
     const {
       story,
-      settings: requestSettings,
+      settings: bodySettings,
       stage = "complete",
       voiceoverScript: bodyVoiceoverScript,
       actualVoiceoverDuration: bodyActualDuration,
     } = parseResult.data;
+
+    // Backward-compatible top-level videoAssetDuration is accepted by the schema;
+    // use it only when the nested production setting is not supplied.
+    const requestSettings = bodySettings || parseResult.data.videoAssetDuration !== undefined
+      ? {
+          ...bodySettings,
+          videoAssetDuration: bodySettings?.videoAssetDuration ?? parseResult.data.videoAssetDuration,
+        }
+      : undefined;
 
     // Resolve settings with defaults
     const resolvedSettings = resolveSettings(requestSettings);

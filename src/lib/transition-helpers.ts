@@ -14,6 +14,17 @@ export const MIN_TRANSITION_DURATION = 0.2; // 200ms
 export const DEFAULT_TRANSITION_DURATION = 0.5; // 500ms
 export const MAX_TRANSITION_DURATION = 2.0; // 2 seconds max
 
+export interface CrossDissolveWeights {
+  fromOpacity: number;
+  toOpacity: number;
+}
+
+/** Linear weights for a true cross-dissolve; consumers must use additive blending. */
+export function getCrossDissolveWeights(progress: number): CrossDissolveWeights {
+  const p = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  return { fromOpacity: 1 - p, toOpacity: p };
+}
+
 /**
  * Validate and clamp transition duration based on clip boundaries.
  * A transition duration must not exceed half the length of either connecting clip.

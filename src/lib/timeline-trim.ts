@@ -126,6 +126,22 @@ export function snapTimestamp(
 
 export const RIPPLE_EPSILON = 0.01; // 10ms tolerance for identifying downstream clips
 
+/** Recalculate the source in-point when collision prevention adjusts a left trim. */
+export function recalculateLeftTrimInPoint(
+  clip: TimelineClip,
+  clampedStartTime: number
+): number {
+  const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+  const hasMediaWithSource =
+    (clip.type === "video" || clip.type === "audio") &&
+    typeof clip.sourceDuration === "number" &&
+    clip.sourceDuration > 0;
+  if (!hasMediaWithSource) return 0;
+
+  const inPoint = clip.inPoint + (clampedStartTime - clip.startTime) * speed;
+  return parseFloat(Math.max(0, inPoint).toFixed(3));
+}
+
 /**
  * Applies ripple editing to shift downstream clips rightward when a clip's duration is extended,
  * or leftward when reduced during an ongoing interactive gesture relative to its original end boundary.

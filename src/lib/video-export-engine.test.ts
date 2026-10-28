@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import type { InputAudioTrack } from "mediabunny";
 import type { TimelineClip } from "../types/timeline";
 import type { MediaAssetItem } from "./media-storage";
 import {
@@ -694,7 +695,7 @@ describe("Export Cancellation and Resource Cleanup Guarantees", () => {
       expect(mockAudioContext.decodeAudioData).not.toHaveBeenCalled();
     });
 
-    it("inspectVideoAudioTrack: genuinely parses track headers from reproducible audio-bearing MP4 fixture (no hard-coded paths)", async () => {
+    it("inspectVideoAudioTrack: genuinely parses track headers from reproducible audio-bearing MP4 fixture (validates container demux & track metadata)", async () => {
       // Reproducibly generated valid MP4 with real AVC video track and AAC audio track in memory
       const realAudioMp4Blob = createReproducibleAudioBearingMp4Blob();
 
@@ -705,7 +706,10 @@ describe("Export Cancellation and Resource Cleanup Guarantees", () => {
       expect(trackInfo.numberOfChannels).toBe(2);
     });
 
-    it("decodeVideoEmbeddedAudio (Real Media Test): genuinely demuxes audio-bearing MP4 and calls audioContext.decodeAudioData", async () => {
+    it("decodeVideoEmbeddedAudio (Container Demux & Dispatch Test): demuxes audio-bearing MP4 and dispatches to audioContext.decodeAudioData (validates demux & dispatch; does not prove browser-level AAC decompression)", async () => {
+      // NOTE: This test proves that container demuxing extracts track headers and dispatches
+      // the slice to audioContext.decodeAudioData. The actual decompression of AAC to PCM is a
+      // browser-provided C++ capability; in headless Node.js, decodeAudioData's return value is mocked.
       const realAudioMp4Blob = createReproducibleAudioBearingMp4Blob();
       const mockBuffer = {
         sampleRate: 48000,
@@ -722,31 +726,93 @@ describe("Export Cancellation and Resource Cleanup Guarantees", () => {
       expect(mockAudioContext.decodeAudioData).toHaveBeenCalledTimes(1);
     });
 
-    it("decodeVideoEmbeddedAudio (Unit/Fallback Test): exercises AudioBufferSink fallback path when decodeAudioData rejects", async () => {
-      // Mock track with AudioDecoder environment present
-      const fakeBlob = new Blob([new Uint8Array(64)], { type: "video/mp4" });
+    it("decodeVideoEmbeddedAudio (Branch-Coverage Fallback Test): specifically reaches AudioBufferSink fallback when demux succeeds, decodeAudioData rejects, and AudioDecoder is present", async () => {
+      // Genuinely valid audio-bearing MP4: demux succeeds and finds trackInfo!
+      const realAudioMp4Blob = createReproducibleAudioBearingMp4Blob();
 
-      // Mock audio context where decodeAudioData fails (e.g. browser container demux error)
-      const mockMergedBuffer = {
-        sampleRate: 48000,
-        numberOfChannels: 2,
-        length: 480,
-        duration: 0.01,
-        getChannelData: () => new Float32Array(480),
-      } as unknown as AudioBuffer;
-
+      // audioContext where direct decodeAudioData rejects (simulates browser container rejection)
       const mockAudioContext = {
-        decodeAudioData: vi.fn().mockRejectedValue(new Error("Container unsupported")),
-        createBuffer: vi.fn().mockReturnValue(mockMergedBuffer),
+        decodeAudioData: vi.fn().mockRejectedValue(new Error("Container decodeAudioData unsupported")),
+        createBuffer: (channels: number, length: number, sampleRate: number) => {
+          const channelData = Array.from({ length: channels }, () => new Float32Array(length));
+          return {
+            sampleRate,
+            numberOfChannels: channels,
+            length,
+            duration: length / sampleRate,
+            getChannelData: (ch: number) => channelData[ch],
+          } as unknown as AudioBuffer;
+        },
       } as unknown as BaseAudioContext;
 
-      // When decodeAudioData fails on un-demuxable format, it rejects with actionable error
-      await expect(
-        decodeVideoEmbeddedAudio(fakeBlob, "fallback_test.mp4", mockAudioContext)
-      ).rejects.toThrow("The media container or embedded audio could not be read");
+      // Mock AudioDecoder presence on globalThis for the fallback branch
+      const globalWithAudioDecoder = globalThis as unknown as { AudioDecoder?: unknown };
+      const originalAudioDecoder = globalWithAudioDecoder.AudioDecoder;
+      globalWithAudioDecoder.AudioDecoder = class MockAudioDecoder {};
+
+      try {
+        let sinkFactoryCalled = false;
+        let sinkIterated = false;
+
+        const mockChunkBuffer = {
+          sampleRate: 48000,
+          numberOfChannels: 2,
+          length: 480,
+          duration: 0.01,
+          getChannelData: () => new Float32Array(480).fill(0.75),
+        } as unknown as AudioBuffer;
+
+        const options = {
+          createAudioBufferSink: (track: InputAudioTrack) => {
+            sinkFactoryCalled = true;
+            expect(track.codec).toBe("aac");
+            return {
+              buffers: async function* () {
+                sinkIterated = true;
+                yield {
+                  buffer: mockChunkBuffer,
+                  timestamp: 0.0,
+                  duration: 0.01,
+                };
+              },
+            };
+          },
+        };
+
+        const result = await decodeVideoEmbeddedAudio(
+          realAudioMp4Blob,
+          "hero_fallback.mp4",
+          mockAudioContext,
+          options
+        );
+
+        // Verify that the AudioBufferSink fallback branch was genuinely reached and exercised
+        expect(sinkFactoryCalled).toBe(true);
+        expect(sinkIterated).toBe(true);
+        expect(result).not.toBeNull();
+        expect(result!.length).toBe(480);
+        expect(result!.getChannelData(0)[0]).toBeCloseTo(0.75, 5);
+      } finally {
+        globalWithAudioDecoder.AudioDecoder = originalAudioDecoder;
+      }
     });
 
-    it("decodeVideoEmbeddedAudio: surfaces actionable error when container demuxing fails and audio cannot be read", async () => {
+    it("decodeVideoEmbeddedAudio (Branch-Coverage Error Test): throws actionable error with actual codec name when fallback sink yields no audio", async () => {
+      const realAudioMp4Blob = createReproducibleAudioBearingMp4Blob();
+
+      const mockAudioContext = {
+        decodeAudioData: vi.fn().mockRejectedValue(new Error("decodeAudioData failed")),
+      } as unknown as BaseAudioContext;
+
+      // When AudioDecoder is not available or sink yields no chunks, fails with actionable error
+      await expect(
+        decodeVideoEmbeddedAudio(realAudioMp4Blob, "unsupported_codec_hero.mp4", mockAudioContext)
+      ).rejects.toThrow(
+        'Failed to decode embedded audio in video "unsupported_codec_hero.mp4": The audio codec "aac" is unsupported by your browser.'
+      );
+    });
+
+    it("decodeVideoEmbeddedAudio (Container Failure Test): surfaces actionable error when container demuxing fails and direct decode also fails", async () => {
       const corruptBlob = new Blob([new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04])]);
       const failingAudioContext = {
         decodeAudioData: vi.fn().mockRejectedValue(new Error("Unable to decode audio data")),

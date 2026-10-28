@@ -414,6 +414,12 @@ export function assembleAudioBufferFromWrappedChunks(
   return merged;
 }
 
+export interface DecodeVideoAudioOptions {
+  createAudioBufferSink?: (track: InputAudioTrack) => {
+    buffers: () => AsyncIterable<{ buffer: AudioBuffer; timestamp: number; duration: number }>;
+  };
+}
+
 /**
  * Safely inspect and decode embedded audio from a video blob into an AudioBuffer.
  * - Uses mediabunny's container demuxer to reliably inspect track headers (ISO BMFF / MOV / WebM).
@@ -425,7 +431,8 @@ export function assembleAudioBufferFromWrappedChunks(
 export async function decodeVideoEmbeddedAudio(
   blob: Blob,
   clipName: string,
-  audioContext: BaseAudioContext
+  audioContext: BaseAudioContext,
+  options?: DecodeVideoAudioOptions
 ): Promise<AudioBuffer | null> {
   let audioTracks: InputAudioTrack[] = [];
   let trackInfo: InputAudioTrack | null = null;
@@ -477,7 +484,9 @@ export async function decodeVideoEmbeddedAudio(
     // If browser decodeAudioData failed, check if WebCodecs AudioDecoder / mediabunny sink can decode it
     if (typeof (globalThis as unknown as { AudioDecoder?: unknown }).AudioDecoder !== "undefined") {
       try {
-        const sink = new AudioBufferSink(trackInfo);
+        const sink = options?.createAudioBufferSink
+          ? options.createAudioBufferSink(trackInfo)
+          : new AudioBufferSink(trackInfo);
         const chunks: WrappedAudioBufferChunk[] = [];
         for await (const chunk of sink.buffers()) {
           chunks.push({

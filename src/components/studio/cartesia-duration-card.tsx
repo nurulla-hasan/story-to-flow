@@ -427,7 +427,12 @@ export function CartesiaDurationCard({
               <span>•</span>
               <span>Asset: {settings.visualAssetMode || "Hybrid"}</span>
               <span>•</span>
-              <span>Static Pacing: {settings.staticFramePacing ?? 4.0}s</span>
+              <span>
+                Static Pacing:{" "}
+                {settings.staticFramePacing === "Auto"
+                  ? "Auto"
+                  : `${settings.staticFramePacing ?? 4.0}s`}
+              </span>
               <span>•</span>
               <span>Video Asset: {videoDurationSec}.0s</span>
             </div>

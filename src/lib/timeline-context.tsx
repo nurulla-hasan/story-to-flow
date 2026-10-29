@@ -55,6 +55,7 @@ import {
 } from "@/lib/timeline-overlap";
 import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import { insertClipAtTime } from "@/lib/timeline-insert";
+import { hasLockedTrackGestureViolation } from "@/lib/timeline-locks";
 
 export interface TimelineContextType {
   isHydrated: boolean;

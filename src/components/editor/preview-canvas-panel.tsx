@@ -31,18 +31,16 @@ import { usePreviewCanvasViewport } from "@/lib/use-preview-canvas-viewport";
 import {
   isVisualTrack,
   getVisualTrackLayerIndex,
-  isTrackVisible,
   isTrackMuted,
   getTrackVolume,
   calculateEffectivePlaybackRate,
   normalizeVisualTrackId,
-  getVisualTracks,
   areClipsOnSameTrack,
 } from "@/types/timeline";
-import { getTransitionProgress } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
 import { PreviewTransformGizmo } from "@/components/editor/preview-transform-gizmo";
 import { PreviewMediaClip } from "@/components/editor/preview-media-clip";
+import { getActiveTransitionsByTrack, getActiveVisualClips, getVisibleVisualTracksInPaintOrder } from "@/lib/preview-composition";
 
 function formatTimecode(seconds: number): string {
   return formatFrameTimecode(seconds, 30);
@@ -118,54 +116,18 @@ export function PreviewCanvasPanel() {
   const clipMap = React.useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
   const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 
-  interface ActiveTransitionData {
-    transition: typeof transitions[0];
-    fromClip: typeof clips[0];
-    toClip: typeof clips[0];
-    progress: number;
-  }
-
-  // Map active transitions by normalized track ID so multiple visual tracks can have simultaneous transitions
-  const activeTransitionsByTrack = React.useMemo(() => {
-    const map = new Map<string, ActiveTransitionData>();
-    if (!isHydrated || transitions.length === 0) return map;
-
-    for (const trans of transitions) {
-      const fromClip = clipMap.get(trans.fromClipId);
-      const toClip = clipMap.get(trans.toClipId);
-      if (!fromClip || !toClip) continue;
-      // Skip transition if its visual track is hidden
-      if (!isTrackVisible(fromClip.trackId, tracks)) continue;
-
-      const progress = getTransitionProgress(playhead, trans, fromClip, toClip);
-      if (progress !== null) {
-        const key = normalizeVisualTrackId(fromClip.trackId);
-        if (!map.has(key)) {
-          map.set(key, { transition: trans, fromClip, toClip, progress });
-        }
-      }
-    }
-    return map;
-  }, [isHydrated, transitions, clipMap, playhead, tracks]);
-
-  // Find all active visual clips under current playhead sorted by z-order
-  // Excludes visual clips on hidden tracks
-  const visualClips = React.useMemo(
-    () => clips.filter((c) => isVisualTrack(c.trackId, tracks) && isTrackVisible(c.trackId, tracks)),
-    [clips, tracks]
+  const activeTransitionsByTrack = React.useMemo(
+    () => getActiveTransitionsByTrack(isHydrated, transitions, clipMap, playhead, tracks),
+    [isHydrated, transitions, clipMap, playhead, tracks],
+  );  const activeVisuals = React.useMemo(
+    () => getActiveVisualClips(clips, tracks, playhead, isHydrated),
+    [clips, tracks, playhead, isHydrated],
   );
-  const activeVisuals = React.useMemo(() => {
-    if (!isHydrated) return [];
-    return visualClips
-      .filter((c) => playhead >= c.startTime && playhead < c.startTime + c.duration)
-      .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
-  }, [isHydrated, visualClips, playhead, tracks]);
 
-  // Canonical visual tracks sorted from bottom (background z-index 1) to top (highest z-index)
-  const orderedVisibleVisualTracks = React.useMemo(() => {
-    const list = getVisualTracks(tracks).filter((t) => t.visible);
-    return [...list].reverse();
-  }, [tracks]);
+  const orderedVisibleVisualTracks = React.useMemo(
+    () => getVisibleVisualTracksInPaintOrder(tracks),
+    [tracks],
+  );
 
   // Synchronize ALL active video elements with timeline playhead and global playback speed
   React.useEffect(() => {

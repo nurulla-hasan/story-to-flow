@@ -5,9 +5,13 @@ import { Input, BlobSource, ALL_FORMATS, AudioBufferSink, InputAudioTrack } from
 import {
   type TimelineClip,
   type TimelineTransition,
+  type TimelineTrack,
   isVisualTrack,
   isAudioTrack,
   getVisualTrackLayerIndex,
+  isTrackMuted,
+  isTrackVisible,
+  getTrackVolume,
 } from "../types/timeline";
 import type { MediaAssetItem } from "./media-storage";
 import { getTransitionProgress } from "./transition-helpers";
@@ -78,7 +82,8 @@ export function checkWebCodecsSupport(): { supported: boolean; reason?: string }
  */
 export function calculateExportPlan(
   clips: TimelineClip[],
-  fps: number = 30
+  fps: number = 30,
+  tracks?: readonly TimelineTrack[]
 ): {
   totalDuration: number;
   totalFrames: number;
@@ -93,8 +98,8 @@ export function calculateExportPlan(
   return {
     totalDuration: maxEnd,
     totalFrames,
-    visualClipsCount: clips.filter((c) => isVisualTrack(c.trackId)).length,
-    audioClipsCount: clips.filter((c) => isAudioTrack(c.trackId)).length,
+    visualClipsCount: clips.filter((c) => isVisualTrack(c.trackId, tracks)).length,
+    audioClipsCount: clips.filter((c) => isAudioTrack(c.trackId, tracks)).length,
   };
 }
 
@@ -709,19 +714,23 @@ export interface AudioCandidateSelection {
 
 /**
  * Filter clips to determine audio candidates for MP4 export:
- * - Dedicated audio clips on audio tracks.
- * - Video clips on visual tracks with volume > 0 (strictly excluding images).
+ * - Dedicated audio clips on unmuted audio tracks.
+ * - Video clips on unmuted visual tracks with volume > 0 (strictly excluding images).
  */
 export function selectAudioEligibleClips(
   clips: TimelineClip[],
-  assets: MediaAssetItem[]
+  assets: MediaAssetItem[],
+  tracks?: readonly TimelineTrack[]
 ): AudioCandidateSelection {
   const assetMap = new Map(assets.map((a) => [a.id, a]));
-  const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
-  const dedicatedAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
+  const visualClips = clips.filter((c) => isVisualTrack(c.trackId, tracks));
+  const dedicatedAudioClips = clips.filter(
+    (c) => isAudioTrack(c.trackId, tracks) && !isTrackMuted(c.trackId, tracks)
+  );
 
-  // Only actual video clips on visual tracks with volume > 0 (strictly excluding image clips)
+  // Only actual video clips on unmuted visual tracks with volume > 0 (strictly excluding image clips)
   const videoClipsWithAudio = visualClips.filter((c) => {
+    if (isTrackMuted(c.trackId, tracks)) return false;
     const asset = assetMap.get(c.assetId);
     const isVideo = c.type === "video" || asset?.category === "video";
     const isImage = c.type === "image" || asset?.category === "image";
@@ -743,6 +752,7 @@ export function selectAudioEligibleClips(
 export async function exportTimelineToMp4({
   clips,
   transitions = [],
+  tracks,
   assets,
   options,
   onProgress,
@@ -750,6 +760,7 @@ export async function exportTimelineToMp4({
 }: {
   clips: TimelineClip[];
   transitions?: TimelineTransition[];
+  tracks?: readonly TimelineTrack[];
   assets: MediaAssetItem[];
   options: ExportOptions;
   onProgress: (progress: ExportProgress) => void;
@@ -766,17 +777,21 @@ export async function exportTimelineToMp4({
   const fps = options.fps || 30;
   const bitrate = options.bitrate || (width >= 1080 ? 5_000_000 : 2_500_000);
 
-  const plan = calculateExportPlan(clips, fps);
+  const plan = calculateExportPlan(clips, fps, tracks);
   const safety = validateExportSafety(plan, { width, height });
   if (!safety.safe) {
     throw new Error(safety.error || "Timeline is invalid or exceeds safe export limits.");
   }
 
   const assetMap = new Map(assets.map((a) => [a.id, a]));
-  const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
+  // Visual clips: only on visual tracks that are visible (hidden tracks are excluded)
+  const visualClips = clips.filter(
+    (c) => isVisualTrack(c.trackId, tracks) && isTrackVisible(c.trackId, tracks)
+  );
   const { dedicatedAudioClips, videoClipsWithAudio, hasAudioSources } = selectAudioEligibleClips(
     clips,
-    assets
+    assets,
+    tracks
   );
 
   const hasAudio =
@@ -1017,18 +1032,18 @@ export async function exportTimelineToMp4({
       // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
       const activeVisuals = visualClips
         .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
-        .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
+        .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
 
       if (activeTransitionData) {
         const { transition, fromClip, toClip, progress } = activeTransitionData;
-        const transitionLayerIndex = getVisualTrackLayerIndex(fromClip.trackId);
+        const transitionLayerIndex = getVisualTrackLayerIndex(fromClip.trackId, tracks);
 
         // 1. Draw any active visual clips on tracks below the transition layer
         for (const activeClip of activeVisuals) {
           if (
             activeClip.id !== fromClip.id &&
             activeClip.id !== toClip.id &&
-            getVisualTrackLayerIndex(activeClip.trackId) < transitionLayerIndex
+            getVisualTrackLayerIndex(activeClip.trackId, tracks) < transitionLayerIndex
           ) {
             await drawClip(activeClip, 1.0, 0);
           }
@@ -1079,7 +1094,7 @@ export async function exportTimelineToMp4({
           if (
             activeClip.id !== fromClip.id &&
             activeClip.id !== toClip.id &&
-            getVisualTrackLayerIndex(activeClip.trackId) > transitionLayerIndex
+            getVisualTrackLayerIndex(activeClip.trackId, tracks) > transitionLayerIndex
           ) {
             await drawClip(activeClip, 1.0, 0);
           }
@@ -1166,7 +1181,9 @@ export async function exportTimelineToMp4({
 
         if (decodedBuffer) {
           const speed = typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1.0;
-          const baseVol = typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
+          const trackVol = tracks ? getTrackVolume(clip.trackId, tracks) : 1.0;
+          const clipVol = typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
+          const baseVol = clipVol * trackVol;
           if (baseVol <= 0) continue;
 
           const source = offlineCtx.createBufferSource();
@@ -1226,8 +1243,10 @@ export async function exportTimelineToMp4({
           }
 
           const speed = typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1.0;
-          const baseVol =
+          const trackVol = tracks ? getTrackVolume(clip.trackId, tracks) : 1.0;
+          const clipVol =
             typeof clip.volume === "number" ? Math.max(0, Math.min(1, clip.volume)) : 1.0;
+          const baseVol = clipVol * trackVol;
           if (baseVol <= 0) continue;
 
           const source = offlineCtx.createBufferSource();

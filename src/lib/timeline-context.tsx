@@ -4,6 +4,9 @@ import * as React from "react";
 import type {
   TimelineClip,
   TimelineTransition,
+  TimelineTrack,
+  TrackType,
+  AudioTrackRole,
   TransitionType,
   TrackId,
 } from "@/types/timeline";
@@ -12,6 +15,9 @@ import {
   isAudioTrack,
   areClipsOnSameTrack,
   normalizeVisualTrackId,
+  getTrackById,
+  getVisualTracks,
+  getAudioTracks,
 } from "@/types/timeline";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
@@ -25,7 +31,6 @@ import {
   useTimelineStorage,
 } from "@/lib/timeline-storage";
 import {
-  clearRegisteredTimelineAssetReferences,
   registerTimelineAssetReferences,
 } from "@/lib/media-references";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
@@ -44,13 +49,14 @@ import { calculateAudioGain } from "@/lib/audio-fade-helpers";
 import { applyRippleExtend, applyRippleDelete } from "@/lib/timeline-trim";
 import {
   hasVisualOverlap,
-  findNextNonOverlappingStartTime,
+  findNextAvailableStartTime,
 } from "@/lib/timeline-overlap";
 import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import { insertClipAtTime } from "@/lib/timeline-insert";
 
 export interface TimelineContextType {
   isHydrated: boolean;
+  tracks: TimelineTrack[];
   clips: TimelineClip[];
   transitions: TimelineTransition[];
   selectedClipId: string | null;
@@ -86,7 +92,11 @@ export interface TimelineContextType {
   setZoom: (zoom: number) => void;
   selectClip: (clipId: string | null) => void;
   selectTransition: (transitionId: string | null) => void;
-  addAssetToTimeline: (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, trackId?: TrackId, startTime?: number) => void;
+  addAssetToTimeline: (
+    asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null },
+    trackId?: TrackId,
+    startTime?: number
+  ) => void;
   moveClip: (clipId: string, newStartTime: number) => void;
   trimClip: (clipId: string, newDuration: number) => void;
   setClipsTransient: (newClips: TimelineClip[]) => void;
@@ -102,6 +112,17 @@ export interface TimelineContextType {
   applyToAllTransitions: (sourceTransitionId: string) => { success: boolean; message: string; count: number };
   applyMotionToAllClips: (effect?: Partial<ClipZoomEffect> | null) => { success: boolean; message: string; count: number };
   fitVisualsToVoiceover: () => { success: boolean; message: string };
+
+  // Dynamic Multi-Track Management API
+  addTrack: (type: TrackType, role?: AudioTrackRole, name?: string) => TrackId;
+  updateTrack: (trackId: TrackId, updates: Partial<TimelineTrack>) => void;
+  renameTrack: (trackId: TrackId, newName: string) => void;
+  deleteTrack: (trackId: TrackId) => boolean;
+  reorderTrack: (trackId: TrackId, direction: "up" | "down") => void;
+  toggleTrackMute: (trackId: TrackId) => void;
+  toggleTrackLock: (trackId: TrackId) => void;
+  toggleTrackVisibility: (trackId: TrackId) => void;
+
   undo: () => void;
   redo: () => void;
 }
@@ -118,14 +139,15 @@ const emptySubscribe = () => () => {};
  */
 function reconcileTransitionsForClips(
   candidateTransitions: TimelineTransition[],
-  candidateClips: TimelineClip[]
+  candidateClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): TimelineTransition[] {
   return candidateTransitions
     .filter((t) => {
       const from = candidateClips.find((c) => c.id === t.fromClipId);
       const to = candidateClips.find((c) => c.id === t.toClipId);
       if (!from || !to) return false;
-      return areClipsAdjacentForTransition(from, to);
+      return areClipsAdjacentForTransition(from, to, tracks);
     })
     .map((t) => {
       const from = candidateClips.find((c) => c.id === t.fromClipId);
@@ -138,6 +160,7 @@ function reconcileTransitionsForClips(
 }
 
 interface HistorySnapshot {
+  tracks: TimelineTrack[];
   clips: TimelineClip[];
   transitions: TimelineTransition[];
 }
@@ -158,8 +181,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   // Local overrides during active session (starts null so server and client first render use default)
   const [localTitle, setLocalTitle] = React.useState<string | null>(null);
   const [localAspectRatio, setLocalAspectRatio] = React.useState<"9:16" | "16:9" | null>(null);
+  const [localTracks, setLocalTracks] = React.useState<TimelineTrack[] | null>(null);
   const [localClips, setLocalClips] = React.useState<TimelineClip[] | null>(null);
   const [localTransitions, setLocalTransitions] = React.useState<TimelineTransition[] | null>(null);
+
   // undefined means "inherit the stored selection"; null means "explicitly cleared".
   const [localSelectedClipId, setLocalSelectedClipId] = React.useState<string | null | undefined>(undefined);
   const [localSelectedTransitionId, setLocalSelectedTransitionId] = React.useState<string | null | undefined>(undefined);
@@ -174,10 +199,12 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   // Derived active state: perfectly identical between server and client first render
   const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
   const aspectRatio = localAspectRatio ?? (isHydrated ? (storedState.aspectRatio || "9:16") : (DEFAULT_TIMELINE_STATE.aspectRatio || "9:16"));
+  const tracks = localTracks ?? (isHydrated ? storedState.tracks : DEFAULT_TIMELINE_STATE.tracks);
   const clips = localClips ?? (isHydrated ? storedState.clips : DEFAULT_TIMELINE_STATE.clips);
   const transitions = localTransitions ?? (isHydrated ? storedState.transitions : DEFAULT_TIMELINE_STATE.transitions);
   const playhead = localPlayhead ?? (isHydrated ? storedState.playhead : DEFAULT_TIMELINE_STATE.playhead);
   const zoom = localZoom ?? (isHydrated ? storedState.zoom : DEFAULT_TIMELINE_STATE.zoom);
+
   const storedSelection = resolveTimelineSelection(
     storedState.selectedClipId,
     storedState.selectedTransitionId,
@@ -189,6 +216,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       localSelectedClipId !== undefined ? localSelectedClipId : storedSelection.selectedClipId;
     return candidate && clips.some((clip) => clip.id === candidate) ? candidate : null;
   }, [localSelectedClipId, storedSelection.selectedClipId, clips]);
+
   const selectedTransitionId = React.useMemo(() => {
     const candidate =
       localSelectedTransitionId !== undefined
@@ -199,7 +227,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       : null;
   }, [localSelectedTransitionId, storedSelection.selectedTransitionId, transitions]);
 
-  // Undo / Redo Stacks storing both clips and transitions atomically
+  // Undo / Redo Stacks storing tracks, clips and transitions atomically
   const undoStackRef = React.useRef<HistorySnapshot[]>([]);
   const redoStackRef = React.useRef<HistorySnapshot[]>([]);
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
@@ -249,11 +277,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (
       newClips: TimelineClip[],
       newTransitions: TimelineTransition[],
+      newTracks?: TimelineTrack[],
       newSelectedClipId?: string | null,
       newSelectedTransitionId?: string | null
     ) => {
       if (!isHydrated) return false;
       return persistPartial({
+        tracks: newTracks ?? tracks,
         clips: newClips,
         transitions: newTransitions,
         selectedClipId: newSelectedClipId !== undefined ? newSelectedClipId : selectedClipId,
@@ -261,7 +291,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           newSelectedTransitionId !== undefined ? newSelectedTransitionId : selectedTransitionId,
       });
     },
-    [isHydrated, persistPartial, selectedClipId, selectedTransitionId]
+    [isHydrated, persistPartial, tracks, selectedClipId, selectedTransitionId]
   );
 
   const dismissSaveError = React.useCallback(() => {
@@ -283,8 +313,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   // Push current snapshot to undo stack before a mutation
   const pushHistorySnapshot = React.useCallback(
-    (currentClips: TimelineClip[], currentTransitions: TimelineTransition[]) => {
+    (
+      currentClips: TimelineClip[],
+      currentTransitions: TimelineTransition[],
+      currentTracks?: TimelineTrack[]
+    ) => {
       undoStackRef.current.push({
+        tracks: JSON.parse(JSON.stringify(currentTracks ?? tracks)),
         clips: JSON.parse(JSON.stringify(currentClips)),
         transitions: JSON.parse(JSON.stringify(currentTransitions)),
       });
@@ -294,7 +329,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       redoStackRef.current = [];
       syncHistoryFlags();
     },
-    [syncHistoryFlags]
+    [tracks, syncHistoryFlags]
   );
 
   const setProjectTitle = React.useCallback(
@@ -337,96 +372,98 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (time: number) => {
       const clamped = Math.max(0, Math.min(totalDuration, time));
       setLocalPlayhead(clamped);
+      commitPlayhead(clamped);
     },
-    [totalDuration]
+    [totalDuration, commitPlayhead]
   );
 
-  // Step playhead forward by exactly 1 frame at 30 fps
   const stepFrameForward = React.useCallback(() => {
-    setIsPlaying(false);
     const next = stepFrame(playhead, 1, totalDuration, TIMELINE_FPS);
     setLocalPlayhead(next);
     commitPlayhead(next);
-  }, [totalDuration, playhead, commitPlayhead]);
+  }, [playhead, totalDuration, commitPlayhead]);
 
-  // Step playhead backward by exactly 1 frame at 30 fps
   const stepFrameBackward = React.useCallback(() => {
-    setIsPlaying(false);
     const next = stepFrame(playhead, -1, totalDuration, TIMELINE_FPS);
     setLocalPlayhead(next);
     commitPlayhead(next);
-  }, [totalDuration, playhead, commitPlayhead]);
+  }, [playhead, totalDuration, commitPlayhead]);
 
   const togglePlay = React.useCallback(() => {
-    setIsPlaying((prev) => !prev);
-  }, []);
+    setIsPlaying((prev) => {
+      const next = !prev;
+      if (!next) {
+        commitPlayhead(playhead);
+      }
+      return next;
+    });
+  }, [commitPlayhead, playhead]);
 
   const pause = React.useCallback(() => {
     setIsPlaying(false);
-  }, []);
+    commitPlayhead(playhead);
+  }, [commitPlayhead, playhead]);
 
-  const [playbackSpeed, setPlaybackSpeed] = React.useState<number>(1.0);
-  const playbackSpeedRef = React.useRef(playbackSpeed);
-  React.useEffect(() => {
-    playbackSpeedRef.current = playbackSpeed;
-  }, [playbackSpeed]);
+  const [playbackSpeed, setPlaybackSpeedState] = React.useState<number>(1.0);
+  const playbackSpeedRef = React.useRef<number>(1.0);
+  const setPlaybackSpeed = React.useCallback((speed: number) => {
+    playbackSpeedRef.current = speed;
+    setPlaybackSpeedState(speed);
+  }, []);
 
   const [masterVolume, setMasterVolume] = React.useState<number>(1.0);
   const [isMuted, setIsMuted] = React.useState<boolean>(false);
 
+  // Playhead Clock for Active Audio & Video Synchronization
   const isPlayingRef = React.useRef(isPlaying);
+  const playheadRef = React.useRef(playhead);
+
   React.useEffect(() => {
     isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-
-  // Persist the final playhead when playback pauses or reaches the end.
-  const wasPlayingRef = React.useRef(false);
-  React.useEffect(() => {
-    const wasPlaying = wasPlayingRef.current;
-    wasPlayingRef.current = isPlaying;
-    if (isHydrated && wasPlaying && !isPlaying) {
-      commitPlayhead(playhead);
-    }
-  }, [isPlaying, isHydrated, playhead, commitPlayhead]);
-
-  // Keep a ref to the latest playhead so the animation frame loop never needs to restart
-  const playheadRef = React.useRef(playhead);
-  React.useEffect(() => {
     playheadRef.current = playhead;
-  }, [playhead]);
+  }, [isPlaying, playhead]);
 
-  // Real-time playback loop for timeline clock
   React.useEffect(() => {
     if (!isPlaying) return;
 
-    let lastTime = performance.now();
-    let animId: number;
+    let animationFrameId: number;
+    let lastTimestamp = performance.now();
 
-    const tick = (now: number) => {
-      const dt = Math.max(0, (now - lastTime) / 1000);
-      lastTime = now;
+    const loop = (currentTimestamp: number) => {
+      const elapsedSec = ((currentTimestamp - lastTimestamp) / 1000) * playbackSpeedRef.current;
+      lastTimestamp = currentTimestamp;
 
-      setLocalPlayhead((prev) => {
-        const current = prev ?? playheadRef.current;
-        const next = current + dt * playbackSpeedRef.current;
-        if (next >= totalDuration) {
-          setIsPlaying(false);
-          return 0;
-        }
-        return next;
-      });
+      const current = playheadRef.current;
+      const targetDuration = Math.max(0.1, totalDuration);
 
-      animId = requestAnimationFrame(tick);
+      if (current >= targetDuration) {
+        setIsPlaying(false);
+        setLocalPlayhead(targetDuration);
+        commitPlayhead(targetDuration);
+        return;
+      }
+
+      const next = Math.min(targetDuration, current + elapsedSec);
+      playheadRef.current = next;
+      setLocalPlayhead(next);
+
+      animationFrameId = requestAnimationFrame(loop);
     };
 
-    animId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animId);
-  }, [isPlaying, totalDuration]);
+    animationFrameId = requestAnimationFrame(loop);
 
-  // Synchronize multi-track audio playback with timeline clock
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [isPlaying, totalDuration, commitPlayhead]);
+
+  // Synchronize dynamic multi-track audio playback with timeline clock
   React.useEffect(() => {
     const pool = audioElementsRef.current;
-    const allAudioClips = clips.filter((c) => isAudioTrack(c.trackId));
+    const trackMap = new Map(tracks.map((t) => [t.id, t]));
+
+    // Eligible audio clips: on tracks with type === "audio" (or audio track ID)
+    const allAudioClips = clips.filter((c) => isAudioTrack(c.trackId, tracks));
     const activeAudioClips = allAudioClips.filter(
       (c) => playhead >= c.startTime && playhead < c.startTime + c.duration
     );
@@ -442,8 +479,12 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Synchronize and mix each active audio clip concurrently
+    // Synchronize and mix each active audio clip concurrently across all tracks
     for (const clip of activeAudioClips) {
+      const track = trackMap.get(clip.trackId);
+      const isTrackMutedBool = track?.muted === true;
+      const trackVolume = typeof track?.volume === "number" && !isNaN(track.volume) ? track.volume : 1.0;
+
       const asset = assets.find((a) => a.id === clip.assetId);
       if (!asset || !asset.url) continue;
 
@@ -472,8 +513,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         clip.fadeOutDuration ?? 0
       );
 
-      const finalVolume = isMuted ? 0 : Math.max(0, Math.min(1.0, currentGain * masterVolume));
+      // Volume calculation combines clip volume/fade, track volume/mute, and global master volume/mute
+      const effectiveTrackVol = isTrackMutedBool ? 0 : trackVolume;
+      const finalVolume =
+        isMuted || isTrackMutedBool
+          ? 0
+          : Math.max(0, Math.min(1.0, currentGain * effectiveTrackVol * masterVolume));
+
       audioEl.volume = finalVolume;
+      audioEl.muted = isMuted || isTrackMutedBool || finalVolume === 0;
+
       const targetRate = (clip.speed || 1.0) * playbackSpeedRef.current;
       if (audioEl.playbackRate !== targetRate) {
         audioEl.playbackRate = targetRate;
@@ -485,7 +534,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         audioEl.pause();
       }
     }
-  }, [playhead, isPlaying, clips, assets, isMuted, masterVolume]);
+  }, [playhead, isPlaying, clips, tracks, assets, isMuted, masterVolume]);
 
   const selectClip = React.useCallback(
     (clipId: string | null) => {
@@ -506,72 +555,303 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       if (transitionId) setLocalSelectedClipId(null);
       persistPartial(
         transitionId
-          ? { selectedClipId: null, selectedTransitionId: transitionId }
+          ? { selectedTransitionId: transitionId, selectedClipId: null }
           : { selectedTransitionId: null }
       );
     },
     [persistPartial]
   );
 
-  // Clear selections that refer to clips/transitions removed while the editor
-  // was closed, so stale IDs do not reappear after hydration.
+  // Clear selections that refer to clips/transitions removed while the editor was closed
   React.useEffect(() => {
     if (!isHydrated) return;
 
-    if (
-      storedState.selectedClipId &&
-      !clips.some((clip) => clip.id === storedState.selectedClipId)
-    ) {
-      persistPartial({ selectedClipId: null });
-    }
+    const shouldClearClip =
+      Boolean(storedState.selectedClipId) &&
+      !clips.some((clip) => clip.id === storedState.selectedClipId);
 
-    if (
-      storedState.selectedTransitionId &&
+    const shouldClearTransition =
+      Boolean(storedState.selectedTransitionId) &&
       !transitions.some(
         (transition) =>
           transition.id === storedState.selectedTransitionId &&
           clips.some((clip) => clip.id === transition.fromClipId) &&
           clips.some((clip) => clip.id === transition.toClipId)
-      )
-    ) {
-      persistPartial({ selectedTransitionId: null });
+      );
+
+    if (shouldClearClip || shouldClearTransition) {
+      persistPartial({
+        selectedClipId: shouldClearClip ? null : storedState.selectedClipId,
+        selectedTransitionId: shouldClearTransition ? null : storedState.selectedTransitionId,
+      });
     }
   }, [
     isHydrated,
-    storedState.selectedClipId,
-    storedState.selectedTransitionId,
     clips,
     transitions,
+    storedState.selectedClipId,
+    storedState.selectedTransitionId,
     persistPartial,
   ]);
 
-  // Register asset references for safe media deletion without importing the
-  // timeline context from the media library.
+  // Keep asset references in sync with the current timeline clips
   React.useEffect(() => {
     if (!isHydrated) return;
     registerTimelineAssetReferences(clips);
   }, [isHydrated, clips]);
 
-  React.useEffect(() => {
-    return () => clearRegisteredTimelineAssetReferences();
-  }, []);
-
   const selectedClip = React.useMemo(() => {
-    if (!selectedClipId) return null;
     return clips.find((c) => c.id === selectedClipId) || null;
   }, [selectedClipId, clips]);
 
   const selectedTransition = React.useMemo(() => {
-    if (!selectedTransitionId) return null;
     return transitions.find((t) => t.id === selectedTransitionId) || null;
   }, [selectedTransitionId, transitions]);
 
+  // ==========================================
+  // DYNAMIC TRACK MANAGEMENT API
+  // ==========================================
+
+  // 1. ADD TRACK
+  const addTrack = React.useCallback(
+    (type: TrackType, role?: AudioTrackRole, customName?: string): TrackId => {
+      pushHistorySnapshot(clips, transitions, tracks);
+
+      let id: string;
+      let name: string;
+      let trackOrder: number;
+      let existingTracks = tracks;
+
+      if (type === "visual") {
+        let maxVisualNum = 0;
+        for (const t of tracks) {
+          if (t.type === "visual") {
+            const m = t.id.match(/^visual-(\d+)$/);
+            if (m) maxVisualNum = Math.max(maxVisualNum, parseInt(m[1], 10));
+          }
+        }
+        const nextNum = maxVisualNum + 1;
+        id = `visual-${nextNum}`;
+        name = customName || `Visual Layer ${nextNum}`;
+        // New visual overlay track is placed on top (order 0), shifting existing visual tracks down
+        trackOrder = 0;
+        existingTracks = tracks.map((t) =>
+          t.type === "visual" ? { ...t, order: t.order + 1 } : t
+        );
+      } else {
+        const rolePrefix = role || "audio";
+        let maxAudioNum = 0;
+        for (const t of tracks) {
+          if (t.type === "audio") {
+            const m = t.id.match(new RegExp(`^${rolePrefix}-(\\d+)$`));
+            if (m) maxAudioNum = Math.max(maxAudioNum, parseInt(m[1], 10));
+          }
+        }
+        const nextNum = maxAudioNum + 1;
+        id = `${rolePrefix}-${nextNum}`;
+
+        if (customName) {
+          name = customName;
+        } else if (role === "voiceover") {
+          name = nextNum === 1 ? "Voiceover" : `Voiceover ${nextNum}`;
+        } else if (role === "music") {
+          name = nextNum === 1 ? "Background Music" : `Music ${nextNum}`;
+        } else if (role === "sfx") {
+          name = `SFX ${nextNum}`;
+        } else if (role === "ambient") {
+          name = nextNum === 1 ? "Ambient Sound" : `Ambient ${nextNum}`;
+        } else {
+          name = `Audio Track ${nextNum}`;
+        }
+
+        const existingAudio = tracks.filter((t) => t.type === "audio");
+        trackOrder = existingAudio.length > 0 ? Math.max(...existingAudio.map((t) => t.order)) + 1 : 0;
+      }
+
+      const newTrack: TimelineTrack = {
+        id,
+        name,
+        type,
+        role: type === "audio" ? role || "general" : undefined,
+        order: trackOrder,
+        muted: false,
+        volume: 1.0,
+        visible: true,
+        locked: false,
+      };
+
+      const updatedTracks = [...existingTracks, newTrack];
+      setLocalTracks(updatedTracks);
+      persistTimeline(clips, transitions, updatedTracks);
+
+      return id;
+    },
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 2. UPDATE TRACK
+  const updateTrack = React.useCallback(
+    (trackId: TrackId, updates: Partial<TimelineTrack>) => {
+      const target = getTrackById(tracks, trackId);
+      if (!target) return;
+
+      pushHistorySnapshot(clips, transitions, tracks);
+
+      const updatedTracks = tracks.map((t) => (t.id === trackId ? { ...t, ...updates } : t));
+      setLocalTracks(updatedTracks);
+      persistTimeline(clips, transitions, updatedTracks);
+    },
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 3. RENAME TRACK
+  const renameTrack = React.useCallback(
+    (trackId: TrackId, newName: string) => {
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      updateTrack(trackId, { name: trimmed });
+    },
+    [updateTrack]
+  );
+
+  // 4. TOGGLE TRACK MUTE
+  const toggleTrackMute = React.useCallback(
+    (trackId: TrackId) => {
+      const target = getTrackById(tracks, trackId);
+      if (!target) return;
+      updateTrack(trackId, { muted: !target.muted });
+    },
+    [tracks, updateTrack]
+  );
+
+  // 5. TOGGLE TRACK LOCK
+  const toggleTrackLock = React.useCallback(
+    (trackId: TrackId) => {
+      const target = getTrackById(tracks, trackId);
+      if (!target) return;
+      updateTrack(trackId, { locked: !target.locked });
+    },
+    [tracks, updateTrack]
+  );
+
+  // 6. TOGGLE TRACK VISIBILITY
+  const toggleTrackVisibility = React.useCallback(
+    (trackId: TrackId) => {
+      const target = getTrackById(tracks, trackId);
+      if (!target) return;
+      updateTrack(trackId, { visible: !target.visible });
+    },
+    [tracks, updateTrack]
+  );
+
+  // 7. REORDER TRACK (Up/Down)
+  const reorderTrack = React.useCallback(
+    (trackId: TrackId, direction: "up" | "down") => {
+      const target = getTrackById(tracks, trackId);
+      if (!target) return;
+
+      const sameType = tracks
+        .filter((t) => t.type === target.type)
+        .sort((a, b) => a.order - b.order);
+
+      const currentIndex = sameType.findIndex((t) => t.id === trackId);
+      if (currentIndex === -1) return;
+
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= sameType.length) return;
+
+      pushHistorySnapshot(clips, transitions, tracks);
+
+      const other = sameType[targetIndex];
+      const updatedTracks = tracks.map((t) => {
+        if (t.id === target.id) return { ...t, order: other.order };
+        if (t.id === other.id) return { ...t, order: target.order };
+        return t;
+      });
+
+      setLocalTracks(updatedTracks);
+      persistTimeline(clips, transitions, updatedTracks);
+    },
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
+  );
+
+  // 8. DELETE TRACK (With cascading cleanup of clips and transitions)
+  const deleteTrack = React.useCallback(
+    (trackId: TrackId): boolean => {
+      const target = getTrackById(tracks, trackId);
+      if (!target) return false;
+
+      // Check lock state
+      if (target.locked) return false;
+
+      pushHistorySnapshot(clips, transitions, tracks);
+
+      // Remove track
+      const updatedTracks = tracks.filter((t) => t.id !== trackId);
+
+      // Remove all clips on this track
+      const clipsToDelete = new Set(clips.filter((c) => areClipsOnSameTrack(c.trackId, trackId, tracks)).map((c) => c.id));
+      const updatedClips = clips.filter((c) => !clipsToDelete.has(c.id));
+
+      // Remove any transitions attached to deleted clips
+      const updatedTransitions = transitions.filter(
+        (t) => !clipsToDelete.has(t.fromClipId) && !clipsToDelete.has(t.toClipId)
+      );
+
+      // Reconcile selections
+      const newSelectedClip = selectedClipId && clipsToDelete.has(selectedClipId) ? null : selectedClipId;
+      const newSelectedTrans =
+        selectedTransitionId &&
+        transitions.some(
+          (t) => t.id === selectedTransitionId && (clipsToDelete.has(t.fromClipId) || clipsToDelete.has(t.toClipId))
+        )
+          ? null
+          : selectedTransitionId;
+
+      setLocalTracks(updatedTracks);
+      setLocalClips(updatedClips);
+      setLocalTransitions(updatedTransitions);
+      setLocalSelectedClipId(newSelectedClip);
+      setLocalSelectedTransitionId(newSelectedTrans);
+
+      persistTimeline(updatedClips, updatedTransitions, updatedTracks, newSelectedClip, newSelectedTrans);
+      return true;
+    },
+    [tracks, clips, transitions, selectedClipId, selectedTransitionId, pushHistorySnapshot, persistTimeline]
+  );
+
+  // ==========================================
+  // CLIP & TRANSITION EDITING OPERATIONS
+  // ==========================================
+
   // 1. ADD ASSET TO TIMELINE
   const addAssetToTimeline = React.useCallback(
-    (asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null }, targetTrack?: TrackId, customStartTime?: number) => {
-      pushHistorySnapshot(clips, transitions);
+    (
+      asset: { id: string; name: string; category: "image" | "video" | "audio"; duration?: number | null },
+      targetTrack?: TrackId,
+      customStartTime?: number
+    ) => {
+      // Determine default target track if none specified
+      let resolvedTrackId = targetTrack;
+      if (!resolvedTrackId) {
+        if (asset.category === "audio") {
+          // Prefer default Voiceover track, or first audio track
+          const audioTracksList = getAudioTracks(tracks);
+          resolvedTrackId = audioTracksList.find((t) => t.role === "voiceover")?.id || audioTracksList[0]?.id || "audio";
+        } else {
+          // Prefer Base visual layer 1, or first visual track
+          const visualTracksList = getVisualTracks(tracks);
+          resolvedTrackId = visualTracksList.find((t) => t.id === "visual-1")?.id || visualTracksList[0]?.id || "visual-1";
+        }
+      }
 
-      const trackId: TrackId = targetTrack || (asset.category === "audio" ? "audio" : "visual-1");
+      // Lock Guard: do not allow dropping onto a locked track
+      const targetTrackDef = getTrackById(tracks, resolvedTrackId);
+      if (targetTrackDef?.locked) {
+        return;
+      }
+
+      pushHistorySnapshot(clips, transitions, tracks);
 
       let duration = 3.0;
       if (asset.category === "video" || asset.category === "audio") {
@@ -583,7 +863,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         assetId: asset.id,
         name: asset.name,
         type: asset.category,
-        trackId,
+        trackId: resolvedTrackId,
         startTime: 0,
         duration,
         inPoint: 0,
@@ -598,30 +878,29 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       if (customStartTime !== undefined) {
         // Explicit drop position: insert (and ripple/split) instead of appending.
-        const insertResult = insertClipAtTime(newClip, customStartTime, clips);
+        const insertResult = insertClipAtTime(newClip, customStartTime, clips, tracks);
         updatedClips = insertResult.clips;
 
-        // If an existing clip was split, outgoing transitions must follow the
-        // right-hand segment that inherited the original clip's tail.
         if (insertResult.split) {
           const { originalClipId, rightPartId } = insertResult.split;
           updatedTransitions = transitions.map((t) =>
-            t.fromClipId === originalClipId
-              ? { ...t, fromClipId: rightPartId }
-              : t
+            t.fromClipId === originalClipId ? { ...t, fromClipId: rightPartId } : t
           );
         }
 
         updatedTransitions = reconcileTransitionsForClips(
           updatedTransitions,
-          updatedClips
+          updatedClips,
+          tracks
         );
       } else {
-        // No explicit position: keep the existing append/next-free-slot behavior.
-        const startTime = findNextNonOverlappingStartTime(
-          trackId,
+        // No explicit position: append / next-free-slot behavior
+        const startTime = findNextAvailableStartTime(
+          resolvedTrackId,
           duration,
-          clips
+          clips,
+          0,
+          tracks
         );
         updatedClips = [
           ...clips,
@@ -633,9 +912,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       setLocalTransitions(updatedTransitions);
       setLocalSelectedClipId(newClip.id);
       setLocalSelectedTransitionId(null);
-      persistTimeline(updatedClips, updatedTransitions, newClip.id, null);
+      persistTimeline(updatedClips, updatedTransitions, tracks, newClip.id, null);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 2. MOVE CLIP
@@ -644,26 +923,29 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, target.trackId)?.locked) return;
 
-      // Reorder within the same track (closes the source gap and makes room at
-      // the insertion point) instead of clamping against occupied intervals.
+      pushHistorySnapshot(clips, transitions, tracks);
+
       const updatedClips = reorderClipOnTrack(
         target,
         newStartTime,
-        clips
+        clips,
+        tracks
       ).clips;
 
       const validTransitions = reconcileTransitionsForClips(
         transitions,
-        updatedClips
+        updatedClips,
+        tracks
       );
 
       setLocalClips(updatedClips);
       setLocalTransitions(validTransitions);
       persistTimeline(updatedClips, validTransitions);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 3. TRIM CLIP / ADJUST DURATION
@@ -672,7 +954,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, target.trackId)?.locked) return;
+
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
       let clampedDuration = Math.max(MIN_CLIP_DURATION, newDuration);
@@ -681,27 +966,27 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         clampedDuration = Math.min(clampedDuration, remaining);
       }
 
-      // Apply ripple extension to downstream clips if extending duration
       const updatedClips = applyRippleExtend(clipId, clampedDuration, clips);
 
-      // Validate transitions connected to shifted or resized clips
-      const validTransitions = transitions.filter((t) => {
-        const from = updatedClips.find((c) => c.id === t.fromClipId);
-        const to = updatedClips.find((c) => c.id === t.toClipId);
-        if (!from || !to) return false;
-        return areClipsAdjacentForTransition(from, to);
-      }).map((t) => {
-        const from = updatedClips.find((c) => c.id === t.fromClipId);
-        const to = updatedClips.find((c) => c.id === t.toClipId);
-        const safeDur = validateTransitionDuration(t.duration, from, to);
-        return { ...t, duration: safeDur };
-      });
+      const validTransitions = transitions
+        .filter((t) => {
+          const from = updatedClips.find((c) => c.id === t.fromClipId);
+          const to = updatedClips.find((c) => c.id === t.toClipId);
+          if (!from || !to) return false;
+          return areClipsAdjacentForTransition(from, to, tracks);
+        })
+        .map((t) => {
+          const from = updatedClips.find((c) => c.id === t.fromClipId);
+          const to = updatedClips.find((c) => c.id === t.toClipId);
+          const safeDur = validateTransitionDuration(t.duration, from, to);
+          return { ...t, duration: safeDur };
+        });
 
       setLocalClips(updatedClips);
       setLocalTransitions(validTransitions);
       persistTimeline(updatedClips, validTransitions);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // Transient clip update (during real-time drag gestures, without pushing history)
@@ -715,22 +1000,21 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const changed = JSON.stringify(originalClips) !== JSON.stringify(finalClips);
       if (!changed) return;
 
-      pushHistorySnapshot(originalClips, transitions);
+      pushHistorySnapshot(originalClips, transitions, tracks);
 
-      // Validate transitions after move or trim (reorder can break adjacency)
       const validTransitions = reconcileTransitionsForClips(
         transitions,
-        finalClips
+        finalClips,
+        tracks
       );
 
       setLocalClips(finalClips);
       setLocalTransitions(validTransitions);
       persistTimeline(finalClips, validTransitions);
     },
-    [transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, transitions, pushHistorySnapshot, persistTimeline]
   );
 
-  // Safely cancel in-progress gesture without corrupting state
   const cancelClipGesture = React.useCallback((originalClips: TimelineClip[]) => {
     setLocalClips(originalClips);
   }, []);
@@ -741,20 +1025,28 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = clips.find((c) => c.id === clipId);
       if (!target) return;
 
+      // Lock Guard on current track
+      if (getTrackById(tracks, target.trackId)?.locked) return;
+
+      // Lock Guard on target track (if moving tracks)
+      if (updates.trackId && updates.trackId !== target.trackId) {
+        if (getTrackById(tracks, updates.trackId)?.locked) return;
+      }
+
       // Prevent switching visual layer if target lane is already occupied at this interval
-      if (updates.trackId && updates.trackId !== target.trackId && isVisualTrack(updates.trackId)) {
-        if (hasVisualOverlap({ ...target, ...updates, trackId: updates.trackId }, clips)) {
+      if (updates.trackId && updates.trackId !== target.trackId && isVisualTrack(updates.trackId, tracks)) {
+        if (hasVisualOverlap({ ...target, ...updates, trackId: updates.trackId }, clips, tracks)) {
           return;
         }
       }
 
-      pushHistorySnapshot(clips, transitions);
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const updatedClips = clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c));
       setLocalClips(updatedClips);
       persistTimeline(updatedClips, transitions);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 5. SPLIT SELECTED CLIP AT PLAYHEAD (Ctrl+B)
@@ -766,12 +1058,15 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const clip = clips.find((c) => c.id === idToSplit);
       if (!clip) return;
 
+      // Lock Guard
+      if (getTrackById(tracks, clip.trackId)?.locked) return;
+
       const clipEnd = clip.startTime + clip.duration;
       if (playhead <= clip.startTime + MIN_CLIP_DURATION || playhead >= clipEnd - MIN_CLIP_DURATION) {
         return;
       }
 
-      pushHistorySnapshot(clips, transitions);
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
       const splitOffset = playhead - clip.startTime;
@@ -796,21 +1091,17 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const updatedClips = clips.flatMap((c) => (c.id === idToSplit ? [part1, part2] : [c]));
       const clipMap = new Map(updatedClips.map((c) => [c.id, c]));
 
-      // Reconcile transitions:
-      // - Incoming transition to the original clip stays on part1 with revalidated duration
-      // - Outgoing transition from the original clip shifts its fromClipId to part2 with revalidated duration
-      // - Stale transitions that are no longer adjacent are safely pruned
       const reconciledTransitions: TimelineTransition[] = [];
       for (const t of transitions) {
         if (t.toClipId === idToSplit) {
           const from = clipMap.get(t.fromClipId);
-          if (from && areClipsAdjacentForTransition(from, part1)) {
+          if (from && areClipsAdjacentForTransition(from, part1, tracks)) {
             const safeDur = validateTransitionDuration(t.duration, from, part1);
             reconciledTransitions.push({ ...t, duration: safeDur });
           }
         } else if (t.fromClipId === idToSplit) {
           const to = clipMap.get(t.toClipId);
-          if (to && areClipsAdjacentForTransition(part2, to)) {
+          if (to && areClipsAdjacentForTransition(part2, to, tracks)) {
             const safeDur = validateTransitionDuration(t.duration, part2, to);
             reconciledTransitions.push({ ...t, fromClipId: part2.id, duration: safeDur });
           }
@@ -823,24 +1114,24 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       setLocalTransitions(reconciledTransitions);
       setLocalSelectedClipId(part2.id);
       setLocalSelectedTransitionId(null);
-      persistTimeline(updatedClips, reconciledTransitions, part2.id, null);
+      persistTimeline(updatedClips, reconciledTransitions, tracks, part2.id, null);
     },
-    [clips, transitions, selectedClipId, playhead, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, selectedClipId, playhead, pushHistorySnapshot, persistTimeline]
   );
 
   // 6. DELETE SELECTED CLIP (Delete/Backspace) with Ripple Delete
   const deleteClip = React.useCallback(
     (clipId: string) => {
-      const exists = clips.some((c) => c.id === clipId);
-      if (!exists) return;
+      const target = clips.find((c) => c.id === clipId);
+      if (!target) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, target.trackId)?.locked) return;
 
-      const { updatedClips } = applyRippleDelete(clipId, clips);
+      pushHistorySnapshot(clips, transitions, tracks);
 
-      // Reconcile transitions:
-      // - Remove any transitions connected to the deleted clip
-      // - For remaining transitions, ensure their connecting clips are still adjacent and durations valid
+      const { updatedClips } = applyRippleDelete(clipId, clips, tracks);
+
       const remainingTransitions = transitions.filter(
         (t) => t.fromClipId !== clipId && t.toClipId !== clipId
       );
@@ -850,7 +1141,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           const from = updatedClips.find((c) => c.id === t.fromClipId);
           const to = updatedClips.find((c) => c.id === t.toClipId);
           if (!from || !to) return false;
-          return areClipsAdjacentForTransition(from, to);
+          return areClipsAdjacentForTransition(from, to, tracks);
         })
         .map((t) => {
           const from = updatedClips.find((c) => c.id === t.fromClipId);
@@ -864,9 +1155,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const newSelected = selectedClipId === clipId ? null : selectedClipId;
       setLocalSelectedClipId(newSelected);
       setLocalSelectedTransitionId(null);
-      persistTimeline(updatedClips, validTransitions, newSelected, null);
+      persistTimeline(updatedClips, validTransitions, tracks, newSelected, null);
     },
-    [clips, transitions, selectedClipId, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, selectedClipId, pushHistorySnapshot, persistTimeline]
   );
 
   // 7. DUPLICATE SELECTED CLIP (Ctrl+D)
@@ -875,15 +1166,18 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const clip = clips.find((c) => c.id === clipId);
       if (!clip) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, clip.trackId)?.locked) return;
 
-      // Find next available placement that does not overlap same visual lane
+      pushHistorySnapshot(clips, transitions, tracks);
+
       const preferredStart = clip.startTime + clip.duration;
-      const targetStart = findNextNonOverlappingStartTime(
+      const targetStart = findNextAvailableStartTime(
         clip.trackId,
         clip.duration,
         clips,
-        preferredStart
+        preferredStart,
+        tracks
       );
 
       const duplicate: TimelineClip = {
@@ -897,9 +1191,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       setLocalClips(updatedClips);
       setLocalSelectedClipId(duplicate.id);
       setLocalSelectedTransitionId(null);
-      persistTimeline(updatedClips, transitions, duplicate.id, null);
+      persistTimeline(updatedClips, transitions, tracks, duplicate.id, null);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 8. ADD VISUAL TRANSITION
@@ -908,10 +1202,13 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const fromClip = clips.find((c) => c.id === fromClipId);
       const toClip = clips.find((c) => c.id === toClipId);
       if (!fromClip || !toClip) return;
-      if (!isVisualTrack(fromClip.trackId) || !areClipsOnSameTrack(fromClip.trackId, toClip.trackId)) return;
-      if (!areClipsAdjacentForTransition(fromClip, toClip)) return;
+      if (!isVisualTrack(fromClip.trackId, tracks) || !areClipsOnSameTrack(fromClip.trackId, toClip.trackId, tracks)) return;
+      if (!areClipsAdjacentForTransition(fromClip, toClip, tracks)) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, fromClip.trackId)?.locked) return;
+
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const safeDur = validateTransitionDuration(duration, fromClip, toClip);
       const newTransition: TimelineTransition = {
@@ -923,7 +1220,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         trackId: normalizeVisualTrackId(fromClip.trackId),
       };
 
-      // Filter out existing transition between these two clips and add the new one
       const updatedTransitions = [
         ...transitions.filter(
           (t) =>
@@ -938,9 +1234,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       setLocalTransitions(updatedTransitions);
       setLocalSelectedTransitionId(newTransition.id);
       setLocalSelectedClipId(null);
-      persistTimeline(clips, updatedTransitions, null, newTransition.id);
+      persistTimeline(clips, updatedTransitions, tracks, null, newTransition.id);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 9. UPDATE TRANSITION
@@ -949,7 +1245,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const target = transitions.find((t) => t.id === transitionId);
       if (!target) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, target.trackId)?.locked) return;
+
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const fromClip = clips.find((c) => c.id === target.fromClipId);
       const toClip = clips.find((c) => c.id === target.toClipId);
@@ -964,24 +1263,27 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       setLocalTransitions(updatedTransitions);
       persistTimeline(clips, updatedTransitions);
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 10. DELETE TRANSITION
   const deleteTransition = React.useCallback(
     (transitionId: string) => {
-      const exists = transitions.some((t) => t.id === transitionId);
-      if (!exists) return;
+      const target = transitions.find((t) => t.id === transitionId);
+      if (!target) return;
 
-      pushHistorySnapshot(clips, transitions);
+      // Lock Guard
+      if (getTrackById(tracks, target.trackId)?.locked) return;
+
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const updatedTransitions = transitions.filter((t) => t.id !== transitionId);
       setLocalTransitions(updatedTransitions);
       const newSelectedTrans = selectedTransitionId === transitionId ? null : selectedTransitionId;
       setLocalSelectedTransitionId(newSelectedTrans);
-      persistTimeline(clips, updatedTransitions, selectedClipId, newSelectedTrans);
+      persistTimeline(clips, updatedTransitions, tracks, selectedClipId, newSelectedTrans);
     },
-    [clips, transitions, selectedTransitionId, selectedClipId, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, selectedTransitionId, selectedClipId, pushHistorySnapshot, persistTimeline]
   );
 
   // 11. APPLY TO ALL TRANSITIONS
@@ -992,9 +1294,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         return { success: false, message: "Selected transition not found.", count: 0 };
       }
 
-      pushHistorySnapshot(clips, transitions);
+      pushHistorySnapshot(clips, transitions, tracks);
 
-      const result = executeApplyToAll(source, transitions, clips);
+      const result = executeApplyToAll(source, transitions, clips, tracks);
       const sourceStillExists = result.updatedTransitions.some(
         (t) => t.id === sourceTransitionId
       );
@@ -1007,6 +1309,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       persistTimeline(
         clips,
         result.updatedTransitions,
+        tracks,
         selectedClipId,
         nextSelectedTransitionId
       );
@@ -1014,6 +1317,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       return { success: true, message: result.message, count: result.count };
     },
     [
+      tracks,
       transitions,
       clips,
       selectedClipId,
@@ -1028,16 +1332,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (effect?: Partial<ClipZoomEffect> | null) => {
       const safe = sanitizeZoomEffect(effect);
       const targetClips = clips.filter(
-        (c) => isVisualTrack(c.trackId) && c.type === "image"
+        (c) => isVisualTrack(c.trackId, tracks) && c.type === "image"
       );
       if (targetClips.length === 0) {
         return { success: false, message: "No image scenes found on timeline.", count: 0 };
       }
 
-      pushHistorySnapshot(clips, transitions);
+      pushHistorySnapshot(clips, transitions, tracks);
 
       const updatedClips = clips.map((c) => {
-        if (isVisualTrack(c.trackId) && c.type === "image") {
+        if (isVisualTrack(c.trackId, tracks) && c.type === "image") {
           return { ...c, zoomEffect: safe };
         }
         return c;
@@ -1062,51 +1366,55 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       return { success: true, message, count };
     },
-    [clips, transitions, pushHistorySnapshot, persistTimeline]
+    [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]
   );
 
   // 13. FIT VISUALS TO VOICEOVER ACTION
   const fitVisualsToVoiceover = React.useCallback(() => {
-    const result = calculateFitVisualsToVoiceover(clips, transitions);
+    const result = calculateFitVisualsToVoiceover(clips, transitions, tracks);
     if (result.success) {
-      pushHistorySnapshot(clips, transitions);
+      pushHistorySnapshot(clips, transitions, tracks);
       setLocalClips(result.updatedClips);
       setLocalTransitions(result.updatedTransitions);
       persistTimeline(result.updatedClips, result.updatedTransitions);
     }
     return { success: result.success, message: result.message };
-  }, [clips, transitions, pushHistorySnapshot, persistTimeline]);
+  }, [tracks, clips, transitions, pushHistorySnapshot, persistTimeline]);
 
-  // 12. UNDO & REDO
+  // 14. UNDO & REDO
   const undo = React.useCallback(() => {
     if (undoStackRef.current.length === 0) return;
 
     const previous = undoStackRef.current.pop()!;
     redoStackRef.current.push({
+      tracks: JSON.parse(JSON.stringify(tracks)),
       clips: JSON.parse(JSON.stringify(clips)),
       transitions: JSON.parse(JSON.stringify(transitions)),
     });
 
+    setLocalTracks(previous.tracks);
     setLocalClips(previous.clips);
     setLocalTransitions(previous.transitions);
-    persistTimeline(previous.clips, previous.transitions);
+    persistTimeline(previous.clips, previous.transitions, previous.tracks);
     syncHistoryFlags();
-  }, [clips, transitions, persistTimeline, syncHistoryFlags]);
+  }, [tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
 
   const redo = React.useCallback(() => {
     if (redoStackRef.current.length === 0) return;
 
     const next = redoStackRef.current.pop()!;
     undoStackRef.current.push({
+      tracks: JSON.parse(JSON.stringify(tracks)),
       clips: JSON.parse(JSON.stringify(clips)),
       transitions: JSON.parse(JSON.stringify(transitions)),
     });
 
+    setLocalTracks(next.tracks);
     setLocalClips(next.clips);
     setLocalTransitions(next.transitions);
-    persistTimeline(next.clips, next.transitions);
+    persistTimeline(next.clips, next.transitions, next.tracks);
     syncHistoryFlags();
-  }, [clips, transitions, persistTimeline, syncHistoryFlags]);
+  }, [tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
 
   // Space Key Hold / Tap State Refs (persistent across renders)
   const spaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1168,65 +1476,72 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const modifier = isMac ? e.metaKey : e.ctrlKey;
 
-      // Single-Frame Step Backward (Left Arrow)
-      if (!modifier && !e.altKey && (e.key === "ArrowLeft" || e.key === "Left")) {
+      if (e.code === "Space") {
         e.preventDefault();
-        actionsRef.current.stepFrameBackward();
-        return;
-      }
-
-      // Single-Frame Step Forward (Right Arrow)
-      if (!modifier && !e.altKey && (e.key === "ArrowRight" || e.key === "Right")) {
-        e.preventDefault();
-        actionsRef.current.stepFrameForward();
-        return;
-      }
-
-      if (modifier && e.key.toLowerCase() === "z" && !e.shiftKey) {
-        e.preventDefault();
-        actionsRef.current.undo();
-      } else if (
-        (modifier && e.key.toLowerCase() === "y") ||
-        (modifier && e.shiftKey && e.key.toLowerCase() === "z")
-      ) {
-        e.preventDefault();
-        actionsRef.current.redo();
-      } else if (modifier && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        actionsRef.current.splitClipAtPlayhead();
-      } else if (modifier && e.key.toLowerCase() === "d") {
-        e.preventDefault();
-        if (actionsRef.current.selectedClipId) actionsRef.current.duplicateClip(actionsRef.current.selectedClipId);
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (actionsRef.current.selectedClipId) {
-          e.preventDefault();
-          actionsRef.current.deleteClip(actionsRef.current.selectedClipId);
-        } else if (actionsRef.current.selectedTransitionId) {
-          e.preventDefault();
-          actionsRef.current.deleteTransition(actionsRef.current.selectedTransitionId);
-        }
-      } else if (e.key === " " || e.code === "Space") {
-        if (e.defaultPrevented) return;
-        e.preventDefault();
-
-        // Avoid repeated keydown handling while holding Space
         if (e.repeat) return;
 
         wasPlayingBeforeHoldRef.current = isPlayingRef.current;
         isHoldingSpaceRef.current = false;
 
-        if (spaceTimerRef.current) {
-          clearTimeout(spaceTimerRef.current);
-        }
-
-        // CapCut-style 2X fast forward when Space is held down (>200ms)
+        if (spaceTimerRef.current) clearTimeout(spaceTimerRef.current);
         spaceTimerRef.current = setTimeout(() => {
           isHoldingSpaceRef.current = true;
-          setPlaybackSpeed(2.0);
-          if (!isPlayingRef.current) {
-            setIsPlaying(true);
+          if (!wasPlayingBeforeHoldRef.current) {
+            actionsRef.current.togglePlay();
           }
-        }, 200);
+        }, 250);
+        return;
+      }
+
+      if (modifier && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
+        e.preventDefault();
+        actionsRef.current.undo();
+        return;
+      }
+
+      if (modifier && (e.key === "y" || e.key === "Y" || (e.shiftKey && (e.key === "z" || e.key === "Z")))) {
+        e.preventDefault();
+        actionsRef.current.redo();
+        return;
+      }
+
+      if (modifier && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        actionsRef.current.splitClipAtPlayhead();
+        return;
+      }
+
+      if (modifier && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        if (actionsRef.current.selectedClipId) {
+          actionsRef.current.duplicateClip(actionsRef.current.selectedClipId);
+        }
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (actionsRef.current.selectedClipId) {
+          e.preventDefault();
+          actionsRef.current.deleteClip(actionsRef.current.selectedClipId);
+          return;
+        }
+        if (actionsRef.current.selectedTransitionId) {
+          e.preventDefault();
+          actionsRef.current.deleteTransition(actionsRef.current.selectedTransitionId);
+          return;
+        }
+      }
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        actionsRef.current.stepFrameBackward();
+        return;
+      }
+
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        actionsRef.current.stepFrameForward();
+        return;
       }
     };
 
@@ -1239,58 +1554,34 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         activeEl?.getAttribute("contenteditable") === "true" ||
         activeEl?.getAttribute("role") === "slider";
 
-      // Guard: do not intercept if typing in an input, textarea, or slider
       if (isInput) return;
 
-      const isInsideDialog = Boolean(
-        activeEl?.closest('[role="dialog"]') ||
-        activeEl?.closest('[role="alertdialog"]')
-      );
-      if (isInsideDialog) return;
+      if (e.code === "Space") {
+        e.preventDefault();
 
-      if (e.key === " " || e.code === "Space") {
         if (spaceTimerRef.current) {
           clearTimeout(spaceTimerRef.current);
           spaceTimerRef.current = null;
         }
 
         if (isHoldingSpaceRef.current) {
-          // Released after holding Space: restore 1.0x playback
-          isHoldingSpaceRef.current = false;
-          setPlaybackSpeed(1.0);
-          // If it wasn't playing prior to holding Space, pause it
-          if (!wasPlayingBeforeHoldRef.current) {
-            setIsPlaying(false);
+          if (!wasPlayingBeforeHoldRef.current && isPlayingRef.current) {
+            actionsRef.current.togglePlay();
           }
+          isHoldingSpaceRef.current = false;
         } else {
-          // Short tap (< 200ms): standard Play / Pause toggle
           actionsRef.current.togglePlay();
-        }
-      }
-    };
-
-    const handleBlur = () => {
-      // If focus lost or window blurs while Space was held down, restore 1.0x immediately
-      if (spaceTimerRef.current) {
-        clearTimeout(spaceTimerRef.current);
-        spaceTimerRef.current = null;
-      }
-      if (isHoldingSpaceRef.current) {
-        isHoldingSpaceRef.current = false;
-        setPlaybackSpeed(1.0);
-        if (!wasPlayingBeforeHoldRef.current) {
-          setIsPlaying(false);
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleBlur);
+
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleBlur);
+      if (spaceTimerRef.current) clearTimeout(spaceTimerRef.current);
     };
   }, []);
 
@@ -1298,6 +1589,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     <TimelineContext.Provider
       value={{
         isHydrated,
+        tracks,
         clips,
         transitions,
         selectedClipId,
@@ -1349,6 +1641,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         applyToAllTransitions: applyAllTransitions,
         applyMotionToAllClips,
         fitVisualsToVoiceover,
+        addTrack,
+        updateTrack,
+        renameTrack,
+        deleteTrack,
+        reorderTrack,
+        toggleTrackMute,
+        toggleTrackLock,
+        toggleTrackVisibility,
         undo,
         redo,
       }}

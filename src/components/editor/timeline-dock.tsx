@@ -7,13 +7,17 @@ import {
   Copy,
   Video,
   Mic,
+  Music,
+  Radio,
   ZoomIn,
   ZoomOut,
   Magnet,
   Volume2,
   VolumeX,
   Eye,
+  EyeOff,
   Lock,
+  Unlock,
   Wand2,
   Layers,
   Plus,
@@ -21,6 +25,9 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowDown,
+  ChevronUp,
+  ChevronDown,
+  Pencil,
   CopyCheck,
   Sparkles,
   MousePointerClick,
@@ -33,14 +40,40 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import { AudioWaveformView } from "@/components/editor/audio-waveform-view";
 import {
   type TimelineClip,
+  type TimelineTrack,
   type TrackId,
+  type AudioTrackRole,
   isAudioTrack,
   isVisualTrack,
+  getVisualTracks,
+  getAudioTracks,
+  getTrackById,
+  isTrackLocked,
+  areClipsOnSameTrack,
 } from "@/types/timeline";
 import { findAdjacentClipPairs } from "@/lib/transition-helpers";
 import { calculateLeftTrimWithOverlap, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
@@ -64,6 +97,7 @@ import {
 export function TimelineDock() {
   const {
     isHydrated,
+    tracks,
     clips,
     transitions,
     selectedClipId,
@@ -89,6 +123,13 @@ export function TimelineDock() {
     fitVisualsToVoiceover,
     updateClip,
     applyMotionToAllClips,
+    addTrack,
+    renameTrack,
+    deleteTrack,
+    reorderTrack,
+    toggleTrackMute,
+    toggleTrackLock,
+    toggleTrackVisibility,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
@@ -107,8 +148,8 @@ export function TimelineDock() {
 
   const selectedImageClip = selectedClip?.type === "image" ? selectedClip : null;
   const imageClips = React.useMemo(
-    () => clips.filter((c) => isVisualTrack(c.trackId) && c.type === "image"),
-    [clips]
+    () => clips.filter((c) => isVisualTrack(c.trackId, tracks) && c.type === "image"),
+    [clips, tracks]
   );
   const imageClipsCount = imageClips.length;
 
@@ -341,11 +382,24 @@ export function TimelineDock() {
   // Drag-and-drop from Media Library onto tracks with unified coordinate mapping
   const handleTrackDrop = (e: React.DragEvent, trackId: TrackId) => {
     e.preventDefault();
+    const targetTrack = getTrackById(tracks, trackId);
+    if (targetTrack?.locked) {
+      return;
+    }
+
     try {
       const raw = e.dataTransfer.getData("application/json");
       if (raw) {
         const asset = JSON.parse(raw);
         if (asset && asset.id) {
+          // Reject mismatched categories
+          if (targetTrack?.type === "visual" && asset.category === "audio") {
+            return;
+          }
+          if (targetTrack?.type === "audio" && (asset.category === "image" || asset.category === "video")) {
+            return;
+          }
+
           const dropTime = getTimeFromClientX(e.clientX);
           addAssetToTimeline(asset, trackId, dropTime);
         }
@@ -375,13 +429,14 @@ export function TimelineDock() {
     if (e.button !== 0) return;
     e.stopPropagation();
     selectClip(clip.id);
+    if (isTrackLocked(clip.trackId, tracks)) return;
 
     const startX = e.clientX;
     const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
     const initialStart = clip.startTime;
     const snapThresholdSec = 10 / pxPerSec;
     const snapPoints = getSnapPoints(clip.id);
-    const isVisualClip = !isAudioTrack(clip.trackId);
+    const isVisualClip = isVisualTrack(clip.trackId, tracks);
     let latestClips = initialClips;
 
     const onPointerMove = (moveEvent: PointerEvent) => {
@@ -415,7 +470,7 @@ export function TimelineDock() {
       if (isVisualClip) {
         // Reorder within the lane: closes the source gap and opens an insertion
         // gap at the drop position instead of clamping against occupied clips.
-        const result = reorderClipOnTrack(clip, rawStart, initialClips);
+        const result = reorderClipOnTrack(clip, rawStart, initialClips, tracks);
         latestClips = result.clips;
         setDragInsertTime(result.insertionTime);
       } else {
@@ -466,6 +521,7 @@ export function TimelineDock() {
   const startLeftTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
     e.stopPropagation();
     selectClip(clip.id);
+    if (isTrackLocked(clip.trackId, tracks)) return;
 
     const startX = e.clientX;
     const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
@@ -495,7 +551,7 @@ export function TimelineDock() {
         setActiveSnapGuide(null);
       }
 
-      const trimResult = calculateLeftTrimWithOverlap(clip, deltaSec, initialClips);
+      const trimResult = calculateLeftTrimWithOverlap(clip, deltaSec, initialClips, 0.5, tracks);
 
       latestClips = initialClips.map((c) =>
         c.id === clip.id
@@ -546,6 +602,7 @@ export function TimelineDock() {
   const startRightTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
     e.stopPropagation();
     selectClip(clip.id);
+    if (isTrackLocked(clip.trackId, tracks)) return;
 
     const startX = e.clientX;
     const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
@@ -576,7 +633,7 @@ export function TimelineDock() {
       }
 
       const trimResult = calculateRightTrim(clip, deltaSec);
-      latestClips = applyRippleExtend(clip.id, trimResult.duration, initialClips);
+      latestClips = applyRippleExtend(clip.id, trimResult.duration, initialClips, tracks);
       setClipsTransient(latestClips);
     };
 
@@ -611,28 +668,264 @@ export function TimelineDock() {
     window.addEventListener("keydown", onKeyDown);
   };
 
-  // Multi-Track Layers Separation (Memoized to prevent allocations on every playhead update)
-  const visualLayer2Clips = React.useMemo(() => clips.filter((c) => c.trackId === "visual-2"), [clips]);
-  const visualLayer1Clips = React.useMemo(
-    () => clips.filter((c) => c.trackId === "visual-1" || c.trackId === "visual"),
-    [clips]
+  // Dynamic Ordered Tracks
+  const orderedVisualTracks = React.useMemo(() => getVisualTracks(tracks), [tracks]);
+  const orderedAudioTracks = React.useMemo(() => getAudioTracks(tracks), [tracks]);
+  const orderedTracks = React.useMemo(
+    () => [...orderedVisualTracks, ...orderedAudioTracks],
+    [orderedVisualTracks, orderedAudioTracks]
   );
-  const audioClips = React.useMemo(() => clips.filter((c) => isAudioTrack(c.trackId)), [clips]);
+
+  // Group clips by dynamic trackId (handling any legacy aliases safely)
+  const clipsByTrack = React.useMemo(() => {
+    const map = new Map<string, TimelineClip[]>();
+    for (const track of orderedTracks) {
+      map.set(track.id, []);
+    }
+    for (const clip of clips) {
+      const matchingTrack = orderedTracks.find((t) => areClipsOnSameTrack(t.id, clip.trackId, tracks));
+      const targetId = matchingTrack ? matchingTrack.id : clip.trackId;
+      const list = map.get(targetId);
+      if (list) {
+        list.push(clip);
+      } else {
+        map.set(targetId, [clip]);
+      }
+    }
+    return map;
+  }, [orderedTracks, clips, tracks]);
+
   const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 
-  const hasAudio = audioClips.length > 0;
-  const hasVisual = visualLayer1Clips.length > 0 || visualLayer2Clips.length > 0;
+  const hasAudio = React.useMemo(() => clips.some((c) => isAudioTrack(c.trackId, tracks)), [clips, tracks]);
+  const hasVisual = React.useMemo(() => clips.some((c) => isVisualTrack(c.trackId, tracks)), [clips, tracks]);
 
-  // Render a visual track lane with dual-edge trim handles, clips, and transition seam badges
-  const renderVisualTrackLane = (trackId: "visual-1" | "visual-2", trackClips: TimelineClip[]) => {
-    const adjacentPairs = findAdjacentClipPairs(trackClips);
+  // Track Inline Rename & Delete Confirmation State
+  const [editingTrackId, setEditingTrackId] = React.useState<string | null>(null);
+  const [editingTrackName, setEditingTrackName] = React.useState<string>("");
+  const [trackToDelete, setTrackToDelete] = React.useState<TimelineTrack | null>(null);
+
+  const sidebarScrollRef = React.useRef<HTMLDivElement>(null);
+
+  const handleTracksScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (sidebarScrollRef.current && sidebarScrollRef.current.scrollTop !== target.scrollTop) {
+      sidebarScrollRef.current.scrollTop = target.scrollTop;
+    }
+  }, []);
+
+  const handleSidebarWheel = React.useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (tracksScrollRef.current) {
+      tracksScrollRef.current.scrollTop += e.deltaY;
+    }
+  }, []);
+
+  const startRename = React.useCallback((track: TimelineTrack) => {
+    if (track.locked) return;
+    setEditingTrackId(track.id);
+    setEditingTrackName(track.name);
+  }, []);
+
+  const finishRename = React.useCallback((trackId: TrackId) => {
+    const trimmed = editingTrackName.trim();
+    if (trimmed) {
+      renameTrack(trackId, trimmed);
+    }
+    setEditingTrackId(null);
+  }, [editingTrackName, renameTrack]);
+
+  const handleDeleteClick = React.useCallback((track: TimelineTrack) => {
+    if (track.locked) return;
+    const trackClips = clipsByTrack.get(track.id) || [];
+    if (trackClips.length > 0) {
+      setTrackToDelete(track);
+    } else {
+      deleteTrack(track.id);
+    }
+  }, [clipsByTrack, deleteTrack]);
+
+  // Render a track header row in the pinned left sidebar
+  const renderTrackSidebarHeader = (track: TimelineTrack) => {
+    const trackClips = clipsByTrack.get(track.id) || [];
+    const isVisual = track.type === "visual";
+    const visualIndex = orderedVisualTracks.findIndex((t) => t.id === track.id);
+    const isFirstVisual = visualIndex === 0;
+    const isLastVisual = visualIndex === orderedVisualTracks.length - 1;
+
+    const audioIndex = orderedAudioTracks.findIndex((t) => t.id === track.id);
+    const isFirstAudio = audioIndex === 0;
+    const isLastAudio = audioIndex === orderedAudioTracks.length - 1;
+
+    const isFirst = isVisual ? isFirstVisual : isFirstAudio;
+    const isLast = isVisual ? isLastVisual : isLastAudio;
 
     return (
       <div
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => handleTrackDrop(e, trackId)}
+        key={`sidebar_header_${track.id}`}
+        className={`h-11 border-b border-border p-2 flex items-center justify-between gap-1 transition-colors ${
+          track.locked ? "bg-muted/30" : "bg-muted/15 hover:bg-muted/25"
+        }`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <div
+            className={`size-5 rounded flex items-center justify-center shrink-0 ${
+              isVisual
+                ? "bg-primary/15 text-primary"
+                : track.role === "voiceover"
+                ? "bg-secondary text-foreground"
+                : "bg-primary/10 text-primary"
+            }`}
+          >
+            {isVisual ? (
+              <Layers className="size-3" />
+            ) : track.role === "voiceover" ? (
+              <Mic className="size-3" />
+            ) : track.role === "music" ? (
+              <Music className="size-3" />
+            ) : track.role === "ambient" ? (
+              <Radio className="size-3" />
+            ) : (
+              <Volume2 className="size-3" />
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            {editingTrackId === track.id ? (
+              <input
+                type="text"
+                value={editingTrackName}
+                onChange={(e) => setEditingTrackName(e.target.value)}
+                onBlur={() => finishRename(track.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") finishRename(track.id);
+                  if (e.key === "Escape") setEditingTrackId(null);
+                }}
+                autoFocus
+                className="h-5 w-24 text-2xs font-semibold px-1 rounded border border-primary bg-background text-foreground outline-hidden"
+              />
+            ) : (
+              <div className="flex items-center gap-1 group/name">
+                <p
+                  onDoubleClick={() => startRename(track)}
+                  className="text-2xs font-semibold text-foreground leading-tight truncate max-w-20 cursor-pointer"
+                  title="Double-click to rename"
+                >
+                  {track.name}
+                </p>
+                {!track.locked && (
+                  <button
+                    type="button"
+                    onClick={() => startRename(track)}
+                    className="opacity-0 group-hover/name:opacity-100 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer transition-opacity"
+                    title="Rename track"
+                  >
+                    <Pencil className="size-2.5" />
+                  </button>
+                )}
+              </div>
+            )}
+            <p className="text-3xs text-muted-foreground truncate">
+              {isVisual
+                ? track.order === 0
+                  ? "Overlay"
+                  : "Base"
+                : track.role || "Audio"}{" "}
+              • {trackClips.length} clips
+            </p>
+          </div>
+        </div>
+
+        {/* Per-track controls */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {isVisual ? (
+            <button
+              type="button"
+              onClick={() => toggleTrackVisibility(track.id)}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer transition-colors"
+              title={track.visible ? "Hide visual track" : "Show visual track"}
+              aria-label={track.visible ? "Hide visual track" : "Show visual track"}
+            >
+              {track.visible ? <Eye className="size-3" /> : <EyeOff className="size-3 text-destructive" />}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => toggleTrackMute(track.id)}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer transition-colors"
+              title={track.muted ? "Unmute audio track" : "Mute audio track"}
+              aria-label={track.muted ? "Unmute audio track" : "Mute audio track"}
+            >
+              {track.muted ? <VolumeX className="size-3 text-destructive" /> : <Volume2 className="size-3" />}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => toggleTrackLock(track.id)}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer transition-colors"
+            title={track.locked ? "Unlock track" : "Lock track"}
+            aria-label={track.locked ? "Unlock track" : "Lock track"}
+          >
+            {track.locked ? (
+              <Lock className="size-3 text-amber-500" />
+            ) : (
+              <Unlock className="size-3 text-muted-foreground/40 hover:text-foreground" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            disabled={isFirst}
+            onClick={() => reorderTrack(track.id, "up")}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            title="Move track up"
+            aria-label="Move track up"
+          >
+            <ChevronUp className="size-3" />
+          </button>
+
+          <button
+            type="button"
+            disabled={isLast}
+            onClick={() => reorderTrack(track.id, "down")}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            title="Move track down"
+            aria-label="Move track down"
+          >
+            <ChevronDown className="size-3" />
+          </button>
+
+          <button
+            type="button"
+            disabled={track.locked}
+            onClick={() => handleDeleteClick(track)}
+            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            title={track.locked ? "Cannot delete locked track" : "Delete track"}
+            aria-label="Delete track"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Render a visual track lane with dual-edge trim handles, clips, and transition seam badges
+  const renderVisualTrackLane = (track: TimelineTrack, trackClips: TimelineClip[]) => {
+    const adjacentPairs = findAdjacentClipPairs(trackClips);
+    const isLocked = track.locked;
+    const isHidden = !track.visible;
+
+    return (
+      <div
+        onDragOver={(e) => {
+          if (!isLocked) e.preventDefault();
+        }}
+        onDrop={(e) => handleTrackDrop(e, track.id)}
         style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-        className="min-w-full relative h-full flex items-center px-1 overflow-visible"
+        className={`min-w-full relative h-full flex items-center px-1 overflow-visible ${
+          isLocked ? "bg-muted/15" : ""
+        } ${isHidden ? "opacity-60" : ""}`}
       >
         {/* Full-width vertical grid lines across the track lane */}
         {rulerTicks.map((tick) => (
@@ -645,11 +938,18 @@ export function TimelineDock() {
 
         {!isHydrated || trackClips.length === 0 ? (
           <div className="w-full border border-dashed border-border/60 rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/5 pointer-events-none">
-            <span>
-              {trackId === "visual-2"
-                ? "Drop PiP or overlay visual clips here (rendered in front)."
-                : "Drag scene images or videos here, or click '+' in Media Library."}
-            </span>
+            {isLocked ? (
+              <span className="flex items-center gap-1 text-amber-500/80">
+                <Lock className="size-3" />
+                <span>Track is locked.</span>
+              </span>
+            ) : (
+              <span>
+                {track.order === 0
+                  ? "Drop overlay / foreground visual clips here (rendered on top)."
+                  : "Drag scene images or videos here, or click '+' in Media Library."}
+              </span>
+            )}
           </div>
         ) : (
           <>
@@ -669,21 +969,28 @@ export function TimelineDock() {
                     left: `${leftPos}px`,
                     width: `${widthPx}px`,
                   }}
-                  onPointerDown={(e) => startMoveDrag(e, clip)}
-                  className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
+                  onPointerDown={(e) => {
+                    if (!isLocked) startMoveDrag(e, clip);
+                    else selectClip(clip.id);
+                  }}
+                  className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none ${
+                    isLocked ? "cursor-not-allowed opacity-90" : "cursor-grab active:cursor-grabbing"
+                  } ${
                     isSelected
                       ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
                       : "border-border bg-card hover:border-primary/50"
                   }`}
                 >
                   {/* Left-edge trim handle (in-point & anchored right edge) */}
-                  <div
-                    onPointerDown={(e) => startLeftTrimDrag(e, clip)}
-                    className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
-                    title="Drag to trim start (in-point)"
-                  >
-                    <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
-                  </div>
+                  {!isLocked && (
+                    <div
+                      onPointerDown={(e) => startLeftTrimDrag(e, clip)}
+                      className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
+                      title="Drag to trim start (in-point)"
+                    >
+                      <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                    </div>
+                  )}
 
                   {/* Clip info & thumbnail */}
                   <div className="flex items-center gap-1 min-w-0 pointer-events-none px-1">
@@ -712,19 +1019,21 @@ export function TimelineDock() {
                   </span>
 
                   {/* Right-edge trim handle (duration & anchored start time) */}
-                  <div
-                    onPointerDown={(e) => startRightTrimDrag(e, clip)}
-                    className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
-                    title="Drag to trim end (duration)"
-                  >
-                    <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
-                  </div>
+                  {!isLocked && (
+                    <div
+                      onPointerDown={(e) => startRightTrimDrag(e, clip)}
+                      className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
+                      title="Drag to trim end (duration)"
+                    >
+                      <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                    </div>
+                  )}
                 </div>
               );
             })}
 
             {/* Transition Seam Indicators Between Adjacent Clips */}
-            {adjacentPairs.map(({ fromClip, toClip }) => {
+            {!isLocked && adjacentPairs.map(({ fromClip, toClip }) => {
               const cutPx = toClip.startTime * pxPerSec;
               const existingTrans = transitions.find(
                 (t) =>
@@ -788,6 +1097,143 @@ export function TimelineDock() {
     );
   };
 
+  // Render an audio track lane with waveform visualization, volume/fade ramps, and trim handles
+  const renderAudioTrackLane = (track: TimelineTrack, trackClips: TimelineClip[]) => {
+    const isLocked = track.locked;
+    const isMuted = track.muted;
+
+    const getAudioRoleIcon = (role?: AudioTrackRole) => {
+      if (role === "voiceover") return <Mic className="size-3 text-primary shrink-0" />;
+      if (role === "music") return <Music className="size-3 text-primary shrink-0" />;
+      if (role === "ambient") return <Radio className="size-3 text-primary shrink-0" />;
+      return <Volume2 className="size-3 text-primary shrink-0" />;
+    };
+
+    const getAudioRolePlaceholder = (role?: AudioTrackRole) => {
+      if (role === "voiceover") return "Drag narration or voiceover audio here to align visual scene pacing.";
+      if (role === "music") return "Drop background music tracks here.";
+      if (role === "sfx") return "Drop sound effects and audio clips here.";
+      if (role === "ambient") return "Drop ambient environment sounds here.";
+      return "Drop audio clips here.";
+    };
+
+    return (
+      <div
+        onDragOver={(e) => {
+          if (!isLocked) e.preventDefault();
+        }}
+        onDrop={(e) => handleTrackDrop(e, track.id)}
+        style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
+        className={`min-w-full relative h-full flex items-center px-1 overflow-visible ${
+          isLocked ? "bg-muted/15" : ""
+        } ${isMuted ? "opacity-75" : ""}`}
+      >
+        {/* Full-width vertical grid lines across audio lane */}
+        {rulerTicks.map((tick) => (
+          <div
+            key={`audio_grid_${tick.time}`}
+            style={{ left: `${tick.leftPx}px` }}
+            className="absolute top-0 bottom-0 w-px bg-border/20 pointer-events-none"
+          />
+        ))}
+
+        {!isHydrated || trackClips.length === 0 ? (
+          <div className="w-full border border-dashed border-border rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
+            {isLocked ? (
+              <span className="flex items-center gap-1 text-amber-500/80">
+                <Lock className="size-3" />
+                <span>Track is locked.</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                {getAudioRoleIcon(track.role)}
+                <span>{getAudioRolePlaceholder(track.role)}</span>
+              </span>
+            )}
+          </div>
+        ) : (
+          trackClips.map((clip) => {
+            const isSelected = clip.id === selectedClipId;
+            const leftPos = clip.startTime * pxPerSec;
+            const widthPx = Math.max(4, clip.duration * pxPerSec);
+            const asset = assetMap.get(clip.assetId);
+
+            return (
+              <div
+                key={clip.id}
+                data-clip-id={clip.id}
+                data-testid="timeline-clip"
+                style={{
+                  left: `${leftPos}px`,
+                  width: `${widthPx}px`,
+                }}
+                onPointerDown={(e) => {
+                  if (!isLocked) startMoveDrag(e, clip);
+                  else selectClip(clip.id);
+                }}
+                className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none ${
+                  isLocked ? "cursor-not-allowed opacity-90" : "cursor-grab active:cursor-grabbing"
+                } ${
+                  isSelected
+                    ? "border-primary bg-primary/25 ring-2 ring-primary shadow-sm z-10"
+                    : "border-border bg-card hover:border-primary/50"
+                }`}
+              >
+                {/* Left-edge trim handle */}
+                {!isLocked && (
+                  <div
+                    onPointerDown={(e) => startLeftTrimDrag(e, clip)}
+                    className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
+                    title="Drag to trim start (in-point)"
+                  >
+                    <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                  </div>
+                )}
+
+                {/* Audio Waveform Visualization with Fade-In / Fade-Out Ramps */}
+                <div className="absolute inset-0 flex items-center justify-center px-1 overflow-hidden pointer-events-none opacity-40">
+                  <AudioWaveformView
+                    blob={asset?.blob || null}
+                    clipDuration={clip.duration}
+                    fadeInDuration={clip.fadeInDuration || 0}
+                    fadeOutDuration={clip.fadeOutDuration || 0}
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10 px-1">
+                  {getAudioRoleIcon(track.role)}
+                  <span className="text-3xs font-medium text-foreground truncate">
+                    {clip.name}
+                  </span>
+                  {(clip.volume === 0 || isMuted) && (
+                    <span title={isMuted ? "Track is muted" : "Clip audio muted"} className="shrink-0">
+                      <VolumeX className="size-2.5 text-destructive" />
+                    </span>
+                  )}
+                </div>
+
+                <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10 pr-1">
+                  {clip.duration.toFixed(1)}s
+                </span>
+
+                {/* Right-edge trim handle */}
+                {!isLocked && (
+                  <div
+                    onPointerDown={(e) => startRightTrimDrag(e, clip)}
+                    className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
+                    title="Drag to trim duration"
+                  >
+                    <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
   return (
     <Card size="sm" className="flex flex-col w-full shrink-0">
       {/* Timeline Controls Header — 100% Icon-Only Ghost Buttons with Tooltips */}
@@ -795,10 +1241,57 @@ export function TimelineDock() {
         <div className="flex flex-wrap items-center justify-between gap-2 w-full min-w-0">
           {/* Left: Icon-Only Ghost Action Buttons + Playhead/Zoom/Snap */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <div className="mr-1 flex items-center">
+            <div className="mr-1 flex items-center gap-2">
               <CardTitle className="flex items-center gap-1">
                 Timeline
               </CardTitle>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="h-6 px-1.5 gap-1 text-2xs font-medium text-foreground hover:bg-muted cursor-pointer"
+                      title="Create a new timeline track"
+                    >
+                      <Plus className="size-3 text-primary" />
+                      <span className="hidden sm:inline">Add Track</span>
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="start" className="w-48">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-3xs text-muted-foreground uppercase font-semibold">
+                      Add Track
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => addTrack("visual")}>
+                      <Layers className="size-3.5 mr-2 text-primary" />
+                      <span>Visual Track</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => addTrack("audio", "voiceover")}>
+                      <Mic className="size-3.5 mr-2 text-primary" />
+                      <span>Voiceover Track</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => addTrack("audio", "music")}>
+                      <Music className="size-3.5 mr-2 text-primary" />
+                      <span>Music Track</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => addTrack("audio", "sfx")}>
+                      <Volume2 className="size-3.5 mr-2 text-primary" />
+                      <span>SFX Track</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => addTrack("audio", "ambient")}>
+                      <Radio className="size-3.5 mr-2 text-primary" />
+                      <span>Ambient Track</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => addTrack("audio", "general")}>
+                      <Volume2 className="size-3.5 mr-2 text-primary" />
+                      <span>Audio Track</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <Tooltip>
@@ -977,51 +1470,70 @@ export function TimelineDock() {
               <div className="flex items-center gap-1 shrink-0 min-w-0">
                 <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
 
-                {/* Visual Track Layer Switcher */}
-                {isVisualTrack(selectedClip.trackId) && (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={
-                              selectedClip.trackId === "visual-1" || selectedClip.trackId === "visual"
-                                ? "secondary"
-                                : "ghost"
+                {/* Dynamic Visual Track Layer Switcher */}
+                {isVisualTrack(selectedClip.trackId, tracks) && orderedVisualTracks.length > 1 && (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {orderedVisualTracks.map((tr) => {
+                      const isCurrent =
+                        tr.id === selectedClip.trackId ||
+                        (tr.id === "visual-1" && selectedClip.trackId === "visual");
+                      return (
+                        <Tooltip key={tr.id}>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant={isCurrent ? "secondary" : "ghost"}
+                                size="xs"
+                                disabled={isCurrent || tr.locked}
+                                onClick={() => updateClip(selectedClip.id, { trackId: tr.id })}
+                                aria-label={`Move clip to ${tr.name}`}
+                                className="px-1.5 h-6 text-3xs font-medium gap-1 cursor-pointer"
+                              >
+                                <Layers className={`size-3 ${isCurrent ? "text-primary" : ""}`} />
+                                <span className="hidden xl:inline">{tr.name}</span>
+                              </Button>
                             }
-                            size="icon"
-                            onClick={() => updateClip(selectedClip.id, { trackId: "visual-1" })}
-                            aria-label="Layer 1 (Base visual track)"
-                          >
-                            <Layers className="size-4" />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Layer 1 (Base visual track)</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.trackId === "visual-2" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => updateClip(selectedClip.id, { trackId: "visual-2" })}
-                            aria-label="Layer 2 (Overlay / PiP visual track)"
-                          >
-                            <Layers className={`size-4 ${selectedClip.trackId === "visual-2" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Layer 2 (Overlay / PiP visual track)</span>
-                      </TooltipContent>
-                    </Tooltip>
-
+                          />
+                          <TooltipContent>
+                            <span>Move to {tr.name}</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
                     <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
-                  </>
+                  </div>
+                )}
+
+                {/* Dynamic Audio Track Switcher */}
+                {isAudioTrack(selectedClip.trackId, tracks) && orderedAudioTracks.length > 1 && (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {orderedAudioTracks.map((tr) => {
+                      const isCurrent = tr.id === selectedClip.trackId;
+                      return (
+                        <Tooltip key={tr.id}>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant={isCurrent ? "secondary" : "ghost"}
+                                size="xs"
+                                disabled={isCurrent || tr.locked}
+                                onClick={() => updateClip(selectedClip.id, { trackId: tr.id })}
+                                aria-label={`Move clip to ${tr.name}`}
+                                className="px-1.5 h-6 text-3xs font-medium gap-1 cursor-pointer"
+                              >
+                                <Volume2 className={`size-3 ${isCurrent ? "text-primary" : ""}`} />
+                                <span className="hidden xl:inline">{tr.name}</span>
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>
+                            <span>Move to {tr.name}</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                    <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+                  </div>
                 )}
 
                 {/* Scene Motion (Images only) */}
@@ -1216,7 +1728,7 @@ export function TimelineDock() {
                 )}
 
                 {/* Volume & Mute for Audio & Video clips */}
-                {(isAudioTrack(selectedClip.trackId) || selectedClip.type === "video") && (
+                {(isAudioTrack(selectedClip.trackId, tracks) || selectedClip.type === "video") && (
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -1256,90 +1768,85 @@ export function TimelineDock() {
       </CardHeader>
 
       {/* Main Timeline Card Content: Pinned Left Track Sidebar + Horizontally Scrolling Canvas */}
-      <CardContent className="p-0 flex flex-row overflow-hidden border-t border-border">
+      <CardContent className="p-0 flex flex-row overflow-hidden border-t border-border max-h-96 md:max-h-120">
         {/* PINNED LEFT TRACK SIDEBAR (Immune to Horizontal Scrolling, Always Visible) */}
-        <div className="w-36 shrink-0 border-r border-border bg-card z-30 flex flex-col select-none">
-          {/* Header Row */}
-          <div className="h-6 border-b border-border bg-muted/40 px-2 flex items-center text-3xs text-muted-foreground uppercase font-medium">
-            Tracks
+        <div
+          ref={sidebarScrollRef}
+          onWheel={handleSidebarWheel}
+          className="w-52 shrink-0 border-r border-border bg-card z-30 flex flex-col select-none overflow-y-auto no-scrollbar"
+        >
+          {/* Header Row (Sticky on top of sidebar) */}
+          <div className="h-6 border-b border-border bg-muted/40 px-2 flex items-center justify-between text-3xs text-muted-foreground uppercase font-medium sticky top-0 z-40">
+            <span>Tracks ({orderedTracks.length})</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="h-4 px-1 gap-0.5 text-3xs hover:text-foreground cursor-pointer"
+                    title="Add track"
+                  >
+                    <Plus className="size-3 text-primary" />
+                    <span>Add</span>
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-3xs text-muted-foreground uppercase font-semibold">
+                    Add Track
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => addTrack("visual")}>
+                    <Layers className="size-3.5 mr-2 text-primary" />
+                    <span>Visual Track</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => addTrack("audio", "voiceover")}>
+                    <Mic className="size-3.5 mr-2 text-primary" />
+                    <span>Voiceover Track</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => addTrack("audio", "music")}>
+                    <Music className="size-3.5 mr-2 text-primary" />
+                    <span>Music Track</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => addTrack("audio", "sfx")}>
+                    <Volume2 className="size-3.5 mr-2 text-primary" />
+                    <span>SFX Track</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => addTrack("audio", "ambient")}>
+                    <Radio className="size-3.5 mr-2 text-primary" />
+                    <span>Ambient Track</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => addTrack("audio", "general")}>
+                    <Volume2 className="size-3.5 mr-2 text-primary" />
+                    <span>Audio Track</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          {/* Layer 2 Header Row */}
-          <div className="h-11 border-b border-border p-2 flex items-center justify-between bg-muted/20">
-            <div className="flex items-center gap-1.5">
-              <div className="size-5 rounded bg-primary/15 flex items-center justify-center text-primary">
-                <Layers className="size-3" />
-              </div>
-              <div>
-                <p className="text-2xs font-semibold text-foreground leading-tight">
-                  Visual Layer 2
-                </p>
-                <p className="text-3xs text-muted-foreground">Overlay (Top)</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Eye className="size-2.5" />
-              <Lock className="size-2.5" />
-            </div>
-          </div>
-
-          {/* Layer 1 Header Row */}
-          <div className="h-11 border-b border-border p-2 flex items-center justify-between bg-muted/20">
-            <div className="flex items-center gap-1.5">
-              <div className="size-5 rounded bg-primary/10 flex items-center justify-center text-primary">
-                <Video className="size-3" />
-              </div>
-              <div>
-                <p className="text-2xs font-semibold text-foreground leading-tight">
-                  Visual Layer 1
-                </p>
-                <p className="text-3xs text-muted-foreground">{visualLayer1Clips.length} clips</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Eye className="size-2.5" />
-              <Lock className="size-2.5" />
-            </div>
-          </div>
-
-          {/* Voiceover Header Row */}
-          <div className="h-11 p-2 flex items-center justify-between bg-muted/20">
-            <div className="flex items-center gap-1.5">
-              <div className="size-5 rounded bg-secondary flex items-center justify-center text-foreground">
-                <Mic className="size-3" />
-              </div>
-              <div>
-                <p className="text-2xs font-semibold text-foreground leading-tight">
-                  Voiceover
-                </p>
-                <p className="text-3xs text-muted-foreground">{audioClips.length} tracks</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Volume2 className="size-2.5" />
-              <Lock className="size-2.5" />
-            </div>
-          </div>
+          {/* Dynamic Track Sidebar Headers */}
+          {orderedTracks.map((track) => renderTrackSidebarHeader(track))}
         </div>
 
         {/* HORIZONTALLY SCROLLING TIMELINE CANVAS */}
         <div
           ref={tracksScrollRef}
-          className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden select-none"
+          onScroll={handleTracksScroll}
+          className="flex-1 min-w-0 overflow-auto select-none"
         >
           <div
             style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
             className="min-w-full flex flex-col relative"
           >
-            {/* Time Ruler Section covering 100% of the canvas */}
+            {/* Time Ruler Section (Sticky on top of vertical scroll) */}
             <div
               ref={rulerRef}
               onPointerDown={startPlayheadDrag}
               style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-              className="min-w-full relative h-6 border-b border-border bg-muted/30 cursor-pointer hover:bg-muted/50 select-none"
+              className="min-w-full sticky top-0 z-30 h-6 border-b border-border bg-muted/90 backdrop-blur-xs cursor-pointer hover:bg-muted select-none"
             >
               {rulerTicks.map((tick) => (
                 <div
@@ -1380,110 +1887,21 @@ export function TimelineDock() {
                 </div>
               )}
 
-              {/* Layer 2: Visual Track 2 (Overlay / Top Visual Layer) */}
-              <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors min-w-full">
-                {renderVisualTrackLane("visual-2", visualLayer2Clips)}
-              </div>
-
-              {/* Layer 1: Visual Track 1 (Base / Main Visual Layer) */}
-              <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors min-w-full">
-                {renderVisualTrackLane("visual-1", visualLayer1Clips)}
-              </div>
-
-              {/* Track 3: Voiceover Narration (Cartesia Audio) with Visual Fade Ramps */}
-              <div className="flex h-11 bg-card hover:bg-muted/10 transition-colors min-w-full">
-                <div
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleTrackDrop(e, "audio")}
-                  style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-                  className="min-w-full relative h-full flex items-center px-1 overflow-visible"
-                >
-                  {/* Full-width vertical grid lines across audio lane */}
-                  {rulerTicks.map((tick) => (
-                    <div
-                      key={`audio_grid_${tick.time}`}
-                      style={{ left: `${tick.leftPx}px` }}
-                      className="absolute top-0 bottom-0 w-px bg-border/20 pointer-events-none"
-                    />
-                  ))}
-
-                  {!isHydrated || audioClips.length === 0 ? (
-                    <div className="w-full border border-dashed border-border rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
-                      <Mic className="size-3 text-muted-foreground/60" />
-                      <span>Drag voiceover audio here to align visual scene pacing.</span>
-                    </div>
-                  ) : (
-                    audioClips.map((clip) => {
-                      const isSelected = clip.id === selectedClipId;
-                      const leftPos = clip.startTime * pxPerSec;
-                      const widthPx = Math.max(4, clip.duration * pxPerSec);
-                      const asset = assetMap.get(clip.assetId);
-
-                      return (
-                        <div
-                          key={clip.id}
-                          data-clip-id={clip.id}
-                          data-testid="timeline-clip"
-                          style={{
-                            left: `${leftPos}px`,
-                            width: `${widthPx}px`,
-                          }}
-                          onPointerDown={(e) => startMoveDrag(e, clip)}
-                          className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none cursor-grab active:cursor-grabbing ${
-                            isSelected
-                              ? "border-primary bg-primary/25 ring-2 ring-primary shadow-sm z-10"
-                              : "border-border bg-card hover:border-primary/50"
-                          }`}
-                        >
-                          {/* Left-edge trim handle */}
-                          <div
-                            onPointerDown={(e) => startLeftTrimDrag(e, clip)}
-                            className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
-                            title="Drag to trim start (in-point)"
-                          >
-                            <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
-                          </div>
-
-                          {/* Audio Waveform Visualization with Fade-In / Fade-Out Ramps */}
-                          <div className="absolute inset-0 flex items-center justify-center px-1 overflow-hidden pointer-events-none opacity-40">
-                            <AudioWaveformView
-                              blob={asset?.blob || null}
-                              clipDuration={clip.duration}
-                              fadeInDuration={clip.fadeInDuration || 0}
-                              fadeOutDuration={clip.fadeOutDuration || 0}
-                            />
-                          </div>
-
-                          <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10 px-1">
-                            <Mic className="size-3 text-primary shrink-0" />
-                            <span className="text-3xs font-medium text-foreground truncate">
-                              {clip.name}
-                            </span>
-                            {clip.volume === 0 && (
-                              <span title="Track audio muted" className="shrink-0">
-                                <VolumeX className="size-2.5 text-destructive" />
-                              </span>
-                            )}
-                          </div>
-
-                          <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10 pr-1">
-                            {clip.duration.toFixed(1)}s
-                          </span>
-
-                          {/* Right-edge trim handle */}
-                          <div
-                            onPointerDown={(e) => startRightTrimDrag(e, clip)}
-                            className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
-                            title="Drag to trim duration"
-                          >
-                            <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+              {/* Dynamic Track Lanes */}
+              {orderedTracks.map((track) => {
+                const trackClips = clipsByTrack.get(track.id) || [];
+                return (
+                  <div
+                    key={track.id}
+                    data-testid={`track-lane-${track.id}`}
+                    className="flex h-11 bg-card hover:bg-muted/10 transition-colors min-w-full"
+                  >
+                    {track.type === "visual"
+                      ? renderVisualTrackLane(track, trackClips)
+                      : renderAudioTrackLane(track, trackClips)}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Dynamic Playhead Scrubber Line & Grabber Handle (Spans full height of ruler + tracks) */}
@@ -1528,6 +1946,39 @@ export function TimelineDock() {
           </div>
         </div>
       </CardContent>
+
+      {/* Track Deletion Safe Confirmation Dialog */}
+      {trackToDelete && (
+        <AlertDialog
+          open={trackToDelete !== null}
+          onOpenChange={(open) => {
+            if (!open) setTrackToDelete(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Track &quot;{trackToDelete.name}&quot;?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This track contains {clipsByTrack.get(trackToDelete.id)?.length || 0} clip(s).
+                Deleting the track will remove the track and all clips on it.
+                You can undo this action with Ctrl+Z.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => {
+                  deleteTrack(trackToDelete.id);
+                  setTrackToDelete(null);
+                }}
+              >
+                Delete Track
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </Card>
   );
 }

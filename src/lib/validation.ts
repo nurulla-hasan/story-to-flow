@@ -68,17 +68,50 @@ export const ProductionSettingsSchema = z.object({
 /**
  * Request body for POST /api/story/process
  */
-export const StoryProcessRequestSchema = z.object({
-  story: z
-    .string()
-    .min(1, "Story text is required")
-    .max(50000, "Story text is too long (max 50,000 characters)"),
-  settings: ProductionSettingsSchema.optional(),
-  stage: StudioStageSchema.optional(),
-  voiceoverScript: z.string().optional(),
-  actualVoiceoverDuration: z.number().positive().optional(),
-  videoAssetDuration: VideoAssetDurationSchema.optional(),
-});
+export const StoryProcessRequestSchema = z
+  .object({
+    story: z
+      .string()
+      .max(50000, "Story text is too long (max 50,000 characters)")
+      .optional()
+      .default(""),
+    settings: ProductionSettingsSchema.optional(),
+    stage: StudioStageSchema.optional(),
+    voiceoverScript: z.string().optional(),
+    actualVoiceoverDuration: z.number().positive().optional(),
+    videoAssetDuration: VideoAssetDurationSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    const stage = data.stage ?? "complete";
+    if (stage === "voiceover" || stage === "complete") {
+      if (!data.story || !data.story.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Story text is required",
+          path: ["story"],
+        });
+      }
+    } else if (stage === "scenes") {
+      if (!data.voiceoverScript || !data.voiceoverScript.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "A finalized voiceover script is required before generating scenes",
+          path: ["voiceoverScript"],
+        });
+      }
+      if (
+        typeof data.actualVoiceoverDuration !== "number" ||
+        data.actualVoiceoverDuration <= 0 ||
+        isNaN(data.actualVoiceoverDuration)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "A valid, positive actual voiceover duration is required",
+          path: ["actualVoiceoverDuration"],
+        });
+      }
+    }
+  });
 
 /**
  * Response metadata

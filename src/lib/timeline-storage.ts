@@ -1,18 +1,27 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { TimelineProjectState, TimelineClip, TimelineTransition } from "@/types/timeline";
+import type {
+  TimelineProjectState,
+  TimelineClip,
+  TimelineTransition,
+  TimelineTrack,
+} from "@/types/timeline";
+import {
+  DEFAULT_TIMELINE_TRACKS,
+} from "@/types/timeline";
 
 import { sanitizeClipTransform } from "@/lib/clip-transform";
 import { sanitizeZoomEffect } from "@/lib/zoom-effect";
 
 export const TIMELINE_STORAGE_KEY = "story_forge_timeline_state_v1";
-export const TIMELINE_STORAGE_VERSION = 1;
+export const TIMELINE_STORAGE_VERSION = 2;
 export const TIMELINE_STORAGE_EVENT = "story_forge_timeline_storage_change";
 
 export const DEFAULT_TIMELINE_STATE: TimelineProjectState = {
   version: TIMELINE_STORAGE_VERSION,
   projectTitle: "Untitled Story Video",
+  tracks: DEFAULT_TIMELINE_TRACKS,
   clips: [],
   transitions: [],
   playhead: 0,
@@ -154,9 +163,46 @@ function toError(value: unknown, fallbackMessage: string): Error {
   return new Error(fallbackMessage);
 }
 
+export function sanitizeTimelineTrack(raw: unknown, defaultOrder: number): TimelineTrack | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.id !== "string" || !t.id.trim()) return null;
+  const id = t.id.trim();
+  const name = typeof t.name === "string" && t.name.trim() ? t.name.trim() : id;
+  const type: "visual" | "audio" = t.type === "audio" ? "audio" : "visual";
+  const order = typeof t.order === "number" && Number.isFinite(t.order) ? t.order : defaultOrder;
+  const role =
+    t.role === "voiceover" ||
+    t.role === "music" ||
+    t.role === "sfx" ||
+    t.role === "ambient" ||
+    t.role === "general"
+      ? t.role
+      : undefined;
+  const muted = Boolean(t.muted);
+  const volume =
+    typeof t.volume === "number" && Number.isFinite(t.volume)
+      ? Math.max(0, Math.min(1, t.volume))
+      : 1.0;
+  const visible = t.visible !== false; // default true
+  const locked = Boolean(t.locked);
+
+  return {
+    id,
+    name,
+    type,
+    order,
+    role,
+    muted,
+    volume,
+    visible,
+    locked,
+  };
+}
+
 /**
- * Parse a stored timeline record, including older version-1 payloads that
- * predate transitions, selected transitions, or clip transforms.
+ * Parse a stored timeline record, safely migrating older version-1 payloads
+ * (which lacked the canonical dynamic tracks array) to version-2.
  */
 export function deserializeTimelineState(parsed: unknown): TimelineProjectState | null {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -164,7 +210,7 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
   }
 
   const record = parsed as Record<string, unknown>;
-  const version = typeof record.version === "number" ? record.version : TIMELINE_STORAGE_VERSION;
+  const version = typeof record.version === "number" ? record.version : 1;
   if (!Number.isFinite(version) || version > TIMELINE_STORAGE_VERSION) {
     return null;
   }
@@ -176,24 +222,89 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
     ? Math.min(500, Math.max(10, record.zoom))
     : 100;
 
+  // Track list resolution and v1 -> v2 migration
+  let tracks: TimelineTrack[] = [];
+  if (Array.isArray(record.tracks) && record.tracks.length > 0) {
+    tracks = record.tracks
+      .map((t, idx) => sanitizeTimelineTrack(t, idx))
+      .filter((t): t is TimelineTrack => t !== null);
+  }
+
+  // If no valid tracks exist (e.g. legacy v1 payload), initialize default tracks
+  if (tracks.length === 0) {
+    tracks = DEFAULT_TIMELINE_TRACKS.map((t) => ({ ...t }));
+  }
+
+  const existingTrackIds = new Set(tracks.map((t) => t.id));
+  const rawClips = Array.isArray(record.clips) ? (record.clips as TimelineClip[]) : [];
+
+  // Normalize legacy clips and dynamically register any tracks needed to prevent data loss
+  const migratedClips = rawClips.map((clip) => {
+    let trackId = typeof clip.trackId === "string" ? clip.trackId : "visual-1";
+    // Normalize legacy "visual" alias to "visual-1"
+    if (trackId === "visual") {
+      trackId = "visual-1";
+    }
+
+    // Preserve legacy "audio-1" clips on a distinct audio track ("Audio 2")
+    if (trackId === "audio-1" && !existingTrackIds.has("audio-1")) {
+      const maxAudioOrder = Math.max(0, ...tracks.filter((t) => t.type === "audio").map((t) => t.order));
+      tracks.push({
+        id: "audio-1",
+        name: "Audio 2",
+        type: "audio",
+        role: "general",
+        order: maxAudioOrder + 1,
+        muted: false,
+        volume: 1,
+        visible: true,
+        locked: false,
+      });
+      existingTrackIds.add("audio-1");
+    } else if (!existingTrackIds.has(trackId)) {
+      // Any custom track from a saved project that is missing from track definitions
+      const inferredType: "visual" | "audio" = clip.type === "audio" ? "audio" : "visual";
+      const sameTypeTracks = tracks.filter((t) => t.type === inferredType);
+      const maxOrder = Math.max(0, ...sameTypeTracks.map((t) => t.order));
+      tracks.push({
+        id: trackId,
+        name: trackId,
+        type: inferredType,
+        order: maxOrder + 1,
+        muted: false,
+        volume: 1,
+        visible: true,
+        locked: false,
+      });
+      existingTrackIds.add(trackId);
+    }
+
+    return {
+      ...clip,
+      trackId,
+      speed:
+        typeof clip.speed === "number" && Number.isFinite(clip.speed) && clip.speed > 0
+          ? clip.speed
+          : 1.0,
+      transform: clip.transform ? sanitizeClipTransform(clip.transform) : undefined,
+      zoomEffect: sanitizeZoomEffect(clip.zoomEffect),
+    };
+  });
+
+  const migratedTransitions = Array.isArray(record.transitions)
+    ? (record.transitions as TimelineTransition[]).map((t) => ({
+        ...t,
+        trackId: t.trackId === "visual" ? "visual-1" : t.trackId,
+      }))
+    : [];
+
   return {
     version: TIMELINE_STORAGE_VERSION,
     projectTitle:
       typeof record.projectTitle === "string" ? record.projectTitle : "Untitled Story Video",
-    clips: Array.isArray(record.clips)
-      ? (record.clips as TimelineClip[]).map((clip) => ({
-          ...clip,
-          speed:
-            typeof clip.speed === "number" && Number.isFinite(clip.speed) && clip.speed > 0
-              ? clip.speed
-              : 1.0,
-          transform: clip.transform ? sanitizeClipTransform(clip.transform) : undefined,
-          zoomEffect: sanitizeZoomEffect(clip.zoomEffect),
-        }))
-      : [],
-    transitions: Array.isArray(record.transitions)
-      ? (record.transitions as TimelineTransition[])
-      : [],
+    tracks,
+    clips: migratedClips,
+    transitions: migratedTransitions,
     playhead,
     zoom,
     selectedClipId: typeof record.selectedClipId === "string" ? record.selectedClipId : null,

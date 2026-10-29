@@ -9,10 +9,10 @@ import { Lightbulb } from "lucide-react"
 
 export function HowItWorksCard() {
   const steps = [
-    "Write your story in Bengali or English.",
-    "Adjust the production settings (or keep the defaults).",
-    "Click Generate to create your production package.",
-    "Copy the output and use it with Cartesia and Google Flow.",
+    "Write your story OR enter direct voiceover narration.",
+    "Synthesize speech in Cartesia and enter actual duration.",
+    "Adjust production settings (visual mode, sound, duration).",
+    "Generate calibrated scene prompts and assemble in Editor.",
   ]
 
   return (

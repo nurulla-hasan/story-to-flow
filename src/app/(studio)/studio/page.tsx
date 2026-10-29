@@ -37,6 +37,8 @@ import {
   Square,
   AlertTriangle,
   RotateCcw,
+  FileText,
+  Mic,
 } from "lucide-react";
 
 function formatSeconds(sec: number): string {
@@ -63,12 +65,18 @@ export default function StudioPage() {
   const storedStudio = useStudioStorage();
 
   // Local state with fallback to persistent storage
+  const [localInputMode, setLocalInputMode] = useState<"story" | "direct-voiceover" | null>(null);
   const [localStory, setLocalStory] = useState<string | null>(null);
   const [localVoiceoverScript, setLocalVoiceoverScript] = useState<string | null>(null);
   const [localMinutes, setLocalMinutes] = useState<string | null>(null);
   const [localSeconds, setLocalSeconds] = useState<string | null>(null);
   const [localStage, setLocalStage] = useState<number | null>(null);
   const [localResult, setLocalResult] = useState<StoryProcessResponse | null | undefined>(undefined);
+
+  const inputMode: "story" | "direct-voiceover" =
+    localInputMode !== null
+      ? localInputMode
+      : storedStudio.inputMode || (storedStudio.voiceoverScript && !storedStudio.story ? "direct-voiceover" : "story");
 
   const story = localStory !== null ? localStory : storedStudio.story;
   const voiceoverScript =
@@ -132,6 +140,38 @@ export default function StudioPage() {
     return total > 0 ? parseFloat(total.toFixed(2)) : null;
   }, [minutes, seconds]);
 
+  // Mode switcher handler
+  const handleSwitchMode = (mode: "story" | "direct-voiceover") => {
+    setLocalInputMode(mode);
+    setValidationError(null);
+    setError(null);
+
+    if (mode === "direct-voiceover") {
+      if (currentStage === 1) {
+        setLocalStage(2);
+      }
+    } else {
+      if (!voiceoverScript.trim()) {
+        setLocalStage(1);
+      }
+    }
+
+    saveStoredStudioData({
+      inputMode: mode,
+      currentStage: mode === "direct-voiceover" && currentStage === 1 ? 2 : currentStage,
+    });
+  };
+
+  const handleStageClick = (stg: number) => {
+    if (stg === 1 && inputMode === "direct-voiceover") {
+      handleSwitchMode("story");
+    } else if (stg === 2 && inputMode === "story" && !voiceoverScript.trim()) {
+      handleSwitchMode("direct-voiceover");
+    } else {
+      setLocalStage(stg);
+    }
+  };
+
   // Debounced story input auto-save with downstream state invalidation
   const handleStoryChange = (val: string) => {
     setLocalStory(val);
@@ -142,24 +182,34 @@ export default function StudioPage() {
     if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
     if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
 
-    // Invalidate downstream voiceover script, measured duration, and scenes
-    setLocalVoiceoverScript("");
-    setLocalMinutes("");
-    setLocalSeconds("");
-    setLocalResult(null);
-    setLocalStage(1);
+    if (inputMode === "story") {
+      // Invalidate downstream voiceover script, measured duration, and scenes
+      setLocalVoiceoverScript("");
+      setLocalMinutes("");
+      setLocalSeconds("");
+      setLocalResult(null);
+      setLocalStage(1);
 
-    storySaveTimeoutRef.current = setTimeout(() => {
-      saveStoredStudioData({
-        story: val,
-        voiceoverScript: "",
-        voiceoverDurationMinutes: "",
-        voiceoverDurationSeconds: "",
-        actualVoiceoverDuration: null,
-        lastResult: null,
-        currentStage: 1,
-      });
-    }, 400);
+      storySaveTimeoutRef.current = setTimeout(() => {
+        saveStoredStudioData({
+          story: val,
+          voiceoverScript: "",
+          voiceoverDurationMinutes: "",
+          voiceoverDurationSeconds: "",
+          actualVoiceoverDuration: null,
+          lastResult: null,
+          currentStage: 1,
+          inputMode: "story",
+        });
+      }, 400);
+    } else {
+      storySaveTimeoutRef.current = setTimeout(() => {
+        saveStoredStudioData({
+          story: val,
+          inputMode: "direct-voiceover",
+        });
+      }, 400);
+    }
   };
 
   const handleClear = () => {
@@ -168,21 +218,52 @@ export default function StudioPage() {
     if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
 
     setLocalStory("");
-    setLocalVoiceoverScript("");
-    setLocalMinutes("");
-    setLocalSeconds("");
-    setLocalResult(null);
-    setLocalStage(1);
+    if (inputMode === "story") {
+      setLocalVoiceoverScript("");
+      setLocalMinutes("");
+      setLocalSeconds("");
+      setLocalResult(null);
+      setLocalStage(1);
+    }
     setValidationError(null);
 
     saveStoredStudioData({
       story: "",
+      ...(inputMode === "story"
+        ? {
+            voiceoverScript: "",
+            voiceoverDurationMinutes: "",
+            voiceoverDurationSeconds: "",
+            actualVoiceoverDuration: null,
+            lastResult: null,
+            currentStage: 1,
+            inputMode: "story",
+          }
+        : {
+            inputMode: "direct-voiceover",
+          }),
+    });
+  };
+
+  const handleClearVoiceover = () => {
+    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+
+    setLocalVoiceoverScript("");
+    setLocalMinutes("");
+    setLocalSeconds("");
+    setLocalResult(null);
+    setLocalStage(inputMode === "direct-voiceover" ? 2 : 1);
+    setError(null);
+
+    saveStoredStudioData({
       voiceoverScript: "",
       voiceoverDurationMinutes: "",
       voiceoverDurationSeconds: "",
       actualVoiceoverDuration: null,
       lastResult: null,
-      currentStage: 1,
+      currentStage: inputMode === "direct-voiceover" ? 2 : 1,
+      inputMode,
     });
   };
 
@@ -207,6 +288,7 @@ export default function StudioPage() {
         actualVoiceoverDuration: null,
         lastResult: null,
         currentStage: 2,
+        inputMode,
       });
     }, 400);
   };
@@ -341,12 +423,12 @@ export default function StudioPage() {
 
   // STAGE 4 ACTION: Generate Scene & Shot Prompts with Measured Duration
   const handleGenerateScenes = async () => {
-    if (!story.trim()) {
-      setValidationError("Original story text is required.");
+    if (inputMode === "story" && !story.trim() && !voiceoverScript.trim()) {
+      setValidationError("Please enter your story first to generate the voiceover script.");
       return;
     }
     if (!voiceoverScript.trim()) {
-      setError("Please generate and review the voiceover script before generating scenes.");
+      setError("Please enter or generate a voiceover script before generating scenes.");
       return;
     }
     if (!actualVoiceoverDuration || actualVoiceoverDuration <= 0) {
@@ -375,7 +457,7 @@ export default function StudioPage() {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          story,
+          story: story?.trim() || "",
           stage: "scenes",
           voiceoverScript: voiceoverScript.trim(),
           actualVoiceoverDuration,
@@ -451,6 +533,7 @@ export default function StudioPage() {
     requestIdRef.current++;
     clearStoredStudioState();
 
+    setLocalInputMode("story");
     setLocalStory("");
     setLocalVoiceoverScript("");
     setLocalMinutes("");
@@ -498,100 +581,211 @@ export default function StudioPage() {
           hasVoiceover={!!voiceoverScript.trim()}
           hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
           hasScenes={!!result?.response}
-          onStageClick={(stg) => setLocalStage(stg)}
+          onStageClick={handleStageClick}
+          inputMode={inputMode}
         />
 
         {/* 2-Column Dashboard Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           {/* Left Column: Staged Story Workflow */}
           <div className="space-y-6">
-            {/* STAGE 1: Original Story Input */}
-            <div className="space-y-4">
-              <div className="relative">
-                <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
-                <StoryInputCard
-                  story={story}
-                  onChange={handleStoryChange}
-                  onClear={handleClear}
-                  validationError={validationError}
-                  disabled={isGenerating}
-                />
+            {/* Input Mode Switcher (Story to Script vs Direct Voiceover) */}
+            <div className="relative">
+              <div className="flex items-center p-1 bg-muted/70 border border-border/80 rounded-xl shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode("story")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    inputMode === "story"
+                      ? "bg-background text-foreground shadow-2xs border border-border/60"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <FileText className="size-3.5" />
+                  <span>Story to Script</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode("direct-voiceover")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    inputMode === "direct-voiceover"
+                      ? "bg-background text-foreground shadow-2xs border border-border/60"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Mic className="size-3.5" />
+                  <span>Direct Voiceover</span>
+                </button>
               </div>
+            </div>
 
-              {/* Action: Generate Master Voiceover Script */}
-              {!voiceoverScript.trim() && (
-                <div className="space-y-3">
-                  {isGenerating && generationPhase === "voiceover" ? (
-                    <div className="flex items-center gap-3">
-                      <div className="relative flex-1">
-                        <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-sm -z-10" />
-                        <Button
-                          size="lg"
-                          className="flex-1 gap-3 cursor-default select-none shadow-md"
-                          tabIndex={-1}
-                        >
-                          <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                          <span className="font-semibold truncate">Writing Voiceover Script</span>
-                          <span className="font-mono text-xs font-bold bg-primary-foreground/25 px-2.5 py-1 rounded-lg shadow-sm">
-                            {formatSeconds(elapsedSeconds)}
+            {/* MODE 1: STORY TO SCRIPT */}
+            {inputMode === "story" && (
+              <>
+                {/* STAGE 1: Original Story Input */}
+                <div className="space-y-4">
+                  <div className="relative">
+                    <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
+                    <StoryInputCard
+                      story={story}
+                      onChange={handleStoryChange}
+                      onClear={handleClear}
+                      validationError={validationError}
+                      disabled={isGenerating}
+                    />
+                  </div>
+
+                  {/* Action: Generate Master Voiceover Script */}
+                  {!voiceoverScript.trim() && (
+                    <div className="space-y-3">
+                      {isGenerating && generationPhase === "voiceover" ? (
+                        <div className="flex items-center gap-3">
+                          <div className="relative flex-1">
+                            <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-sm -z-10" />
+                            <Button
+                              size="lg"
+                              className="flex-1 gap-3 cursor-default select-none shadow-md"
+                              tabIndex={-1}
+                            >
+                              <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
+                              <span className="font-semibold truncate">Writing Voiceover Script</span>
+                              <span className="font-mono text-xs font-bold bg-primary-foreground/25 px-2.5 py-1 rounded-lg shadow-sm">
+                                {formatSeconds(elapsedSeconds)}
+                              </span>
+                            </Button>
+                          </div>
+                          <div className="relative">
+                            <div className="absolute -inset-1 bg-gradient-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
+                            <Button
+                              size="lg"
+                              variant="destructive"
+                              onClick={handleStop}
+                              className="gap-2.5 shrink-0 cursor-pointer shadow-md"
+                              title="Cancel generation and abort request"
+                            >
+                              <Square className="size-3.5 fill-current" />
+                              <span>Stop</span>
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-md -z-10 opacity-70" />
+                            <Button
+                              size="lg"
+                              onClick={handleGenerateVoiceover}
+                              disabled={!story.trim() || isGenerating}
+                              className="w-full gap-3 cursor-pointer shadow-md text-sm font-semibold"
+                            >
+                              <Sparkles className="size-4.5" />
+                              <span>Generate Voiceover Script</span>
+                              <ArrowRight className="size-4.5" />
+                            </Button>
+                          </div>
+
+                          <div className="text-center pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchMode("direct-voiceover")}
+                              className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                            >
+                              Already have a voiceover?{" "}
+                              <span className="underline font-medium text-foreground hover:text-primary">
+                                Enter Direct Voiceover →
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isGenerating && generationPhase === "voiceover" && (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground px-2 animate-in fade-in">
+                          <span className="flex items-center gap-2 font-medium text-foreground">
+                            <span className="size-2 rounded-full bg-primary animate-pulse" />
+                            <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
                           </span>
-                        </Button>
-                      </div>
-                      <div className="relative">
-                        <div className="absolute -inset-1 bg-gradient-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
-                        <Button
-                          size="lg"
-                          variant="destructive"
-                          onClick={handleStop}
-                          className="gap-2.5 shrink-0 cursor-pointer shadow-md"
-                          title="Cancel generation and abort request"
-                        >
-                          <Square className="size-3.5 fill-current" />
-                          <span>Stop</span>
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-md -z-10 opacity-70" />
-                      <Button
-                        size="lg"
-                        onClick={handleGenerateVoiceover}
-                        disabled={!story.trim() || isGenerating}
-                        className="w-full gap-3 cursor-pointer shadow-md text-sm font-semibold"
-                      >
-                        <Sparkles className="size-4.5" />
-                        <span>Generate Voiceover Script</span>
-                        <ArrowRight className="size-4.5" />
-                      </Button>
-                    </div>
-                  )}
-
-                  {isGenerating && generationPhase === "voiceover" && (
-                    <div className="flex items-center justify-between text-xs text-muted-foreground px-2 animate-in fade-in">
-                      <span className="flex items-center gap-2 font-medium text-foreground">
-                        <span className="size-2 rounded-full bg-primary animate-pulse" />
-                        <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
-                      </span>
-                      <span className="font-mono font-semibold">{elapsedSeconds}s elapsed</span>
+                          <span className="font-mono font-semibold">{elapsedSeconds}s elapsed</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* STAGE 2: Master Voiceover Script (Review & Edit for Cartesia) */}
-            {voiceoverScript.trim() && (
-              <div className="relative">
-                <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-                <VoiceoverScriptCard
-                  script={voiceoverScript}
-                  onChange={handleVoiceoverChange}
-                  onRegenerate={handleGenerateVoiceover}
-                  onProceedToDuration={() => setLocalStage(3)}
-                  isGenerating={isGenerating && generationPhase === "voiceover"}
-                  disabled={isGenerating}
-                />
+                {/* STAGE 2: Master Voiceover Script (Review & Edit for Cartesia) */}
+                {voiceoverScript.trim() && (
+                  <div className="relative">
+                    <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                    <VoiceoverScriptCard
+                      script={voiceoverScript}
+                      onChange={handleVoiceoverChange}
+                      onClear={handleClearVoiceover}
+                      onRegenerate={story.trim() ? handleGenerateVoiceover : undefined}
+                      onProceedToDuration={() => setLocalStage(3)}
+                      isGenerating={isGenerating && generationPhase === "voiceover"}
+                      disabled={isGenerating}
+                      isDirectVoiceover={false}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* MODE 2: DIRECT VOICEOVER */}
+            {inputMode === "direct-voiceover" && (
+              <div className="space-y-4">
+                {/* Info banner with switch link */}
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-info-subtle/30 border border-info-border/30 text-xs text-foreground">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Mic className="size-4 text-primary shrink-0" />
+                    <span className="truncate">
+                      <strong>Direct Voiceover Mode:</strong> Paste or write your narration script below without a story outline.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchMode("story")}
+                    className="text-xs font-medium text-primary hover:underline shrink-0 cursor-pointer"
+                  >
+                    Start with Story
+                  </button>
+                </div>
+
+                {/* Direct Voiceover Card — ALWAYS VISIBLE in direct mode */}
+                <div className="relative">
+                  <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                  <VoiceoverScriptCard
+                    script={voiceoverScript}
+                    onChange={handleVoiceoverChange}
+                    onClear={handleClearVoiceover}
+                    onProceedToDuration={() => setLocalStage(3)}
+                    isGenerating={isGenerating && generationPhase === "voiceover"}
+                    disabled={isGenerating}
+                    isDirectVoiceover={true}
+                  />
+                </div>
+
+                {/* Optional Collapsible Story Context */}
+                <details className="group rounded-xl border border-border/80 bg-card/60 p-3 text-xs transition-colors">
+                  <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground select-none list-none flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <FileText className="size-3.5 text-muted-foreground" />
+                      <span>Optional: Add Story Background or Character Notes</span>
+                    </span>
+                    <span className="text-3xs text-muted-foreground group-open:rotate-90 transition-transform">
+                      ▶
+                    </span>
+                  </summary>
+                  <div className="mt-3 pt-3 border-t border-border/50">
+                    <StoryInputCard
+                      story={story}
+                      onChange={handleStoryChange}
+                      onClear={() => handleStoryChange("")}
+                      disabled={isGenerating}
+                    />
+                  </div>
+                </details>
               </div>
             )}
 

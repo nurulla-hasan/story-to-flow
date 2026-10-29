@@ -138,4 +138,53 @@ describe("P2 — API Request Validation & Precedence Consistency", () => {
       actualVoiceoverDuration: 120.5,
     }).success).toBe(true);
   });
+
+  it("supports direct voiceover mode without requiring a story", () => {
+    // Stage: scenes with voiceoverScript and valid duration, but no story
+    const directVoiceoverBody = {
+      stage: "scenes",
+      voiceoverScript: "একটি শান্ত নদীর তীরে ছোট্ট কুটিরে এক জেলে বাস করত...",
+      actualVoiceoverDuration: 45.5,
+    };
+
+    const parsed = StoryProcessRequestSchema.safeParse(directVoiceoverBody);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.story).toBe("");
+    expect(parsed.data.voiceoverScript).toContain("একটি শান্ত নদীর তীরে");
+    expect(parsed.data.actualVoiceoverDuration).toBe(45.5);
+  });
+
+  it("rejects direct voiceover scene generation when voiceoverScript is missing or empty", () => {
+    expect(
+      StoryProcessRequestSchema.safeParse({
+        stage: "scenes",
+        voiceoverScript: "",
+        actualVoiceoverDuration: 45.5,
+      }).success
+    ).toBe(false);
+
+    expect(
+      StoryProcessRequestSchema.safeParse({
+        stage: "scenes",
+        actualVoiceoverDuration: 45.5,
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects voiceover generation when story is missing", () => {
+    expect(
+      StoryProcessRequestSchema.safeParse({
+        stage: "voiceover",
+        story: "",
+      }).success
+    ).toBe(false);
+
+    expect(
+      StoryProcessRequestSchema.safeParse({
+        stage: "complete",
+        story: "",
+      }).success
+    ).toBe(false);
+  });
 });

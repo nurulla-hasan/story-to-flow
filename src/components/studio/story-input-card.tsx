@@ -76,7 +76,7 @@ export function StoryInputCard({
               onChange={(e) => onChange(e.target.value)}
               disabled={disabled}
               placeholder="শরতের এক রাতে ছোট্ট গ্রামটিতে হঠাৎ আকাশের সব তারা নিভে গেল। গ্রামের মানুষ ভয়ে ঘরের দরজা বন্ধ করে ...."
-              className="w-full h-113 overflow-y-auto font-bangla resize-none field-sizing-fixed"
+              className="w-full h-65 overflow-y-auto font-bangla resize-none field-sizing-fixed"
             />
             {validationError && <FieldError>{validationError}</FieldError>}
           </Field>

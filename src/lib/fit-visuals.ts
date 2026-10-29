@@ -1,6 +1,7 @@
 import {
   type TimelineClip,
   type TimelineTransition,
+  type TimelineTrack,
   isVisualTrack,
   isAudioTrack,
   normalizeVisualTrackId,
@@ -19,33 +20,39 @@ const MIN_CLIP_DURATION = 0.5; // 500ms minimum clip duration
 /**
  * Fit visual scene clips on each visual track independently to match the voiceover duration.
  * 
- * LAYER-AWARE PROCESSING:
- * - Visual Layer 1 (visual/visual-1) clips are fitted as one sequential timeline.
- * - Visual Layer 2 (visual-2) clips are fitted separately as their own timeline.
- * - Cross-layer overlaps are preserved; layers are never flattened or interleaved.
- * - Each layer's clips are ordered by their original start time and assigned new
- *   consecutive start times within that layer's own sequential space.
- * 
- * DURATION RULES:
- * - Still images are scaled proportionally to fill the target duration.
- * - Videos preserve their durations when possible; images absorb timing variations.
- * - Mixed scenarios scale images to fill gaps; all clips scale down if needed.
- * - Minimum clip duration (500ms) is enforced for all clips.
- * 
- * TRANSITION RECONCILIATION:
- * - After fitting, existing transitions are revalidated for clip adjacency.
- * - Transitions whose clips remain adjacent and on the same track are preserved.
- * - Stale transitions (clips no longer adjacent or removed) are dropped.
- * - Transition durations are revalidated against the updated clip durations.
+ * DYNAMIC TRACK-AWARE PROCESSING:
+ * - Each visual track's clips are fitted as their own independent sequential timeline.
+ * - Cross-track overlaps are preserved; tracks are never flattened or interleaved.
+ * - The target duration is determined specifically by the Voiceover audio track
+ *   (or fallback to default audio if no explicit Voiceover role exists).
+ * - Background music, SFX, and ambient sound clips do NOT inflate the narration duration.
  */
 export function calculateFitVisualsToVoiceover(
   clips: TimelineClip[],
-  transitions: TimelineTransition[]
+  transitions: TimelineTransition[],
+  tracks?: readonly TimelineTrack[]
 ): FitVisualsResult {
-  const audioClips = clips.filter((c) => isAudioTrack(c.trackId));
-  const visualClips = clips.filter((c) => isVisualTrack(c.trackId));
+  const visualClips = clips.filter((c) => isVisualTrack(c.trackId, tracks));
 
-  if (audioClips.length === 0) {
+  // Determine voiceover audio clips:
+  // 1. If tracks metadata is available, prefer track with role === "voiceover"
+  // 2. Otherwise fallback to trackId === "audio", or all audio clips
+  let voiceoverClips: TimelineClip[] = [];
+  if (tracks && tracks.length > 0) {
+    const voiceoverTrackIds = new Set(
+      tracks.filter((t) => t.type === "audio" && t.role === "voiceover").map((t) => t.id)
+    );
+    voiceoverClips = clips.filter((c) => voiceoverTrackIds.has(c.trackId));
+  }
+
+  if (voiceoverClips.length === 0) {
+    voiceoverClips = clips.filter((c) => c.trackId === "audio");
+  }
+  if (voiceoverClips.length === 0) {
+    voiceoverClips = clips.filter((c) => isAudioTrack(c.trackId, tracks));
+  }
+
+  if (voiceoverClips.length === 0) {
     return {
       success: false,
       message: "No voiceover audio found on the timeline. Add an audio clip first.",
@@ -64,7 +71,7 @@ export function calculateFitVisualsToVoiceover(
   }
 
   // Voiceover end timestamp (target visual duration)
-  const voiceoverEnd = Math.max(...audioClips.map((c) => c.startTime + c.duration));
+  const voiceoverEnd = Math.max(...voiceoverClips.map((c) => c.startTime + c.duration));
   if (voiceoverEnd <= MIN_CLIP_DURATION) {
     return {
       success: false,
@@ -74,43 +81,39 @@ export function calculateFitVisualsToVoiceover(
     };
   }
 
-  // Separate visual clips by normalized track ID to process each layer independently
-  const layer1Clips = visualClips.filter(
-    (c) => normalizeVisualTrackId(c.trackId) === "visual-1"
-  );
-  const layer2Clips = visualClips.filter(
-    (c) => normalizeVisualTrackId(c.trackId) === "visual-2"
-  );
+  // Separate visual clips by normalized track ID to process each visual track independently
+  const visualClipsByTrack = new Map<string, TimelineClip[]>();
+  for (const clip of visualClips) {
+    const key = normalizeVisualTrackId(clip.trackId);
+    const list = visualClipsByTrack.get(key) || [];
+    list.push(clip);
+    visualClipsByTrack.set(key, list);
+  }
 
   const fittedClips: TimelineClip[] = [];
   let fittedCount = 0;
 
-  // Fit Visual Layer 1 independently
-  if (layer1Clips.length > 0) {
-    const fitted = fitVisualLayer(layer1Clips, voiceoverEnd);
-    fittedClips.push(...fitted);
-    fittedCount += fitted.length;
-  }
-
-  // Fit Visual Layer 2 independently
-  if (layer2Clips.length > 0) {
-    const fitted = fitVisualLayer(layer2Clips, voiceoverEnd);
-    fittedClips.push(...fitted);
-    fittedCount += fitted.length;
+  for (const layerClips of visualClipsByTrack.values()) {
+    if (layerClips.length > 0) {
+      const fitted = fitVisualLayer(layerClips, voiceoverEnd);
+      fittedClips.push(...fitted);
+      fittedCount += fitted.length;
+    }
   }
 
   // Combine fitted visuals with untouched audio clips
-  const untouchedAudioClips = clips.filter((c) => !isVisualTrack(c.trackId));
+  const untouchedAudioClips = clips.filter((c) => !isVisualTrack(c.trackId, tracks));
   const finalClips = [...fittedClips, ...untouchedAudioClips];
 
   // Reconcile transitions: keep only those whose clips remain adjacent after fitting
   const reconciledTransitions = reconcileTransitionsAfterFitting(
     transitions,
-    finalClips
+    finalClips,
+    tracks
   );
 
   const droppedCount = transitions.length - reconciledTransitions.length;
-  let message = `Fitted ${fittedCount} visual clips across ${layer1Clips.length > 0 && layer2Clips.length > 0 ? "2 layers" : "1 layer"} to ${voiceoverEnd.toFixed(1)}s voiceover.`;
+  let message = `Fitted ${fittedCount} visual clips across ${visualClipsByTrack.size} visual track(s) to ${voiceoverEnd.toFixed(1)}s voiceover.`;
   if (droppedCount > 0) {
     message += ` Removed ${droppedCount} stale transition${droppedCount === 1 ? "" : "s"}.`;
   }
@@ -244,7 +247,8 @@ function fitVisualLayer(layerClips: TimelineClip[], targetDuration: number): Tim
  */
 function reconcileTransitionsAfterFitting(
   oldTransitions: TimelineTransition[],
-  updatedClips: TimelineClip[]
+  updatedClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): TimelineTransition[] {
   const clipMap = new Map(updatedClips.map((c) => [c.id, c]));
 
@@ -259,7 +263,7 @@ function reconcileTransitionsAfterFitting(
       }
 
       // Drop transition if clips are no longer adjacent
-      if (!areClipsAdjacentForTransition(fromClip, toClip)) {
+      if (!areClipsAdjacentForTransition(fromClip, toClip, tracks)) {
         return null;
       }
 

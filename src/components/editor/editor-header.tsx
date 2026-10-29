@@ -26,6 +26,7 @@ import { ExportDialog } from "@/components/editor/export-dialog";
 export function EditorHeader() {
   const {
     isHydrated,
+    tracks,
     projectTitle,
     setProjectTitle,
     canUndo,
@@ -59,8 +60,8 @@ export function EditorHeader() {
     }, 4000);
   };
 
-  const hasAudio = isHydrated && clips.some((c) => isAudioTrack(c.trackId));
-  const hasVisual = isHydrated && clips.some((c) => isVisualTrack(c.trackId));
+  const hasAudio = isHydrated && clips.some((c) => isAudioTrack(c.trackId, tracks));
+  const hasVisual = isHydrated && clips.some((c) => isVisualTrack(c.trackId, tracks));
   const canExport = isHydrated && clips.length > 0;
 
   return (

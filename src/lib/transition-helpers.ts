@@ -1,6 +1,7 @@
 import type {
   TimelineClip,
   TimelineTransition,
+  TimelineTrack,
   TransitionType,
 } from "../types/timeline";
 import {
@@ -42,10 +43,11 @@ export function validateTransitionDuration(
  */
 export function areClipsAdjacentForTransition(
   clipA: TimelineClip,
-  clipB: TimelineClip
+  clipB: TimelineClip,
+  tracks?: readonly TimelineTrack[]
 ): boolean {
-  if (!areClipsOnSameTrack(clipA.trackId, clipB.trackId)) return false;
-  if (isAudioTrack(clipA.trackId) || isAudioTrack(clipB.trackId)) return false;
+  if (!areClipsOnSameTrack(clipA.trackId, clipB.trackId, tracks)) return false;
+  if (isAudioTrack(clipA.trackId, tracks) || isAudioTrack(clipB.trackId, tracks)) return false;
 
   const clipAEnd = clipA.startTime + clipA.duration;
   const gap = Math.abs(clipB.startTime - clipAEnd);
@@ -125,12 +127,13 @@ export function findAdjacentClipPairs(
  * "visual-1" clips are treated as the same lane, and audio lanes are excluded.
  */
 export function findEligibleTransitionPairs(
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): Array<{ fromClip: TimelineClip; toClip: TimelineClip }> {
   const clipsByTrack = new Map<string, TimelineClip[]>();
 
   for (const clip of allClips) {
-    if (!isVisualTrack(clip.trackId)) continue;
+    if (!isVisualTrack(clip.trackId, tracks)) continue;
     const key = normalizeVisualTrackId(clip.trackId);
     const lane = clipsByTrack.get(key) ?? [];
     lane.push(clip);
@@ -171,7 +174,8 @@ function createTransitionId(): string {
 export function applyToAllTransitions(
   sourceTransition: TimelineTransition,
   allTransitions: TimelineTransition[],
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): ApplyToAllTransitionsResult {
   // The source transition must belong to the current timeline state.
   if (!allTransitions.some((t) => t.id === sourceTransition.id)) {
@@ -184,7 +188,7 @@ export function applyToAllTransitions(
     };
   }
 
-  const eligiblePairs = findEligibleTransitionPairs(allClips);
+  const eligiblePairs = findEligibleTransitionPairs(allClips, tracks);
   if (eligiblePairs.length === 0) {
     return {
       updatedTransitions: allTransitions,

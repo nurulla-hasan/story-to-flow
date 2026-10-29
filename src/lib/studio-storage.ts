@@ -9,6 +9,7 @@ export const STUDIO_STORAGE_EVENT = "story_forge_studio_storage_change";
 
 export interface StoredStudioState {
   version: number;
+  inputMode?: "story" | "direct-voiceover";
   story: string;
   voiceoverScript: string;
   voiceoverDurationMinutes: string;
@@ -21,6 +22,7 @@ export interface StoredStudioState {
 
 const DEFAULT_STUDIO_STATE: StoredStudioState = {
   version: STUDIO_STORAGE_VERSION,
+  inputMode: "story",
   story: "",
   voiceoverScript: "",
   voiceoverDurationMinutes: "",
@@ -53,6 +55,7 @@ export function getStoredStudioState(): StoredStudioState {
     if (parsed && typeof parsed === "object" && parsed.version === STUDIO_STORAGE_VERSION) {
       return {
         version: STUDIO_STORAGE_VERSION,
+        inputMode: parsed.inputMode === "direct-voiceover" ? "direct-voiceover" : "story",
         story: typeof parsed.story === "string" ? parsed.story : "",
         voiceoverScript: typeof parsed.voiceoverScript === "string" ? parsed.voiceoverScript : "",
         voiceoverDurationMinutes: typeof parsed.voiceoverDurationMinutes === "string" ? parsed.voiceoverDurationMinutes : (parsed.voiceoverDurationMinutes?.toString() || ""),

@@ -126,6 +126,12 @@ export async function POST(request: NextRequest) {
     let userMessageContent: string;
 
     if (stage === "voiceover") {
+      if (!story || !story.trim()) {
+        return NextResponse.json(
+          { error: "Story text is required to generate a voiceover script." },
+          { status: 400 }
+        );
+      }
       systemMessage = assembleVoiceoverSystemMessage(resolvedSettings);
       userMessageContent = `Story to convert into master voiceover:
 ${story}
@@ -137,10 +143,11 @@ Configured Production Settings:
 Write the complete, continuous Bangladeshi Bengali master voiceover script based strictly on the story. Output ONLY the voiceover script.`;
     } else if (stage === "scenes") {
       systemMessage = assembleSceneSystemMessage(resolvedSettings, actualVoiceoverDuration!);
-      userMessageContent = `Original Story:
-${story}
+      const storySection = story && story.trim()
+        ? `Original Story:\n${story}\n\n`
+        : `Narration Context:\nDirect Voiceover Script provided by user (no separate story outline)\n\n`;
 
-Final Confirmed Master Voiceover Script (from Cartesia synthesis):
+      userMessageContent = `${storySection}Final Confirmed Master Voiceover Script (from Cartesia synthesis):
 ${voiceoverScript}
 
 Measured Actual Voiceover Duration: ${actualVoiceoverDuration!.toFixed(2)} seconds

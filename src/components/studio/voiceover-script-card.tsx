@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Mic, Copy, Check, RotateCcw, ArrowRight } from "lucide-react";
+import { Mic, Copy, Check, RotateCcw, ArrowRight, Trash2 } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -16,19 +16,23 @@ import { Badge } from "@/components/ui/badge";
 interface VoiceoverScriptCardProps {
   script: string;
   onChange: (value: string) => void;
+  onClear?: () => void;
   onRegenerate?: () => void;
   onProceedToDuration: () => void;
   isGenerating?: boolean;
   disabled?: boolean;
+  isDirectVoiceover?: boolean;
 }
 
 export function VoiceoverScriptCard({
   script,
   onChange,
+  onClear,
   onRegenerate,
   onProceedToDuration,
   isGenerating = false,
   disabled = false,
+  isDirectVoiceover = false,
 }: VoiceoverScriptCardProps) {
   const [copied, setCopied] = useState(false);
 
@@ -56,18 +60,22 @@ export function VoiceoverScriptCard({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <CardTitle>Master Voiceover Script</CardTitle>
+              <CardTitle>
+                {isDirectVoiceover ? "Direct Voiceover Script" : "Master Voiceover Script"}
+              </CardTitle>
               <Badge variant="outline" className="text-3xs font-mono">
-                Stage 2
+                {isDirectVoiceover ? "Direct Voiceover" : "Stage 2"}
               </Badge>
             </div>
             <CardDescription className="font-bangla mt-0.5">
-              Review and edit the narration, then copy it to generate speech in Cartesia.
+              {isDirectVoiceover
+                ? "Enter or edit your narration script, copy it for Cartesia speech synthesis, then enter duration."
+                : "Review and edit the narration, then copy it to generate speech in Cartesia."}
             </CardDescription>
           </div>
         </div>
 
-        {/* Header Action: Copy for Cartesia */}
+        {/* Header Action: Copy for Cartesia & Clear / Regenerate */}
         <div className="flex items-center gap-2">
           <Button
             size="sm"
@@ -89,6 +97,20 @@ export function VoiceoverScriptCard({
               </>
             )}
           </Button>
+
+          {onClear && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onClear}
+              disabled={!script.trim() || disabled}
+              className="gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+              title="Clear voiceover script"
+            >
+              <Trash2 className="size-3.5" />
+              <span className="hidden sm:inline">Clear</span>
+            </Button>
+          )}
 
           {onRegenerate && (
             <Button
@@ -113,7 +135,11 @@ export function VoiceoverScriptCard({
             value={script}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
-            placeholder="ভয়েসওভার স্ক্রিপ্টটি এখানে প্রদর্শিত হবে। আপনি প্রয়োজনে শব্দ বা বাক্য সম্পাদন করতে পারেন..."
+            placeholder={
+              isDirectVoiceover
+                ? "ভয়েসওভার স্ক্রিপ্টটি এখানে লিখুন বা পেস্ট করুন... (Enter or paste your voiceover script here)"
+                : "ভয়েসওভার স্ক্রিপ্টটি এখানে প্রদর্শিত হবে। আপনি প্রয়োজনে শব্দ বা বাক্য সম্পাদন করতে পারেন..."
+            }
             className="w-full min-h-40 max-h-85 font-bangla text-sm leading-relaxed resize-y border-border/80 focus:border-primary p-3"
           />
         </div>

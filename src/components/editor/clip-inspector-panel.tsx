@@ -37,7 +37,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
-import { isVisualTrack, isAudioTrack, type TransitionType, type TimelineClip } from "@/types/timeline";
+import {
+  isVisualTrack,
+  isAudioTrack,
+  getVisualTracks,
+  getAudioTracks,
+  type TransitionType,
+  type TimelineClip,
+} from "@/types/timeline";
 import {
   DEFAULT_CLIP_TRANSFORM,
   sanitizeClipTransform,
@@ -64,6 +71,7 @@ import { hasVisualOverlap } from "@/lib/timeline-overlap";
 export function ClipInspectorPanel() {
   const {
     isHydrated,
+    tracks,
     clips,
     transitions,
     selectedClip,
@@ -244,26 +252,27 @@ export function ClipInspectorPanel() {
     );
   };
 
-  // Check if moving to layer 1 or layer 2 would cause a same-track collision
-  const wouldOverlapTrack1 = React.useMemo(() => {
-    if (!selectedClip || !isVisualTrack(selectedClip.trackId)) return false;
-    return hasVisualOverlap(
-      { id: selectedClip.id, startTime: selectedClip.startTime, duration: selectedClip.duration, trackId: "visual-1" },
-      clips
-    );
-  }, [selectedClip, clips]);
+  // Dynamic visual tracks list from context
+  const visualTracksList = React.useMemo(() => {
+    return tracks ? getVisualTracks(tracks) : [];
+  }, [tracks]);
 
-  const wouldOverlapTrack2 = React.useMemo(() => {
-    if (!selectedClip || !isVisualTrack(selectedClip.trackId)) return false;
-    return hasVisualOverlap(
-      { id: selectedClip.id, startTime: selectedClip.startTime, duration: selectedClip.duration, trackId: "visual-2" },
-      clips
-    );
-  }, [selectedClip, clips]);
+  // Dynamic audio tracks list from context
+  const audioTracksList = React.useMemo(() => {
+    return tracks ? getAudioTracks(tracks) : [];
+  }, [tracks]);
+
+  // Current track name display
+  const currentTrackName = React.useMemo(() => {
+    if (!selectedClip) return "";
+    const tr = tracks?.find((t) => t.id === selectedClip.trackId);
+    if (tr) return tr.name;
+    return isAudioTrack(selectedClip.trackId, tracks) ? "Audio Track" : "Visual Track";
+  }, [selectedClip, tracks]);
 
   // Find if selected visual clip has an adjacent next clip eligible for transition
   const transitionToNext = React.useMemo(() => {
-    if (!selectedClip || !isVisualTrack(selectedClip.trackId)) return null;
+    if (!selectedClip || !isVisualTrack(selectedClip.trackId, tracks)) return null;
 
     const trackVisuals = clips
       .filter((c) => c.trackId === selectedClip.trackId)
@@ -273,14 +282,14 @@ export function ClipInspectorPanel() {
     if (myIndex === -1 || myIndex >= trackVisuals.length - 1) return null;
 
     const nextClip = trackVisuals[myIndex + 1];
-    if (!areClipsAdjacentForTransition(selectedClip, nextClip)) return null;
+    if (!areClipsAdjacentForTransition(selectedClip, nextClip, tracks)) return null;
 
     const existing = transitions.find(
       (t) => t.fromClipId === selectedClip.id && t.toClipId === nextClip.id
     );
 
     return { nextClip, existing };
-  }, [selectedClip, clips, transitions]);
+  }, [selectedClip, clips, transitions, tracks]);
 
   return (
     <Card size="sm" className="flex flex-col h-full overflow-hidden">
@@ -473,13 +482,13 @@ export function ClipInspectorPanel() {
                   {selectedClip.name}
                 </p>
                 <p className="text-3xs text-muted-foreground">
-                  Track: {isAudioTrack(selectedClip.trackId) ? "Voiceover" : selectedClip.trackId === "visual-2" ? "Visual Track 2 (Overlay)" : "Visual Track 1 (Base)"}
+                  Track: {currentTrackName}
                 </p>
               </div>
             </div>
 
-            {/* Visual Layer Track Switcher */}
-            {isVisualTrack(selectedClip.trackId) && (
+            {/* Visual Layer Dynamic Track Switcher */}
+            {isVisualTrack(selectedClip.trackId, tracks) && visualTracksList.length > 1 && (
               <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
@@ -487,50 +496,94 @@ export function ClipInspectorPanel() {
                     <span>Visual Track Layer</span>
                   </span>
                   <span className="text-3xs text-muted-foreground font-mono">
-                    {selectedClip.trackId === "visual-2" ? "Top Layer (z-2)" : "Base Layer (z-1)"}
+                    {currentTrackName}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                  <button
-                    type="button"
-                    disabled={selectedClip.trackId === "visual-2" && wouldOverlapTrack1}
-                    onClick={() => updateClip(selectedClip.id, { trackId: "visual-1" })}
-                    title={
-                      selectedClip.trackId === "visual-2" && wouldOverlapTrack1
-                        ? "Cannot move to Track 1: another clip occupies this timeline position"
-                        : "Move to Visual Track 1 (Base Layer)"
-                    }
-                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                      selectedClip.trackId !== "visual-2"
-                        ? "border-primary bg-primary/10 text-primary font-bold"
-                        : "border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    Track 1 (Base)
-                  </button>
-                  <button
-                    type="button"
-                    disabled={selectedClip.trackId !== "visual-2" && wouldOverlapTrack2}
-                    onClick={() => updateClip(selectedClip.id, { trackId: "visual-2" })}
-                    title={
-                      selectedClip.trackId !== "visual-2" && wouldOverlapTrack2
-                        ? "Cannot move to Track 2: another clip occupies this timeline position"
-                        : "Move to Visual Track 2 (Overlay Layer)"
-                    }
-                    className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                      selectedClip.trackId === "visual-2"
-                        ? "border-primary bg-primary/10 text-primary font-bold"
-                        : "border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    Track 2 (Overlay)
-                  </button>
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {visualTracksList.map((tr) => {
+                    const isCurrent = tr.id === selectedClip.trackId;
+                    const wouldCollide =
+                      !isCurrent &&
+                      hasVisualOverlap(
+                        {
+                          id: selectedClip.id,
+                          startTime: selectedClip.startTime,
+                          duration: selectedClip.duration,
+                          trackId: tr.id,
+                        },
+                        clips,
+                        tracks
+                      );
+
+                    return (
+                      <button
+                        key={tr.id}
+                        type="button"
+                        disabled={isCurrent || wouldCollide || tr.locked}
+                        onClick={() => updateClip(selectedClip.id, { trackId: tr.id })}
+                        title={
+                          wouldCollide
+                            ? `Cannot move to ${tr.name}: another clip occupies this timeline position`
+                            : tr.locked
+                            ? `Cannot move to ${tr.name}: track is locked`
+                            : `Move to ${tr.name}`
+                        }
+                        className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                          isCurrent
+                            ? "border-primary bg-primary/10 text-primary font-bold"
+                            : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {tr.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Audio Track Switcher */}
+            {isAudioTrack(selectedClip.trackId, tracks) && audioTracksList.length > 1 && (
+              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <Volume2 className="size-3 text-muted-foreground" />
+                    <span>Audio Track</span>
+                  </span>
+                  <span className="text-3xs text-muted-foreground font-mono">
+                    {currentTrackName}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {audioTracksList.map((tr) => {
+                    const isCurrent = tr.id === selectedClip.trackId;
+                    return (
+                      <button
+                        key={tr.id}
+                        type="button"
+                        disabled={isCurrent || tr.locked}
+                        onClick={() => updateClip(selectedClip.id, { trackId: tr.id })}
+                        title={
+                          tr.locked
+                            ? `Cannot move to ${tr.name}: track is locked`
+                            : `Move to ${tr.name}`
+                        }
+                        className={`py-1 px-2 text-2xs rounded-md border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                          isCurrent
+                            ? "border-primary bg-primary/10 text-primary font-bold"
+                            : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {tr.name}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             {/* Canvas Transform (Position & Scale Gizmo Sync) */}
-            {isVisualTrack(selectedClip.trackId) && (() => {
+            {isVisualTrack(selectedClip.trackId, tracks) && (() => {
               const transform = sanitizeClipTransform(selectedClip.transform);
               const isDefault =
                 transform.x === DEFAULT_CLIP_TRANSFORM.x &&
@@ -1105,7 +1158,7 @@ export function ClipInspectorPanel() {
             )}
 
             {/* Audio & Video Scene Volume & Mute Controls */}
-            {(isAudioTrack(selectedClip.trackId) || selectedClip.type === "video") && (
+            {(isAudioTrack(selectedClip.trackId, tracks) || selectedClip.type === "video") && (
               <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
@@ -1179,7 +1232,7 @@ export function ClipInspectorPanel() {
             )}
 
             {/* Audio Specific: Fade In & Fade Out Controls */}
-            {isAudioTrack(selectedClip.trackId) && (
+            {isAudioTrack(selectedClip.trackId, tracks) && (
               <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
@@ -1251,7 +1304,7 @@ export function ClipInspectorPanel() {
             )}
 
             {/* Visual Specific: Speed Controls */}
-            {isVisualTrack(selectedClip.trackId) && (
+            {isVisualTrack(selectedClip.trackId, tracks) && (
               <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">

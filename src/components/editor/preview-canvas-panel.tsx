@@ -28,7 +28,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
-import { isVisualTrack, getVisualTrackLayerIndex } from "@/types/timeline";
+import {
+  isVisualTrack,
+  getVisualTrackLayerIndex,
+  isTrackVisible,
+  isTrackMuted,
+  getTrackVolume,
+} from "@/types/timeline";
 import { getTransitionProgress } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
 import { sanitizeClipTransform } from "@/lib/clip-transform";
@@ -42,6 +48,7 @@ function formatTimecode(seconds: number): string {
 export function PreviewCanvasPanel() {
   const {
     isHydrated,
+    tracks,
     clips,
     transitions,
     selectedClipId,
@@ -320,8 +327,8 @@ export function PreviewCanvasPanel() {
   // Find currently selected visual clip
   const selectedClip = React.useMemo(() => {
     if (!selectedClipId) return null;
-    return clips.find((c) => c.id === selectedClipId && isVisualTrack(c.trackId)) || null;
-  }, [clips, selectedClipId]);
+    return clips.find((c) => c.id === selectedClipId && isVisualTrack(c.trackId, tracks)) || null;
+  }, [clips, selectedClipId, tracks]);
 
   const clipMap = React.useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
   const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
@@ -339,6 +346,8 @@ export function PreviewCanvasPanel() {
       const fromClip = clipMap.get(trans.fromClipId);
       const toClip = clipMap.get(trans.toClipId);
       if (!fromClip || !toClip) continue;
+      // Skip transition if its visual track is hidden
+      if (!isTrackVisible(fromClip.trackId, tracks)) continue;
 
       const progress = getTransitionProgress(playhead, trans, fromClip, toClip);
       if (progress !== null) {
@@ -349,13 +358,17 @@ export function PreviewCanvasPanel() {
   }
 
   // Find all active visual clips under current playhead sorted by z-order
-  const visualClips = React.useMemo(() => clips.filter((c) => isVisualTrack(c.trackId)), [clips]);
+  // Excludes visual clips on hidden tracks
+  const visualClips = React.useMemo(
+    () => clips.filter((c) => isVisualTrack(c.trackId, tracks) && isTrackVisible(c.trackId, tracks)),
+    [clips, tracks]
+  );
   const activeVisuals = React.useMemo(() => {
     if (!isHydrated) return [];
     return visualClips
       .filter((c) => playhead >= c.startTime && playhead < c.startTime + c.duration)
-      .sort((a, b) => getVisualTrackLayerIndex(a.trackId) - getVisualTrackLayerIndex(b.trackId));
-  }, [isHydrated, visualClips, playhead]);
+      .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
+  }, [isHydrated, visualClips, playhead, tracks]);
 
   // Synchronize video element playback time with timeline playhead
   React.useEffect(() => {
@@ -395,11 +408,16 @@ export function PreviewCanvasPanel() {
           vid.playbackRate = speed;
         }
 
-        // Apply video clip volume & master volume
+        // Apply video clip volume, track volume, track mute, and master volume
         const clipVol = typeof clip.volume === "number" ? clip.volume : 1.0;
-        const effectiveVol = isMuted ? 0 : Math.max(0, Math.min(1.0, clipVol * masterVolume));
+        const trackVol = getTrackVolume(clip.trackId, tracks);
+        const isTrackMutedBool = isTrackMuted(clip.trackId, tracks);
+        const effectiveVol =
+          isMuted || isTrackMutedBool
+            ? 0
+            : Math.max(0, Math.min(1.0, clipVol * trackVol * masterVolume));
         vid.volume = effectiveVol;
-        vid.muted = isMuted || effectiveVol === 0;
+        vid.muted = isMuted || isTrackMutedBool || effectiveVol === 0;
 
         if (isPlaying) {
           vid.play().catch(() => {});
@@ -408,7 +426,7 @@ export function PreviewCanvasPanel() {
         }
       }
     });
-  }, [activeTransitionData, activeVisuals, playhead, isPlaying, isMuted, masterVolume]);
+  }, [activeTransitionData, activeVisuals, playhead, isPlaying, isMuted, masterVolume, tracks]);
 
   const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
@@ -622,7 +640,7 @@ export function PreviewCanvasPanel() {
                   /* TRANSITION COMPOSITING RENDERING (Layer-Aware: preserves overlays & other tracks) */
                   (() => {
                     const { transition, fromClip, toClip, progress } = activeTransitionData;
-                    const transitionTrackIndex = getVisualTrackLayerIndex(fromClip.trackId);
+                    const transitionTrackIndex = getVisualTrackLayerIndex(fromClip.trackId, tracks);
                     const otherVisuals = activeVisuals.filter(
                       (c) => c.id !== fromClip.id && c.id !== toClip.id
                     );
@@ -685,7 +703,7 @@ export function PreviewCanvasPanel() {
                       <>
                         {/* 1. Layers below the transition layer */}
                         {otherVisuals
-                          .filter((c) => getVisualTrackLayerIndex(c.trackId) < transitionTrackIndex)
+                          .filter((c) => getVisualTrackLayerIndex(c.trackId, tracks) < transitionTrackIndex)
                           .map((c) =>
                             renderVisualNode(c, { position: "absolute", inset: 0, zIndex: 0 })
                           )}
@@ -695,7 +713,7 @@ export function PreviewCanvasPanel() {
 
                         {/* 3. Overlay layers above the transition layer */}
                         {otherVisuals
-                          .filter((c) => getVisualTrackLayerIndex(c.trackId) > transitionTrackIndex)
+                          .filter((c) => getVisualTrackLayerIndex(c.trackId, tracks) > transitionTrackIndex)
                           .map((c) =>
                             renderVisualNode(c, { position: "absolute", inset: 0, zIndex: 10 })
                           )}

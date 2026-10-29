@@ -1,5 +1,6 @@
 import {
   type TimelineClip,
+  type TimelineTrack,
   areClipsOnSameTrack,
   isVisualTrack,
 } from "../types/timeline";
@@ -46,14 +47,15 @@ function createClipId(): string {
 export function insertClipAtTime(
   newClip: TimelineClip,
   startTime: number,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): InsertClipResult {
   const requestedStart = Math.max(
     0,
     Number.isFinite(startTime) ? startTime : 0
   );
 
-  if (!isVisualTrack(newClip.trackId)) {
+  if (!isVisualTrack(newClip.trackId, tracks)) {
     return {
       clips: [
         ...allClips,
@@ -64,7 +66,7 @@ export function insertClipAtTime(
   }
 
   const laneClips = allClips.filter((c) =>
-    areClipsOnSameTrack(c.trackId, newClip.trackId)
+    areClipsOnSameTrack(c.trackId, newClip.trackId, tracks)
   );
   const containingClip = laneClips.find(
     (c) =>
@@ -124,7 +126,7 @@ export function insertClipAtTime(
   // Push downstream clips on the same track right to make room.
   const shiftedClips = workingClips.map((c) => {
     if (c.id === newClip.id) return c;
-    if (!areClipsOnSameTrack(c.trackId, newClip.trackId)) return c;
+    if (!areClipsOnSameTrack(c.trackId, newClip.trackId, tracks)) return c;
     if (c.startTime >= insertionTime - INSERT_EPSILON) {
       return {
         ...c,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Mic, Clock, Film, FileText, ChevronRight } from "lucide-react";
+import { Check, Mic, Clock, Film, FileText } from "lucide-react";
 
 interface StudioStepperProps {
   currentStage: number; // 1, 2, 3, 4
@@ -9,6 +9,7 @@ interface StudioStepperProps {
   hasDuration: boolean;
   hasScenes: boolean;
   onStageClick?: (stage: number) => void;
+  inputMode?: "story" | "direct-voiceover";
 }
 
 export function StudioStepper({
@@ -18,21 +19,24 @@ export function StudioStepper({
   hasDuration,
   hasScenes,
   onStageClick,
+  inputMode = "story",
 }: StudioStepperProps) {
+  const isDirect = inputMode === "direct-voiceover";
+
   const steps = [
     {
       id: 1,
-      title: "Story",
+      title: isDirect ? "Story (Skipped)" : "Story",
       icon: FileText,
-      isCompleted: hasStory && (hasVoiceover || currentStage > 1),
-      isActive: currentStage === 1,
+      isCompleted: isDirect ? true : hasStory && (hasVoiceover || currentStage > 1),
+      isActive: !isDirect && currentStage === 1,
     },
     {
       id: 2,
-      title: "Voiceover",
+      title: isDirect ? "Direct Voiceover" : "Voiceover",
       icon: Mic,
       isCompleted: hasVoiceover && (hasDuration || currentStage > 2),
-      isActive: currentStage === 2,
+      isActive: currentStage === 2 || (isDirect && currentStage === 1),
     },
     {
       id: 3,
@@ -50,9 +54,12 @@ export function StudioStepper({
     },
   ];
 
-  const currentStep = steps.find((s) => s.id === currentStage) || steps[0];
-  const completedCount = steps.filter((s) => s.isCompleted).length;
-  const progressPercent = Math.round((completedCount / steps.length) * 100);
+  const currentStep =
+    steps.find((s) => s.isActive) ||
+    steps.find((s) => s.id === currentStage) ||
+    steps[0];
+
+  const displayStepNumber = isDirect && currentStage === 1 ? 2 : currentStage;
 
   return (
     <div className="w-full bg-card/70 backdrop-blur-sm border border-border/80 rounded-xl px-3.5 py-2.5 shadow-2xs">
@@ -64,7 +71,7 @@ export function StudioStepper({
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Step {currentStage} of 4:
+              Step {displayStepNumber} of 4:
             </span>
             <span className="text-xs font-semibold text-foreground truncate">
               {currentStep.title}
@@ -76,8 +83,9 @@ export function StudioStepper({
         <div className="flex items-center gap-1.5 sm:gap-2">
           {steps.map((step, idx) => {
             const isClickable =
-              (step.id === 1 && hasStory) ||
-              (step.id === 2 && (hasStory || hasVoiceover)) ||
+              (step.id === 1 && !isDirect && hasStory) ||
+              (step.id === 1 && isDirect) ||
+              (step.id === 2 && (isDirect || hasStory || hasVoiceover)) ||
               (step.id === 3 && hasVoiceover) ||
               (step.id === 4 && hasDuration && hasScenes);
 

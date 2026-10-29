@@ -45,7 +45,7 @@ interface ExportDialogProps {
 type ResolutionPreset = "720p" | "1080p";
 
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
-  const { clips, transitions, projectTitle, aspectRatio } = useTimeline();
+  const { tracks, clips, transitions, projectTitle, aspectRatio } = useTimeline();
   const { assets, acquireAssetLease } = useMediaLibrary();
 
   // Conservative default: 720p for memory safety on laptops and mobile devices
@@ -68,7 +68,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     };
   }, []);
 
-  const plan = React.useMemo(() => calculateExportPlan(clips, 30), [clips]);
+  const plan = React.useMemo(() => calculateExportPlan(clips, 30, tracks), [clips, tracks]);
   const webCodecsStatus = React.useMemo(() => checkWebCodecsSupport(), []);
 
   // Resolution dimensions reflecting active project aspect ratio (16:9 landscape vs 9:16 vertical)
@@ -138,6 +138,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       const blob = await exportTimelineToMp4({
         clips,
         transitions,
+        tracks,
         assets,
         options: exportOptions,
         onProgress: (p) => setProgress(p),

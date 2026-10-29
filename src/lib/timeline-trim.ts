@@ -1,4 +1,4 @@
-import { type TimelineClip, isVisualTrack } from "@/types/timeline";
+import { type TimelineClip, type TimelineTrack, isVisualTrack, isTrackLocked } from "@/types/timeline";
 import { clampLeftTrimToPreventOverlap } from "./timeline-overlap";
 
 export const MIN_CLIP_DURATION = 0.5; // 500ms minimum clip duration
@@ -79,7 +79,8 @@ export function calculateLeftTrimWithOverlap(
   clip: TimelineClip,
   deltaSeconds: number,
   allClips: TimelineClip[],
-  minDuration: number = MIN_CLIP_DURATION
+  minDuration: number = MIN_CLIP_DURATION,
+  tracks?: readonly TimelineTrack[]
 ): TrimResult {
   // Step 1: Calculate raw bounded trim based on source limits and minDuration
   const rawTrim = calculateLeftTrim(clip, deltaSeconds, minDuration);
@@ -89,7 +90,8 @@ export function calculateLeftTrimWithOverlap(
     clip,
     rawTrim.startTime,
     rawTrim.duration,
-    allClips
+    allClips,
+    tracks
   );
 
   // Step 3: Recalculate the effective delta that was actually permitted by the clamp!
@@ -189,10 +191,12 @@ export const RIPPLE_EPSILON = 0.01; // 10ms tolerance for identifying downstream
 export function applyRippleExtend(
   editedClipId: string,
   newDuration: number,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): TimelineClip[] {
   const target = allClips.find((c) => c.id === editedClipId);
   if (!target) return allClips;
+  if (isTrackLocked(target.trackId, tracks)) return allClips;
 
   const originalEndTime = target.startTime + target.duration;
   const newEndTime = target.startTime + newDuration;
@@ -206,6 +210,11 @@ export function applyRippleExtend(
         duration: newDuration,
         outPoint: clip.inPoint + newDuration * speed,
       };
+    }
+
+    // Locked tracks are never modified by ripple operations
+    if (isTrackLocked(clip.trackId, tracks)) {
+      return clip;
     }
 
     // Downstream check: starts at or after the edited clip's original end boundary
@@ -241,13 +250,17 @@ export function applyRippleExtend(
  */
 export function applyRippleDelete(
   deletedClipId: string,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): {
   updatedClips: TimelineClip[];
   deletedClip: TimelineClip | null;
 } {
   const target = allClips.find((c) => c.id === deletedClipId);
   if (!target) {
+    return { updatedClips: allClips, deletedClip: null };
+  }
+  if (isTrackLocked(target.trackId, tracks)) {
     return { updatedClips: allClips, deletedClip: null };
   }
 
@@ -274,12 +287,18 @@ export function applyRippleDelete(
     let lastTrackEnd = 0;
 
     for (const clip of clipsOnTrack) {
+      if (isTrackLocked(clip.trackId, tracks)) {
+        finalClips.push(clip);
+        lastTrackEnd = clip.startTime + clip.duration;
+        continue;
+      }
+
       const clipEnd = clip.startTime + clip.duration;
 
       // 1. Visual clips partially overlapping the cut from the left: trim tail at splice point
       if (
-        isVisualTrack(clip.trackId) &&
-        isVisualTrack(target.trackId) &&
+        isVisualTrack(clip.trackId, tracks) &&
+        isVisualTrack(target.trackId, tracks) &&
         clip.startTime < deletedStartTime &&
         clipEnd > deletedStartTime + RIPPLE_EPSILON
       ) {

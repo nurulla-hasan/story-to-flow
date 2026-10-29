@@ -188,5 +188,18 @@ describe("P1 — Studio State Invalidation & Storage Persistence", () => {
     expect(state.actualVoiceoverDuration).toBeNull();
     expect(state.currentStage).toBe(1);
     expect(state.lastResult).toBeNull();
+    expect(state.inputMode).toBe("story");
+  });
+
+  it("persists direct-voiceover inputMode correctly", () => {
+    saveStoredStudioData({
+      inputMode: "direct-voiceover",
+      voiceoverScript: "Direct narration text",
+      currentStage: 2,
+    });
+
+    const state = getStoredStudioState();
+    expect(state.inputMode).toBe("direct-voiceover");
+    expect(state.voiceoverScript).toBe("Direct narration text");
   });
 });

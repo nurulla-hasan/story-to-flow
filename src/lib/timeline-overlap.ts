@@ -1,5 +1,6 @@
 import {
   type TimelineClip,
+  type TimelineTrack,
   type TrackId,
   isVisualTrack,
   areClipsOnSameTrack,
@@ -12,15 +13,16 @@ export const OVERLAP_EPSILON = 0.01; // 10ms tolerance for exact adjacency
  */
 export function hasVisualOverlap(
   candidate: { id?: string; startTime: number; duration: number; trackId: TrackId },
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): boolean {
-  if (!isVisualTrack(candidate.trackId)) return false;
+  if (!isVisualTrack(candidate.trackId, tracks)) return false;
 
   const candidateEnd = candidate.startTime + candidate.duration;
 
   for (const other of allClips) {
     if (other.id === candidate.id) continue;
-    if (!areClipsOnSameTrack(candidate.trackId, other.trackId)) continue;
+    if (!areClipsOnSameTrack(candidate.trackId, other.trackId, tracks)) continue;
 
     const otherEnd = other.startTime + other.duration;
 
@@ -42,15 +44,16 @@ export function hasVisualOverlap(
 export function clampMoveToPreventOverlap(
   clip: TimelineClip,
   proposedStartTime: number,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): number {
-  if (!isVisualTrack(clip.trackId)) {
+  if (!isVisualTrack(clip.trackId, tracks)) {
     return Math.max(0, proposedStartTime);
   }
 
   // Find other clips on the same visual track sorted by start time
   const sameTrackClips = allClips
-    .filter((c) => c.id !== clip.id && areClipsOnSameTrack(clip.trackId, c.trackId))
+    .filter((c) => c.id !== clip.id && areClipsOnSameTrack(clip.trackId, c.trackId, tracks))
     .sort((a, b) => a.startTime - b.startTime);
 
   let clampedStart = Math.max(0, proposedStartTime);
@@ -85,9 +88,10 @@ export function clampLeftTrimToPreventOverlap(
   clip: TimelineClip,
   proposedStartTime: number,
   proposedDuration: number,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): { startTime: number; duration: number } {
-  if (!isVisualTrack(clip.trackId)) {
+  if (!isVisualTrack(clip.trackId, tracks)) {
     return { startTime: proposedStartTime, duration: proposedDuration };
   }
 
@@ -99,7 +103,7 @@ export function clampLeftTrimToPreventOverlap(
     .filter(
       (c) =>
         c.id !== clip.id &&
-        areClipsOnSameTrack(clip.trackId, c.trackId) &&
+        areClipsOnSameTrack(clip.trackId, c.trackId, tracks) &&
         c.startTime + c.duration <= clip.startTime + OVERLAP_EPSILON
     )
     .sort((a, b) => b.startTime + b.duration - (a.startTime + a.duration));
@@ -123,9 +127,10 @@ export function clampLeftTrimToPreventOverlap(
 export function clampRightTrimToPreventOverlap(
   clip: TimelineClip,
   proposedDuration: number,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): number {
-  if (!isVisualTrack(clip.trackId)) {
+  if (!isVisualTrack(clip.trackId, tracks)) {
     return proposedDuration;
   }
 
@@ -137,8 +142,8 @@ export function clampRightTrimToPreventOverlap(
     .filter(
       (c) =>
         c.id !== clip.id &&
-        areClipsOnSameTrack(clip.trackId, c.trackId) &&
-        c.startTime >= clipStart + clip.duration - OVERLAP_EPSILON
+        areClipsOnSameTrack(clip.trackId, c.trackId, tracks) &&
+        c.startTime >= clip.startTime + clip.duration - OVERLAP_EPSILON
     )
     .sort((a, b) => a.startTime - b.startTime);
 
@@ -146,38 +151,47 @@ export function clampRightTrimToPreventOverlap(
     maxAllowedDuration = Math.max(0.5, succeedingClips[0].startTime - clipStart);
   }
 
-  return parseFloat(Math.min(maxAllowedDuration, proposedDuration).toFixed(3));
+  const clampedDuration = Math.max(0.5, Math.min(maxAllowedDuration, proposedDuration));
+  return parseFloat(clampedDuration.toFixed(3));
 }
 
 /**
- * Find the next non-overlapping placement start time on a visual track.
+ * Find the next available non-overlapping start time on a visual track.
+ * Used when duplicating or inserting clips to ensure they never collide with existing clips.
  */
-export function findNextNonOverlappingStartTime(
+export function findNextAvailableStartTime(
   trackId: TrackId,
   duration: number,
   allClips: TimelineClip[],
-  preferredStart?: number
+  preferredStartTime: number = 0,
+  tracks?: readonly TimelineTrack[]
 ): number {
-  if (!isVisualTrack(trackId)) {
-    return preferredStart !== undefined ? Math.max(0, preferredStart) : 0;
+  if (!isVisualTrack(trackId, tracks)) {
+    return preferredStartTime;
   }
 
-  const laneClips = allClips
-    .filter((c) => areClipsOnSameTrack(trackId, c.trackId))
+  // Get and sort all clips on this track chronologically
+  const sameTrackClips = allClips
+    .filter((c) => areClipsOnSameTrack(trackId, c.trackId, tracks))
     .sort((a, b) => a.startTime - b.startTime);
 
-  if (laneClips.length === 0) {
-    return preferredStart !== undefined ? Math.max(0, preferredStart) : 0;
+  let candidateStart = Math.max(0, preferredStartTime);
+
+  // Check collisions sequentially and bump past each conflicting clip
+  for (const clip of sameTrackClips) {
+    const clipEnd = clip.startTime + clip.duration;
+    const candidateEnd = candidateStart + duration;
+
+    // If candidate interval overlaps with current clip:
+    if (
+      candidateStart < clipEnd - OVERLAP_EPSILON &&
+      candidateEnd > clip.startTime + OVERLAP_EPSILON
+    ) {
+      candidateStart = clipEnd;
+    }
   }
 
-  const startCandidate = preferredStart !== undefined ? Math.max(0, preferredStart) : 0;
-
-  // If candidate has no overlap, use it
-  if (!hasVisualOverlap({ startTime: startCandidate, duration, trackId }, allClips)) {
-    return startCandidate;
-  }
-
-  // Otherwise place after the latest clip on the lane
-  const lastClip = laneClips[laneClips.length - 1];
-  return parseFloat((lastClip.startTime + lastClip.duration).toFixed(3));
+  return parseFloat(candidateStart.toFixed(3));
 }
+
+export const findNextNonOverlappingStartTime = findNextAvailableStartTime;

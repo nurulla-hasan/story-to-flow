@@ -1,7 +1,9 @@
 import {
   type TimelineClip,
+  type TimelineTrack,
   areClipsOnSameTrack,
   isVisualTrack,
+  isTrackLocked,
 } from "../types/timeline";
 
 export const REORDER_EPSILON = 0.01; // 10ms tolerance for exact adjacency
@@ -38,14 +40,23 @@ function roundTime(time: number): number {
 export function reorderClipOnTrack(
   clip: TimelineClip,
   proposedStartTime: number,
-  allClips: TimelineClip[]
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
 ): ReorderClipResult {
+  if (isTrackLocked(clip.trackId, tracks)) {
+    return {
+      clips: allClips,
+      insertionTime: clip.startTime,
+      insertionIndex: 0,
+    };
+  }
+
   const safeProposed = Math.max(
     0,
     Number.isFinite(proposedStartTime) ? proposedStartTime : 0
   );
 
-  if (!isVisualTrack(clip.trackId)) {
+  if (!isVisualTrack(clip.trackId, tracks)) {
     return {
       clips: allClips.map((c) =>
         c.id === clip.id ? { ...c, startTime: roundTime(safeProposed) } : c
@@ -61,7 +72,7 @@ export function reorderClipOnTrack(
   // 1. Close the gap left behind by the dragged clip on its own track.
   const withoutSourceGap = allClips.map((c) => {
     if (c.id === clip.id) return c;
-    if (!areClipsOnSameTrack(c.trackId, clip.trackId)) return c;
+    if (!areClipsOnSameTrack(c.trackId, clip.trackId, tracks)) return c;
     if (c.startTime >= sourceEnd - REORDER_EPSILON) {
       return {
         ...c,
@@ -72,7 +83,7 @@ export function reorderClipOnTrack(
   });
 
   const remaining = withoutSourceGap
-    .filter((c) => c.id !== clip.id && areClipsOnSameTrack(c.trackId, clip.trackId))
+    .filter((c) => c.id !== clip.id && areClipsOnSameTrack(c.trackId, clip.trackId, tracks))
     .sort((a, b) => a.startTime - b.startTime);
 
   // 2. Pick the insertion slot from the dragged clip's leading edge. Comparing
@@ -98,7 +109,7 @@ export function reorderClipOnTrack(
   // 4. Make room by pushing downstream same-track clips right.
   const withInsertionGap = withoutSourceGap.map((c) => {
     if (c.id === clip.id) return c;
-    if (!areClipsOnSameTrack(c.trackId, clip.trackId)) return c;
+    if (!areClipsOnSameTrack(c.trackId, clip.trackId, tracks)) return c;
     if (c.startTime >= insertionTime - REORDER_EPSILON) {
       return { ...c, startTime: roundTime(c.startTime + duration) };
     }

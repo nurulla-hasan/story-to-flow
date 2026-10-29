@@ -4,6 +4,7 @@ import {
   DEFAULT_TIMELINE_STATE,
   INITIAL_TIMELINE_SAVE_STATUS,
   TIMELINE_STORAGE_KEY,
+  TIMELINE_STORAGE_VERSION,
   createPlayheadCommitGate,
   deserializeTimelineState,
   formatTimelineSaveError,
@@ -106,7 +107,7 @@ describe("timeline persistence results", () => {
     expect(result).toEqual({ ok: true });
 
     const stored = getStoredTimelineState();
-    expect(stored.version).toBe(1);
+    expect(stored.version).toBe(TIMELINE_STORAGE_VERSION);
     expect(stored.projectTitle).toBe(DEFAULT_TIMELINE_STATE.projectTitle);
     expect(stored.clips).toHaveLength(1);
     expect(stored.transitions).toHaveLength(1);
@@ -145,7 +146,7 @@ describe("timeline persistence results", () => {
   });
 
   it("refuses to overwrite a newer saved project version", () => {
-    const newerRaw = JSON.stringify({ version: 2, clips: [createClip()] });
+    const newerRaw = JSON.stringify({ version: TIMELINE_STORAGE_VERSION + 1, clips: [createClip()] });
     storage.seed(TIMELINE_STORAGE_KEY, newerRaw);
 
     const result = saveStoredTimelineState({ playhead: 3 });
@@ -340,6 +341,73 @@ describe("legacy saved-state compatibility", () => {
     expect(deserializeTimelineState(null)).toBeNull();
     expect(deserializeTimelineState("nope")).toBeNull();
     expect(deserializeTimelineState([])).toBeNull();
-    expect(deserializeTimelineState({ version: 2, clips: [] })).toBeNull();
+    expect(deserializeTimelineState({ version: TIMELINE_STORAGE_VERSION + 1, clips: [] })).toBeNull();
+  });
+
+  it("migrates version-1 state without tracks into canonical dynamic tracks", () => {
+    const v1State = {
+      version: 1,
+      projectTitle: "Migrated Story",
+      clips: [
+        createClip({ id: "c1", trackId: "visual" }),
+        createClip({ id: "c2", trackId: "visual-2" }),
+        createClip({ id: "c3", trackId: "audio-1" }),
+      ],
+      transitions: [{ id: "t1", fromClipId: "c1", toClipId: "c2", trackId: "visual", duration: 0.5, type: "cross-dissolve" }],
+      playhead: 5,
+    };
+
+    const migrated = deserializeTimelineState(v1State);
+    expect(migrated).not.toBeNull();
+    expect(migrated?.version).toBe(TIMELINE_STORAGE_VERSION);
+    expect(migrated?.tracks.length).toBeGreaterThanOrEqual(3);
+
+    // Default tracks exist
+    expect(migrated?.tracks.some((t) => t.id === "visual-1")).toBe(true);
+    expect(migrated?.tracks.some((t) => t.id === "visual-2")).toBe(true);
+    expect(migrated?.tracks.some((t) => t.id === "audio")).toBe(true);
+
+    // Legacy "visual" normalized to "visual-1"
+    expect(migrated?.clips.find((c) => c.id === "c1")?.trackId).toBe("visual-1");
+    // "visual-2" preserved
+    expect(migrated?.clips.find((c) => c.id === "c2")?.trackId).toBe("visual-2");
+    // "audio-1" preserved on a distinct track
+    expect(migrated?.clips.find((c) => c.id === "c3")?.trackId).toBe("audio-1");
+    expect(migrated?.tracks.some((t) => t.id === "audio-1")).toBe(true);
+
+    // Transitions trackId normalized
+    expect(migrated?.transitions[0].trackId).toBe("visual-1");
+  });
+
+  it("persists empty tracks across serialization and deserialization", () => {
+    const customTracks = [
+      ...DEFAULT_TIMELINE_STATE.tracks,
+      {
+        id: "sfx-1",
+        name: "Sound FX",
+        type: "audio" as const,
+        role: "sfx" as const,
+        order: 1,
+        muted: true,
+        volume: 0.8,
+        visible: true,
+        locked: true,
+      },
+    ];
+
+    const stateWithEmptyTrack = {
+      ...DEFAULT_TIMELINE_STATE,
+      tracks: customTracks,
+      clips: [],
+    };
+
+    const deserialized = deserializeTimelineState(stateWithEmptyTrack);
+    expect(deserialized?.tracks).toHaveLength(customTracks.length);
+    const sfxTrack = deserialized?.tracks.find((t) => t.id === "sfx-1");
+    expect(sfxTrack).toBeDefined();
+    expect(sfxTrack?.name).toBe("Sound FX");
+    expect(sfxTrack?.muted).toBe(true);
+    expect(sfxTrack?.volume).toBe(0.8);
+    expect(sfxTrack?.locked).toBe(true);
   });
 });

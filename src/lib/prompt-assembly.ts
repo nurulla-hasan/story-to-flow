@@ -158,7 +158,7 @@ VOICEOVER: [exact consecutive Bengali segment from master voiceover]
 EDIT NOTE: [Hold final frame or trim note if timeline coverage differs from asset duration]
 PROMPT: VIDEO GENERATION — NOT A STATIC IMAGE. Create one continuous ${videoDurationSec}.0-second animated video shot [Action feasible in ${videoDurationSec}.0s]. This must remain a moving video for the full ${videoDurationSec}.0 seconds, ending with [specific visible final state]. Strictly ${videoDurationSec}.0 seconds duration.
 
-Do not invent new story events. The original story is authoritative for facts; the voiceover controls narration pacing.
+Do not invent new story events. When an original story outline is provided, it is authoritative for facts; the voiceover controls narration pacing. When direct voiceover is provided without a separate story outline, the voiceover script itself is the sole authoritative narrative source for all characters, scenes, emotions, and visual events.
 ==================================================
 `.trim();
 

@@ -14,6 +14,7 @@ function stableSerialize(value: unknown): string {
   }
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
     .join(",")}}`;

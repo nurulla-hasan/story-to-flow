@@ -281,7 +281,7 @@ describe("Fit Visuals to Voiceover - Layer-Aware Processing", () => {
     expect(result.message).toContain("cannot fit");
   });
 
-  it("reports an impossible fit when videos cannot cover the voiceover within source bounds", () => {
+  it("caps video-only tracks at source EOF and warns when voiceover remains uncovered", () => {
     const clips = [
       createClip({ id: "voice", trackId: "audio", type: "audio", duration: 10 }),
       createClip({
@@ -295,9 +295,12 @@ describe("Fit Visuals to Voiceover - Layer-Aware Processing", () => {
     ];
 
     const result = calculateFitVisualsToVoiceover(clips, []);
-    expect(result.success).toBe(false);
-    expect(result.updatedClips).toEqual(clips);
-    expect(result.message).toContain("cannot fit");
+    expect(result.success).toBe(true);
+    const video = result.updatedClips.find((clip) => clip.id === "video-short")!;
+    expect(video.duration).toBe(4);
+    expect(video.outPoint).toBe(4);
+    expect(video.startTime + video.duration).toBeLessThan(10);
+    expect(result.message).toContain("end before the voiceover");
   });
 
   it("does not extend a source-limited video beyond its remaining source time", () => {

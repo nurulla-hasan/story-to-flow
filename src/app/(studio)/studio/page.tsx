@@ -566,11 +566,11 @@ export default function StudioPage() {
 
   return (
     <>
-      {/* Subtle background gradient */}
+      {/* Subtle background linear */}
       <div className="fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-background via-surface-subtle to-muted/30" />
-        <div className="absolute top-0 left-0 right-0 h-64 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-secondary/5 via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-br from-background via-surface-subtle to-muted/30" />
+        <div className="absolute top-0 left-0 right-0 h-64 bg-linear-to-b from-primary/5 via-transparent to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 h-64 bg-linear-to-t from-secondary/5 via-transparent to-transparent" />
       </div>
 
       <div className="space-y-6 relative">
@@ -626,7 +626,7 @@ export default function StudioPage() {
                 {/* STAGE 1: Original Story Input */}
                 <div className="space-y-4">
                   <div className="relative">
-                    <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
+                    <div className="absolute -inset-3 bg-linear-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
                     <StoryInputCard
                       story={story}
                       onChange={handleStoryChange}
@@ -642,7 +642,7 @@ export default function StudioPage() {
                       {isGenerating && generationPhase === "voiceover" ? (
                         <div className="flex items-center gap-3">
                           <div className="relative flex-1">
-                            <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-sm -z-10" />
+                            <div className="absolute -inset-1 bg-linear-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-sm -z-10" />
                             <Button
                               size="lg"
                               className="flex-1 gap-3 cursor-default select-none shadow-md"
@@ -656,7 +656,7 @@ export default function StudioPage() {
                             </Button>
                           </div>
                           <div className="relative">
-                            <div className="absolute -inset-1 bg-gradient-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
+                            <div className="absolute -inset-1 bg-linear-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
                             <Button
                               size="lg"
                               variant="destructive"
@@ -672,7 +672,7 @@ export default function StudioPage() {
                       ) : (
                         <div className="space-y-2">
                           <div className="relative">
-                            <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-md -z-10 opacity-70" />
+                            <div className="absolute -inset-1 bg-linear-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-md -z-10 opacity-70" />
                             <Button
                               size="lg"
                               onClick={handleGenerateVoiceover}
@@ -716,7 +716,7 @@ export default function StudioPage() {
                 {/* STAGE 2: Master Voiceover Script (Review & Edit for Cartesia) */}
                 {voiceoverScript.trim() && (
                   <div className="relative">
-                    <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                    <div className="absolute -inset-3 bg-linear-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
                     <VoiceoverScriptCard
                       script={voiceoverScript}
                       onChange={handleVoiceoverChange}
@@ -735,26 +735,10 @@ export default function StudioPage() {
             {/* MODE 2: DIRECT VOICEOVER */}
             {inputMode === "direct-voiceover" && (
               <div className="space-y-4">
-                {/* Info banner with switch link */}
-                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-info-subtle/30 border border-info-border/30 text-xs text-foreground">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Mic className="size-4 text-primary shrink-0" />
-                    <span className="truncate">
-                      <strong>Direct Voiceover Mode:</strong> Paste or write your narration script below without a story outline.
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchMode("story")}
-                    className="text-xs font-medium text-primary hover:underline shrink-0 cursor-pointer"
-                  >
-                    Start with Story
-                  </button>
-                </div>
 
                 {/* Direct Voiceover Card — ALWAYS VISIBLE in direct mode */}
                 <div className="relative">
-                  <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                  <div className="absolute -inset-3 bg-linear-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
                   <VoiceoverScriptCard
                     script={voiceoverScript}
                     onChange={handleVoiceoverChange}
@@ -792,7 +776,7 @@ export default function StudioPage() {
             {/* STAGE 3: Cartesia Duration Entry & Visual Settings */}
             {voiceoverScript.trim() && (
               <div className="relative">
-                <div className="absolute -inset-3 bg-gradient-to-br from-success-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+                <div className="absolute -inset-3 bg-linear-to-br from-success-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
                 <CartesiaDurationCard
                   minutes={minutes}
                   seconds={seconds}
@@ -810,11 +794,11 @@ export default function StudioPage() {
             {/* In-Flight Scene Generation Status Bar */}
             {isGenerating && generationPhase === "scenes" && (
               <div className="relative">
-                <div className="absolute -inset-2 bg-gradient-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-lg -z-10 opacity-70" />
+                <div className="absolute -inset-2 bg-linear-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-lg -z-10 opacity-70" />
                 <div className="space-y-3 p-4 rounded-xl bg-card/80 backdrop-blur-sm border border-primary/30 shadow-lg animate-in fade-in">
                   <div className="flex items-center gap-3">
                     <div className="relative flex-1">
-                      <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 to-primary/10 rounded-xl blur-sm -z-10" />
+                      <div className="absolute -inset-1 bg-linear-to-r from-primary/20 to-primary/10 rounded-xl blur-sm -z-10" />
                       <Button
                         size="lg"
                         className="flex-1 gap-3 cursor-default select-none shadow-md"
@@ -828,7 +812,7 @@ export default function StudioPage() {
                       </Button>
                     </div>
                     <div className="relative">
-                      <div className="absolute -inset-1 bg-gradient-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
+                      <div className="absolute -inset-1 bg-linear-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
                       <Button
                         size="lg"
                         variant="destructive"
@@ -855,7 +839,7 @@ export default function StudioPage() {
 
             {/* Compact Active Production Settings Bar with Reset Studio Button */}
             <div className="relative">
-              <div className="absolute -inset-3 bg-gradient-to-br from-surface-subtle via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+              <div className="absolute -inset-3 bg-linear-to-br from-surface-subtle via-card to-card rounded-xl blur-md -z-10 opacity-70" />
               <StudioSettingsBar
                 settings={prodSettings}
                 model={selectedModel}
@@ -866,7 +850,7 @@ export default function StudioPage() {
             {/* Brief cancellation / reset notice */}
             {cancelNotice && (
               <div className="relative">
-                <div className="absolute -inset-2 bg-gradient-to-r from-muted/30 to-muted/10 rounded-xl blur-sm -z-10 opacity-70" />
+                <div className="absolute -inset-2 bg-linear-to-r from-muted/30 to-muted/10 rounded-xl blur-sm -z-10 opacity-70" />
                 <div className="flex items-center gap-3 rounded-xl bg-muted/80 backdrop-blur-sm px-4 py-2.5 text-sm text-muted-foreground animate-in fade-in">
                   <span className="size-2.5 rounded-full bg-muted-foreground/60" />
                   <span className="font-medium">{cancelNotice}</span>
@@ -876,13 +860,13 @@ export default function StudioPage() {
 
             {/* How it works Card */}
             <div className="relative">
-              <div className="absolute -inset-3 bg-gradient-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+              <div className="absolute -inset-3 bg-linear-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
               <HowItWorksCard />
             </div>
 
             {/* Output format Card */}
             <div className="relative">
-              <div className="absolute -inset-3 bg-gradient-to-br from-warning-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
+              <div className="absolute -inset-3 bg-linear-to-br from-warning-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
               <OutputFormatCard />
             </div>
           </div>
@@ -890,7 +874,7 @@ export default function StudioPage() {
           {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
           <div className="space-y-6 lg:sticky lg:top-20">
             <div className="relative">
-              <div className="absolute -inset-3 bg-gradient-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
+              <div className="absolute -inset-3 bg-linear-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
               <OutputCard
                 result={result}
                 error={error}

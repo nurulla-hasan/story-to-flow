@@ -78,37 +78,30 @@ export function VoiceoverScriptCard({
         {/* Header Action: Copy for Cartesia & Clear / Regenerate */}
         <div className="flex items-center gap-2">
           <Button
-            size="sm"
             variant="outline"
             onClick={handleCopy}
             disabled={!script.trim() || disabled}
-            className="gap-1.5 text-xs cursor-pointer shadow-2xs"
             title="Copy script text to clipboard for Cartesia TTS"
           >
             {copied ? (
               <>
-                <Check className="size-3.5 text-primary" />
-                <span className="text-primary font-medium">Copied!</span>
+                <Check className="text-primary" />
               </>
             ) : (
               <>
-                <Copy className="size-3.5" />
-                <span>Copy Script for Cartesia</span>
+                <Copy />
               </>
             )}
           </Button>
 
           {onClear && (
             <Button
-              size="sm"
-              variant="ghost"
+              variant="destructive"
               onClick={onClear}
               disabled={!script.trim() || disabled}
-              className="gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
               title="Clear voiceover script"
             >
-              <Trash2 className="size-3.5" />
-              <span className="hidden sm:inline">Clear</span>
+              <Trash2 />
             </Button>
           )}
 

@@ -233,6 +233,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
   const [canRedo, setCanRedo] = React.useState<boolean>(false);
 
+  // Playhead Clock & Playback Synchronization Refs
+  const playheadRef = React.useRef<number>(0);
+  const isPlayingRef = React.useRef<boolean>(false);
+  const totalDurationRef = React.useRef<number>(0);
+  const wasPlayingRef = React.useRef<boolean>(false);
+  const playbackSpeedRef = React.useRef<number>(1.0);
+  const playheadCommitGateRef = React.useRef(createPlayheadCommitGate());
+
   // Dedicated Audio Elements Pool for multi-track synchronized timeline playback
   const audioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
 
@@ -299,16 +307,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Persist playhead only at explicit boundaries (seek end, pause, frame step).
-  const playheadCommitGateRef = React.useRef(createPlayheadCommitGate());
   const commitPlayhead = React.useCallback(
     (time?: number) => {
       if (!isHydrated) return;
-      const next = Math.max(0, time ?? playhead);
+      const targetTime = time !== undefined ? time : playheadRef.current;
+      const next = Math.max(0, targetTime);
       playheadCommitGateRef.current.commit(next, (seconds) => {
         persistPartial({ playhead: seconds });
       });
     },
-    [isHydrated, persistPartial, playhead]
+    [isHydrated, persistPartial]
   );
 
   // Push current snapshot to undo stack before a mutation
@@ -364,48 +372,56 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     return parseFloat(maxEnd.toFixed(3));
   }, [isHydrated, clips]);
 
+  React.useEffect(() => {
+    totalDurationRef.current = totalDuration;
+  }, [totalDuration]);
+
   const setPlayhead = React.useCallback((time: number) => {
-    setLocalPlayhead(Math.max(0, time));
+    const clamped = Math.max(0, time);
+    playheadRef.current = clamped;
+    setLocalPlayhead(clamped);
   }, []);
 
   const seek = React.useCallback(
     (time: number) => {
-      const clamped = Math.max(0, Math.min(totalDuration, time));
+      const clamped = Math.max(0, Math.min(totalDurationRef.current, time));
+      playheadRef.current = clamped;
       setLocalPlayhead(clamped);
       commitPlayhead(clamped);
     },
-    [totalDuration, commitPlayhead]
+    [commitPlayhead]
   );
 
   const stepFrameForward = React.useCallback(() => {
-    const next = stepFrame(playhead, 1, totalDuration, TIMELINE_FPS);
+    const next = stepFrame(playheadRef.current, 1, totalDurationRef.current, TIMELINE_FPS);
+    playheadRef.current = next;
     setLocalPlayhead(next);
     commitPlayhead(next);
-  }, [playhead, totalDuration, commitPlayhead]);
+  }, [commitPlayhead]);
 
   const stepFrameBackward = React.useCallback(() => {
-    const next = stepFrame(playhead, -1, totalDuration, TIMELINE_FPS);
+    const next = stepFrame(playheadRef.current, -1, totalDurationRef.current, TIMELINE_FPS);
+    playheadRef.current = next;
     setLocalPlayhead(next);
     commitPlayhead(next);
-  }, [playhead, totalDuration, commitPlayhead]);
+  }, [commitPlayhead]);
 
   const togglePlay = React.useCallback(() => {
     setIsPlaying((prev) => {
-      const next = !prev;
-      if (!next) {
-        commitPlayhead(playhead);
+      const willPlay = !prev;
+      if (willPlay && playheadRef.current >= totalDurationRef.current) {
+        playheadRef.current = 0;
+        setLocalPlayhead(0);
       }
-      return next;
+      return willPlay;
     });
-  }, [commitPlayhead, playhead]);
+  }, []);
 
   const pause = React.useCallback(() => {
     setIsPlaying(false);
-    commitPlayhead(playhead);
-  }, [commitPlayhead, playhead]);
+  }, []);
 
   const [playbackSpeed, setPlaybackSpeedState] = React.useState<number>(1.0);
-  const playbackSpeedRef = React.useRef<number>(1.0);
   const setPlaybackSpeed = React.useCallback((speed: number) => {
     playbackSpeedRef.current = speed;
     setPlaybackSpeedState(speed);
@@ -414,13 +430,22 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [masterVolume, setMasterVolume] = React.useState<number>(1.0);
   const [isMuted, setIsMuted] = React.useState<boolean>(false);
 
-  // Playhead Clock for Active Audio & Video Synchronization
-  const isPlayingRef = React.useRef(isPlaying);
-  const playheadRef = React.useRef(playhead);
+  // Safely commit playhead when transitioning from playing to paused
+  React.useEffect(() => {
+    if (wasPlayingRef.current && !isPlaying) {
+      commitPlayhead(playheadRef.current);
+    }
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying, commitPlayhead]);
 
   React.useEffect(() => {
     isPlayingRef.current = isPlaying;
-    playheadRef.current = playhead;
+    // Only update playheadRef from React state when NOT playing!
+    // During active playback, performance.now() loop advances playheadRef monotonically
+    // without lagging React state updates dragging it backward.
+    if (!isPlaying) {
+      playheadRef.current = playhead;
+    }
   }, [isPlaying, playhead]);
 
   React.useEffect(() => {
@@ -434,7 +459,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       lastTimestamp = currentTimestamp;
 
       const current = playheadRef.current;
-      const targetDuration = Math.max(0.1, totalDuration);
+      const targetDuration = Math.max(0.1, totalDurationRef.current);
 
       if (current >= targetDuration) {
         setIsPlaying(false);
@@ -455,7 +480,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isPlaying, totalDuration, commitPlayhead]);
+  }, [isPlaying, commitPlayhead]);
 
   // Synchronize dynamic multi-track audio playback with timeline clock
   React.useEffect(() => {
@@ -499,9 +524,12 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         audioEl.src = asset.url;
       }
 
-      const targetTime = (playhead - clip.startTime) + clip.inPoint;
-      if (Math.abs(audioEl.currentTime - targetTime) > 0.15) {
-        audioEl.currentTime = Math.max(0, targetTime);
+      const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+      const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
+      if (!isPlaying || Math.abs(audioEl.currentTime - targetTime) > 0.25) {
+        if (Math.abs(audioEl.currentTime - targetTime) > 0.05) {
+          audioEl.currentTime = Math.max(0, targetTime);
+        }
       }
 
       const clipRelativeTime = playhead - clip.startTime;
@@ -523,14 +551,14 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       audioEl.volume = finalVolume;
       audioEl.muted = isMuted || isTrackMutedBool || finalVolume === 0;
 
-      const targetRate = (clip.speed || 1.0) * playbackSpeedRef.current;
+      const targetRate = speed * playbackSpeedRef.current;
       if (audioEl.playbackRate !== targetRate) {
         audioEl.playbackRate = targetRate;
       }
 
-      if (isPlaying) {
+      if (isPlaying && audioEl.paused) {
         audioEl.play().catch(() => {});
-      } else {
+      } else if (!isPlaying && !audioEl.paused) {
         audioEl.pause();
       }
     }

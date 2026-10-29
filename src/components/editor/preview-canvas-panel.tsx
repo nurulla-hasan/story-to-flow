@@ -175,7 +175,8 @@ export function PreviewCanvasPanel() {
         setIsCtrlPressed(true);
       }
       if (e.code === "Space" || e.key === " ") {
-        setIsSpacePressed(true);
+        e.preventDefault();
+        togglePlay();
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.key.toLowerCase() === "m") {
@@ -203,7 +204,7 @@ export function PreviewCanvasPanel() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [handleToggleMute]);
+  }, [handleToggleMute, togglePlay]);
 
   // CapCut-style Canvas Zoom & Pan with Mouse Wheel
   // CRITICAL: Must use native `{ passive: false }` listener with `e.preventDefault()`
@@ -380,15 +381,17 @@ export function PreviewCanvasPanel() {
         if (vid) {
           const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
           const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
-          if (Math.abs(vid.currentTime - targetTime) > 0.15) {
-            vid.currentTime = Math.max(0, targetTime);
+          if (!isPlaying || Math.abs(vid.currentTime - targetTime) > 0.25) {
+            if (Math.abs(vid.currentTime - targetTime) > 0.05) {
+              vid.currentTime = Math.max(0, targetTime);
+            }
           }
           if (vid.playbackRate !== speed) {
             vid.playbackRate = speed;
           }
-          if (isPlaying) {
+          if (isPlaying && vid.paused) {
             vid.play().catch(() => {});
-          } else {
+          } else if (!isPlaying && !vid.paused) {
             vid.pause();
           }
         }
@@ -401,8 +404,10 @@ export function PreviewCanvasPanel() {
       if (vid) {
         const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
         const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
-        if (Math.abs(vid.currentTime - targetTime) > 0.15) {
-          vid.currentTime = Math.max(0, targetTime);
+        if (!isPlaying || Math.abs(vid.currentTime - targetTime) > 0.25) {
+          if (Math.abs(vid.currentTime - targetTime) > 0.05) {
+            vid.currentTime = Math.max(0, targetTime);
+          }
         }
         if (vid.playbackRate !== speed) {
           vid.playbackRate = speed;
@@ -419,9 +424,9 @@ export function PreviewCanvasPanel() {
         vid.volume = effectiveVol;
         vid.muted = isMuted || isTrackMutedBool || effectiveVol === 0;
 
-        if (isPlaying) {
+        if (isPlaying && vid.paused) {
           vid.play().catch(() => {});
-        } else {
+        } else if (!isPlaying && !vid.paused) {
           vid.pause();
         }
       }

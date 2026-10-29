@@ -66,7 +66,6 @@ import {
   getAudioTracks,
   getTrackById,
   isTrackLocked,
-  areClipsOnSameTrack,
 } from "@/types/timeline";
 import {
   TRANSITION_PRESETS,
@@ -83,6 +82,7 @@ import {
 } from "@/lib/ruler-scale";
 import { useTimelinePlayheadScrub } from "@/lib/use-timeline-playhead-scrub";
 import { useTimelineClipGestures } from "@/lib/use-timeline-clip-gestures";
+import { groupTimelineClipsByTrack } from "@/lib/timeline-derived-state";
 import {
   DEFAULT_ZOOM_EFFECT_AMOUNT,
   sanitizeZoomEffect,
@@ -362,24 +362,11 @@ export function TimelineDock() {
     [orderedVisualTracks, orderedAudioTracks]
   );
 
-  // Group clips by dynamic trackId (handling any legacy aliases safely)
-  const clipsByTrack = React.useMemo(() => {
-    const map = new Map<string, TimelineClip[]>();
-    for (const track of orderedTracks) {
-      map.set(track.id, []);
-    }
-    for (const clip of clips) {
-      const matchingTrack = orderedTracks.find((t) => areClipsOnSameTrack(t.id, clip.trackId, tracks));
-      const targetId = matchingTrack ? matchingTrack.id : clip.trackId;
-      const list = map.get(targetId);
-      if (list) {
-        list.push(clip);
-      } else {
-        map.set(targetId, [clip]);
-      }
-    }
-    return map;
-  }, [orderedTracks, clips, tracks]);
+  // Grouping logic is pure and tested outside the UI component.
+  const clipsByTrack = React.useMemo(
+    () => groupTimelineClipsByTrack(orderedTracks, clips, tracks),
+    [orderedTracks, clips, tracks]
+  );
 
   const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 

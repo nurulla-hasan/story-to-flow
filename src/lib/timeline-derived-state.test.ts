@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TimelineClip, TimelineTransition } from "@/types/timeline";
-import { calculateTimelineDuration, reconcileTransitionsForClips } from "./timeline-derived-state";
+import { calculateTimelineDuration, groupTimelineClipsByTrack, reconcileTransitionsForClips } from "./timeline-derived-state";
 
 const clip = (
   id: string,
@@ -60,5 +60,26 @@ describe("reconcileTransitionsForClips", () => {
   it("does not treat clips on different tracks as adjacent", () => {
     const clips = [clip("a", 0, 2, "visual-1"), clip("b", 2, 2, "visual-2")];
     expect(reconcileTransitionsForClips([transition], clips)).toEqual([]);
+  });
+});
+
+describe("groupTimelineClipsByTrack", () => {
+  it("groups clips by track and maps the legacy visual alias", () => {
+    const visual = { id: "visual-1", name: "Visual", type: "visual" as const, order: 0, muted: false, volume: 1, visible: true, locked: false };
+    const audio = { id: "audio", name: "Audio", type: "audio" as const, order: 0, muted: false, volume: 1, visible: true, locked: false };
+    const tracks = [visual, audio];
+    const clips = [
+      clip("a", 0, 2, "visual"),
+      { ...clip("b", 0, 1, "audio"), type: "audio" as const },
+    ];
+    const grouped = groupTimelineClipsByTrack(tracks, clips, tracks);
+    expect(grouped.get("visual-1")?.map((item) => item.id)).toEqual(["a"]);
+    expect(grouped.get("audio")?.map((item) => item.id)).toEqual(["b"]);
+  });
+
+  it("preserves unknown track IDs instead of dropping clips", () => {
+    const tracks = [{ id: "visual-1", name: "Visual", type: "visual" as const, order: 0, muted: false, volume: 1, visible: true, locked: false }];
+    const orphan = clip("orphan", 1, 2, "custom-lane");
+    expect(groupTimelineClipsByTrack(tracks, [orphan], tracks).get("custom-lane")).toEqual([orphan]);
   });
 });

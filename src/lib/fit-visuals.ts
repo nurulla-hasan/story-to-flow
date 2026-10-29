@@ -299,6 +299,9 @@ function fitVisualLayer(
     .map((clip, index) => (clip.type === "video" ? index : -1))
     .filter((index) => index >= 0);
   const bounds = sortedClips.map(getClipDurationBounds);
+  // A video already at/past source EOF has no usable frames left. Do not
+  // silently create a zero-duration clip while claiming the layer was fitted.
+  if (bounds.some((bound) => bound.max <= 0)) return null;
   const preferred = sortedClips.map((clip) => clip.duration);
   let durations: number[] | null = null;
 

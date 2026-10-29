@@ -114,7 +114,7 @@ export function MediaLibraryPanel() {
     clearError,
   } = useMediaLibrary();
 
-  const { addAssetToTimeline, playhead } = useTimeline();
+  const { addAssetToTimeline } = useTimeline();
 
   const filteredAssets = React.useMemo(() => {
     const needle = query.trim().toLowerCase();

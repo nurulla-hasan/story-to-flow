@@ -88,7 +88,7 @@ import {
   MIN_TIMELINE_ZOOM,
   MAX_TIMELINE_ZOOM,
 } from "@/lib/ruler-scale";
-import { calculatePlayheadTimeFromPointer } from "@/lib/playhead-coordinates";
+import { useTimelinePlayheadScrub } from "@/lib/use-timeline-playhead-scrub";
 import {
   DEFAULT_ZOOM_EFFECT_AMOUNT,
   sanitizeZoomEffect,
@@ -306,99 +306,14 @@ export function TimelineDock() {
     });
   };
 
-  const playheadCleanupRef = React.useRef<(() => void) | null>(null);
-
-  // Clean up any lingering playhead listeners if component unmounts while dragging
-  React.useEffect(() => {
-    return () => {
-      if (playheadCleanupRef.current) {
-        playheadCleanupRef.current();
-      }
-    };
-  }, []);
-
-  // Convert pointer clientX to timeline seconds with full scroll & zoom accuracy
-  const getTimeFromClientX = React.useCallback(
-    (clientX: number): number => {
-      if (!tracksScrollRef.current) return 0;
-      const containerRect = tracksScrollRef.current.getBoundingClientRect();
-      return calculatePlayheadTimeFromPointer({
-        clientX,
-        containerLeft: containerRect.left,
-        scrollLeft: tracksScrollRef.current.scrollLeft,
-        pixelsPerSecond: pxPerSec,
-        totalDuration,
-      });
-    },
-    [pxPerSec, totalDuration]
-  );
-
-  // Continuous pointer tracking for Playhead handle & Ruler scrubbing
-  const startPlayheadDrag = React.useCallback(
-    (e: React.PointerEvent) => {
-      // Only handle primary button (left click / touch / stylus)
-      if (e.button !== 0) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Pause playback if active so it doesn't fight scrubbing
-      pause();
-
-      // Set pointer capture on target element if supported
-      try {
-        if (e.currentTarget && typeof e.currentTarget.setPointerCapture === "function") {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }
-      } catch {
-        // Fallback to window listeners
-      }
-
-      // Immediate seek on pointerdown (click-to-seek responsiveness)
-      const initialTime = getTimeFromClientX(e.clientX);
-      seek(initialTime);
-      let lastSeekTime = initialTime;
-
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        moveEvent.preventDefault();
-        const newTime = getTimeFromClientX(moveEvent.clientX);
-        lastSeekTime = newTime;
-        seek(newTime);
-      };
-
-      const cleanup = () => {
-        window.removeEventListener("pointermove", onPointerMove);
-        window.removeEventListener("pointerup", onPointerUp);
-        window.removeEventListener("pointercancel", onPointerCancel);
-        window.removeEventListener("keydown", onKeyDown);
-        playheadCleanupRef.current = null;
-        // Persist once at the end of the scrub, never on each pointer frame.
-        commitPlayhead(lastSeekTime);
-      };
-
-      const onPointerUp = (upEvent: PointerEvent) => {
-        upEvent.preventDefault();
-        cleanup();
-      };
-
-      const onPointerCancel = () => {
-        cleanup();
-      };
-
-      const onKeyDown = (keyEvent: KeyboardEvent) => {
-        if (keyEvent.key === "Escape") {
-          cleanup();
-        }
-      };
-
-      playheadCleanupRef.current = cleanup;
-      window.addEventListener("pointermove", onPointerMove);
-      window.addEventListener("pointerup", onPointerUp);
-      window.addEventListener("pointercancel", onPointerCancel);
-      window.addEventListener("keydown", onKeyDown);
-    },
-    [pause, getTimeFromClientX, seek, commitPlayhead]
-  );
+  const { getTimeFromClientX, startPlayheadDrag } = useTimelinePlayheadScrub({
+    containerRef: tracksScrollRef,
+    pixelsPerSecond: pxPerSec,
+    totalDuration,
+    pause,
+    seek,
+    commitPlayhead,
+  });
 
   // Drag-and-drop from Media Library onto tracks with unified coordinate mapping
   const handleTrackDrop = (e: React.DragEvent, trackId: TrackId) => {

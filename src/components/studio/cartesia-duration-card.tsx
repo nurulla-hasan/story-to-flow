@@ -10,6 +10,8 @@ import {
   AlertCircle,
   AlertTriangle,
   Info,
+  Loader2,
+  Square,
 } from "lucide-react";
 import {
   Card,
@@ -47,8 +49,17 @@ interface CartesiaDurationCardProps {
     value: ProductionSettingsState[K]
   ) => void;
   onGenerateScenes: () => void;
+  onStop?: () => void;
+  elapsedSeconds?: number;
+  progressLabel?: string;
   isGenerating?: boolean;
   disabled?: boolean;
+}
+
+function formatSeconds(sec: number): string {
+  const mins = Math.floor(sec / 60);
+  const remaining = sec % 60;
+  return `${mins}:${remaining.toString().padStart(2, "0")}`;
 }
 
 const VISUAL_ASSET_MODE_OPTIONS: { value: VisualAssetMode; label: string; desc: string }[] = [
@@ -109,6 +120,9 @@ export function CartesiaDurationCard({
   settings,
   onUpdateSetting,
   onGenerateScenes,
+  onStop,
+  elapsedSeconds = 0,
+  progressLabel,
   isGenerating = false,
   disabled = false,
 }: CartesiaDurationCardProps) {
@@ -238,11 +252,11 @@ export function CartesiaDurationCard({
 
           {/* Export Duration Safety Limit Notice */}
           {totalSeconds > 300 && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-3xs text-warning-foreground leading-relaxed mt-2 animate-in fade-in">
-              <AlertTriangle className="size-3.5 shrink-0 mt-0.5 text-warning" />
+            <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning-subtle p-3 text-3xs leading-relaxed text-warning-subtle-foreground animate-in fade-in">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
               <div>
-                <span className="font-semibold">Browser Export Limit Notice (5 minutes / 300s):</span>
-                <p className="mt-0.5">
+                <span className="font-semibold">Browser Export Limit Notice (5 minutes / 300s)</span>
+                <p className="mt-0.5 opacity-90">
                   Your voiceover duration ({totalSeconds.toFixed(1)}s) exceeds the 5-minute safe limit of the in-browser MP4 exporter. You can generate scene &amp; shot prompts for this story, but in-browser video rendering requires timelines to be within 5:00 (300s).
                 </p>
               </div>
@@ -405,16 +419,57 @@ export function CartesiaDurationCard({
 
         {/* 3. Generate Scenes & Shot Prompts Action Button */}
         <div className="pt-2 border-t border-border/60">
-          <Button
-            size="lg"
-            onClick={onGenerateScenes}
-            disabled={!isValidDuration || isGenerating || disabled}
-            className="w-full gap-2 font-semibold cursor-pointer shadow-sm text-sm"
-          >
-            <Film className="size-4.5" />
-            <span>Generate Scene &amp; Shot Prompts ({totalSeconds > 0 ? `${totalSeconds}s` : "Set duration"})</span>
-            <ArrowRight className="size-4.5" />
-          </Button>
+          {isGenerating ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="lg"
+                  className="flex-1 cursor-default select-none gap-2"
+                  tabIndex={-1}
+                >
+                  <Loader2 className="size-4 shrink-0 animate-spin" />
+                  <span className="truncate">Engineering scenes &amp; shots</span>
+                  <span className="font-mono text-xs">
+                    {formatSeconds(elapsedSeconds)}
+                  </span>
+                </Button>
+                {onStop && (
+                  <Button
+                    size="lg"
+                    variant="destructive"
+                    onClick={onStop}
+                    className="shrink-0 gap-1.5"
+                    title="Cancel generation and abort request"
+                  >
+                    <Square className="size-3.5 fill-current" />
+                    <span>Stop</span>
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 px-1 text-2xs text-muted-foreground">
+                <span className="flex items-center gap-2 font-medium text-foreground">
+                  <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                  <span>{progressLabel ?? "Engineering visual scene compositions..."}</span>
+                </span>
+                <span className="font-mono">{elapsedSeconds}s</span>
+              </div>
+            </div>
+          ) : (
+            <Button
+              size="lg"
+              onClick={onGenerateScenes}
+              disabled={!isValidDuration || disabled}
+              className="w-full gap-2"
+            >
+              <Film className="size-4" />
+              <span>
+                Generate Scene &amp; Shot Prompts (
+                {totalSeconds > 0 ? `${totalSeconds}s` : "Set duration"})
+              </span>
+              <ArrowRight className="size-4" />
+            </Button>
+          )}
 
           {/* Settings Summary Below Button */}
           {isValidDuration && (

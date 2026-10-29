@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
 import type { StoryProcessResponse } from "@/lib/validation";
+import { parseProductionPackage } from "@/lib/output-parser";
 import { useSelectedModel } from "@/lib/model-storage";
 import { useProductionSettings } from "@/lib/settings-storage";
 import {
@@ -39,6 +41,12 @@ import {
   RotateCcw,
   FileText,
   Mic,
+  Check,
+  Copy,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Film,
 } from "lucide-react";
 
 function formatSeconds(sec: number): string {
@@ -564,326 +572,448 @@ export default function StudioPage() {
     }
   };
 
+  // --- Focus wizard derived state -------------------------------------------
+  const hasStory = !!story.trim();
+  const hasVoiceover = !!voiceoverScript.trim();
+  const hasDuration = !!actualVoiceoverDuration && actualVoiceoverDuration > 0;
+  const hasScenes = !!result?.response;
+  const isDirectMode = inputMode === "direct-voiceover";
+
+  // Render exactly one stage at a time, and never show a stage whose input is missing.
+  const activeStage = useMemo(() => {
+    if (!hasVoiceover) return isDirectMode ? 2 : 1;
+    if (currentStage < 1) return 1;
+    if (currentStage === 4 && !hasScenes) return hasDuration ? 3 : 2;
+    return currentStage;
+  }, [currentStage, hasVoiceover, hasDuration, hasScenes, isDirectMode]);
+
+  const canGoBack = activeStage > 1 && !(isDirectMode && activeStage === 2);
+  const canGoForward =
+    (activeStage === 1 && hasStory) ||
+    (activeStage === 2 && hasVoiceover) ||
+    (activeStage === 3 && hasScenes);
+
+  const goToPreviousStage = () => {
+    if (canGoBack) setLocalStage(activeStage - 1);
+  };
+
+  const goToNextStage = () => {
+    if (canGoForward) setLocalStage(activeStage + 1);
+  };
+
+  const sceneCount = useMemo(
+    () => parseProductionPackage(result?.response).scenes.length,
+    [result?.response]
+  );
+
+  const isVoiceoverBusy = isGenerating && generationPhase === "voiceover";
+
+  const workflowHint =
+    activeStage === 1
+      ? "Write or paste the story you want to turn into a video."
+      : activeStage === 2
+        ? "Review the narration, then synthesize it in Cartesia."
+        : activeStage === 3
+          ? "Enter the measured audio duration to calibrate the visuals."
+          : "Copy the prompts into Google Flow and assemble the cut in the editor.";
+
   return (
     <>
-      {/* Subtle background linear */}
-      <div className="fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-linear-to-br from-background via-surface-subtle to-muted/30" />
-        <div className="absolute top-0 left-0 right-0 h-64 bg-linear-to-b from-primary/5 via-transparent to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-64 bg-linear-to-t from-secondary/5 via-transparent to-transparent" />
-      </div>
+      {/* Subtle page wash */}
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-linear-to-b from-surface-subtle to-background" />
 
-      <div className="space-y-6 relative">
-        {/* Workflow Progression Stepper */}
-        <StudioStepper
-          currentStage={currentStage}
-          hasStory={!!story.trim()}
-          hasVoiceover={!!voiceoverScript.trim()}
-          hasDuration={!!actualVoiceoverDuration && actualVoiceoverDuration > 0}
-          hasScenes={!!result?.response}
-          onStageClick={handleStageClick}
-          inputMode={inputMode}
-        />
+      <div className="w-full space-y-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          {/* Left rail: stage navigator + reference material */}
+          <aside className="w-full space-y-3 lg:w-72 lg:shrink-0">
+            <StudioStepper
+              currentStage={activeStage}
+              hasStory={hasStory}
+              hasVoiceover={hasVoiceover}
+              hasDuration={hasDuration}
+              hasScenes={hasScenes}
+              onStageClick={handleStageClick}
+              inputMode={inputMode}
+            />
 
-        {/* 2-Column Dashboard Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          {/* Left Column: Staged Story Workflow */}
-          <div className="space-y-6">
-            {/* Input Mode Switcher (Story to Script vs Direct Voiceover) */}
-            <div className="relative">
-              <div className="flex items-center p-1 bg-muted/70 border border-border/80 rounded-xl shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => handleSwitchMode("story")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    inputMode === "story"
-                      ? "bg-background text-foreground shadow-2xs border border-border/60"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <FileText className="size-3.5" />
-                  <span>Story to Script</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSwitchMode("direct-voiceover")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    inputMode === "direct-voiceover"
-                      ? "bg-background text-foreground shadow-2xs border border-border/60"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Mic className="size-3.5" />
-                  <span>Direct Voiceover</span>
-                </button>
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                <span>How it works</span>
+                <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="pt-2">
+                <HowItWorksCard />
               </div>
+            </details>
+
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                <span>Output format</span>
+                <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="pt-2">
+                <OutputFormatCard />
+              </div>
+            </details>
+          </aside>
+
+          {/* Right: the single active stage */}
+          <section className="min-w-0 flex-1 space-y-4">
+            <StudioSettingsBar
+              settings={prodSettings}
+              model={selectedModel}
+              onResetClick={() => setIsResetDialogOpen(true)}
+            />
+
+            {/* Stage header + mode switcher */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-base font-semibold text-foreground">
+                  {activeStage === 1
+                    ? "Story input"
+                    : activeStage === 2
+                      ? isDirectMode
+                        ? "Direct voiceover"
+                        : "Master voiceover script"
+                      : activeStage === 3
+                        ? "Audio duration & visual settings"
+                        : "Production handoff"}
+                </h1>
+                <p className="text-xs text-muted-foreground">{workflowHint}</p>
+              </div>
+
+              {(activeStage === 1 || activeStage === 2) && (
+                <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted p-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchMode("story")}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      !isDirectMode
+                        ? "bg-card text-foreground shadow-2xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <FileText className="size-3.5" />
+                    <span>Story to script</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchMode("direct-voiceover")}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isDirectMode
+                        ? "bg-card text-foreground shadow-2xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Mic className="size-3.5" />
+                    <span>Direct voiceover</span>
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* MODE 1: STORY TO SCRIPT */}
-            {inputMode === "story" && (
-              <>
-                {/* STAGE 1: Original Story Input */}
-                <div className="space-y-4">
-                  <div className="relative">
-                    <div className="absolute -inset-3 bg-linear-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
-                    <StoryInputCard
-                      story={story}
-                      onChange={handleStoryChange}
-                      onClear={handleClear}
-                      validationError={validationError}
-                      disabled={isGenerating}
-                    />
-                  </div>
-
-                  {/* Action: Generate Master Voiceover Script */}
-                  {!voiceoverScript.trim() && (
-                    <div className="space-y-3">
-                      {isGenerating && generationPhase === "voiceover" ? (
-                        <div className="flex items-center gap-3">
-                          <div className="relative flex-1">
-                            <div className="absolute -inset-1 bg-linear-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-sm -z-10" />
-                            <Button
-                              size="lg"
-                              className="flex-1 gap-3 cursor-default select-none shadow-md"
-                              tabIndex={-1}
-                            >
-                              <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                              <span className="font-semibold truncate">Writing Voiceover Script</span>
-                              <span className="font-mono text-xs font-bold bg-primary-foreground/25 px-2.5 py-1 rounded-lg shadow-sm">
-                                {formatSeconds(elapsedSeconds)}
-                              </span>
-                            </Button>
-                          </div>
-                          <div className="relative">
-                            <div className="absolute -inset-1 bg-linear-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
-                            <Button
-                              size="lg"
-                              variant="destructive"
-                              onClick={handleStop}
-                              className="gap-2.5 shrink-0 cursor-pointer shadow-md"
-                              title="Cancel generation and abort request"
-                            >
-                              <Square className="size-3.5 fill-current" />
-                              <span>Stop</span>
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="relative">
-                            <div className="absolute -inset-1 bg-linear-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-md -z-10 opacity-70" />
-                            <Button
-                              size="lg"
-                              onClick={handleGenerateVoiceover}
-                              disabled={!story.trim() || isGenerating}
-                              className="w-full gap-3 cursor-pointer shadow-md text-sm font-semibold"
-                            >
-                              <Sparkles className="size-4.5" />
-                              <span>Generate Voiceover Script</span>
-                              <ArrowRight className="size-4.5" />
-                            </Button>
-                          </div>
-
-                          <div className="text-center pt-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSwitchMode("direct-voiceover")}
-                              className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                            >
-                              Already have a voiceover?{" "}
-                              <span className="underline font-medium text-foreground hover:text-primary">
-                                Enter Direct Voiceover →
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {isGenerating && generationPhase === "voiceover" && (
-                        <div className="flex items-center justify-between text-xs text-muted-foreground px-2 animate-in fade-in">
-                          <span className="flex items-center gap-2 font-medium text-foreground">
-                            <span className="size-2 rounded-full bg-primary animate-pulse" />
-                            <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
-                          </span>
-                          <span className="font-mono font-semibold">{elapsedSeconds}s elapsed</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* STAGE 2: Master Voiceover Script (Review & Edit for Cartesia) */}
-                {voiceoverScript.trim() && (
-                  <div className="relative">
-                    <div className="absolute -inset-3 bg-linear-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-                    <VoiceoverScriptCard
-                      script={voiceoverScript}
-                      onChange={handleVoiceoverChange}
-                      onClear={handleClearVoiceover}
-                      onRegenerate={story.trim() ? handleGenerateVoiceover : undefined}
-                      onProceedToDuration={() => setLocalStage(3)}
-                      isGenerating={isGenerating && generationPhase === "voiceover"}
-                      disabled={isGenerating}
-                      isDirectVoiceover={false}
-                    />
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* MODE 2: DIRECT VOICEOVER */}
-            {inputMode === "direct-voiceover" && (
+            {/* STAGE 1 — Story input */}
+            {activeStage === 1 && (
               <div className="space-y-4">
-
-                {/* Direct Voiceover Card — ALWAYS VISIBLE in direct mode */}
-                <div className="relative">
-                  <div className="absolute -inset-3 bg-linear-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-                  <VoiceoverScriptCard
-                    script={voiceoverScript}
-                    onChange={handleVoiceoverChange}
-                    onClear={handleClearVoiceover}
-                    onProceedToDuration={() => setLocalStage(3)}
-                    isGenerating={isGenerating && generationPhase === "voiceover"}
-                    disabled={isGenerating}
-                    isDirectVoiceover={true}
-                  />
-                </div>
-
-                {/* Optional Collapsible Story Context */}
-                <details className="group rounded-xl border border-border/80 bg-card/60 p-3 text-xs transition-colors">
-                  <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground select-none list-none flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <FileText className="size-3.5 text-muted-foreground" />
-                      <span>Optional: Add Story Background or Character Notes</span>
-                    </span>
-                    <span className="text-3xs text-muted-foreground group-open:rotate-90 transition-transform">
-                      ▶
-                    </span>
-                  </summary>
-                  <div className="mt-3 pt-3 border-t border-border/50">
-                    <StoryInputCard
-                      story={story}
-                      onChange={handleStoryChange}
-                      onClear={() => handleStoryChange("")}
-                      disabled={isGenerating}
-                    />
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {/* STAGE 3: Cartesia Duration Entry & Visual Settings */}
-            {voiceoverScript.trim() && (
-              <div className="relative">
-                <div className="absolute -inset-3 bg-linear-to-br from-success-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-                <CartesiaDurationCard
-                  minutes={minutes}
-                  seconds={seconds}
-                  onMinutesChange={handleMinutesChange}
-                  onSecondsChange={handleSecondsChange}
-                  settings={prodSettings}
-                  onUpdateSetting={updateSetting}
-                  onGenerateScenes={handleGenerateScenes}
-                  isGenerating={isGenerating && generationPhase === "scenes"}
+                <StoryInputCard
+                  story={story}
+                  onChange={handleStoryChange}
+                  onClear={handleClear}
+                  validationError={validationError}
                   disabled={isGenerating}
                 />
+
+                {!hasVoiceover && (
+                  <div className="space-y-3">
+                    {isVoiceoverBusy ? (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="lg"
+                          className="flex-1 gap-2 cursor-default select-none"
+                          tabIndex={-1}
+                        >
+                          <Loader2 className="size-4 shrink-0 animate-spin" />
+                          <span className="truncate">Writing voiceover script</span>
+                          <span className="font-mono text-xs">
+                            {formatSeconds(elapsedSeconds)}
+                          </span>
+                        </Button>
+                        <Button
+                          size="lg"
+                          variant="destructive"
+                          onClick={handleStop}
+                          className="shrink-0 gap-1.5"
+                          title="Cancel generation and abort request"
+                        >
+                          <Square className="size-3.5 fill-current" />
+                          <span>Stop</span>
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        size="lg"
+                        onClick={handleGenerateVoiceover}
+                        disabled={!hasStory || isGenerating}
+                        className="w-full gap-2"
+                      >
+                        <Sparkles className="size-4" />
+                        <span>Generate voiceover script</span>
+                        <ArrowRight className="size-4" />
+                      </Button>
+                    )}
+
+                    {isVoiceoverBusy && (
+                      <div className="flex items-center justify-between gap-2 px-1 text-2xs text-muted-foreground">
+                        <span className="flex items-center gap-2 font-medium text-foreground">
+                          <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                          <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
+                        </span>
+                        <span className="font-mono">{elapsedSeconds}s</span>
+                      </div>
+                    )}
+
+                    {!isGenerating && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Already have a voiceover?{" "}
+                        <button
+                          type="button"
+                          onClick={() => handleSwitchMode("direct-voiceover")}
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          Enter it directly
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* In-Flight Scene Generation Status Bar */}
-            {isGenerating && generationPhase === "scenes" && (
-              <div className="relative">
-                <div className="absolute -inset-2 bg-linear-to-r from-primary/20 via-primary/10 to-secondary/10 rounded-xl blur-lg -z-10 opacity-70" />
-                <div className="space-y-3 p-4 rounded-xl bg-card/80 backdrop-blur-sm border border-primary/30 shadow-lg animate-in fade-in">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-1">
-                      <div className="absolute -inset-1 bg-linear-to-r from-primary/20 to-primary/10 rounded-xl blur-sm -z-10" />
-                      <Button
-                        size="lg"
-                        className="flex-1 gap-3 cursor-default select-none shadow-md"
-                        tabIndex={-1}
-                      >
-                        <Loader2 className="size-4 animate-spin shrink-0 text-primary-foreground" />
-                        <span className="font-semibold truncate">Engineering Scenes &amp; Shots</span>
-                        <span className="font-mono text-xs font-bold bg-primary-foreground/25 px-2.5 py-1 rounded-lg shadow-sm">
-                          {formatSeconds(elapsedSeconds)}
-                        </span>
-                      </Button>
-                    </div>
-                    <div className="relative">
-                      <div className="absolute -inset-1 bg-linear-to-r from-destructive/20 to-destructive/10 rounded-xl blur-sm -z-10" />
-                      <Button
-                        size="lg"
-                        variant="destructive"
-                        onClick={handleStop}
-                        className="gap-2.5 shrink-0 cursor-pointer shadow-md"
-                        title="Cancel generation and abort request"
-                      >
-                        <Square className="size-3.5 fill-current" />
-                        <span>Stop</span>
-                      </Button>
-                    </div>
-                  </div>
+            {/* STAGE 2 — Voiceover script review */}
+            {activeStage === 2 && (
+              <div className="space-y-4">
+                <VoiceoverScriptCard
+                  script={voiceoverScript}
+                  onChange={handleVoiceoverChange}
+                  onClear={handleClearVoiceover}
+                  onRegenerate={
+                    !isDirectMode && story.trim() ? handleGenerateVoiceover : undefined
+                  }
+                  onProceedToDuration={() => setLocalStage(3)}
+                  isGenerating={isVoiceoverBusy}
+                  disabled={isGenerating}
+                  isDirectVoiceover={isDirectMode}
+                />
 
-                  <div className="flex items-center justify-between text-xs text-muted-foreground px-2">
+                {isVoiceoverBusy && (
+                  <div className="flex items-center justify-between gap-2 px-1 text-2xs text-muted-foreground">
                     <span className="flex items-center gap-2 font-medium text-foreground">
-                      <span className="size-2 rounded-full bg-primary animate-pulse" />
-                      <span>{getProgressPhase(elapsedSeconds, "scenes")}</span>
+                      <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                      <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
                     </span>
-                    <span className="font-mono font-semibold">{elapsedSeconds}s elapsed</span>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={handleStop}
+                      className="gap-1.5"
+                    >
+                      <Square className="size-3" />
+                      <span>Stop</span>
+                    </Button>
+                  </div>
+                )}
+
+                {isDirectMode && (
+                  <details className="group rounded-xl border border-border bg-card">
+                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                      <span className="flex items-center gap-2">
+                        <FileText className="size-3.5" />
+                        <span>Optional: story background or character notes</span>
+                      </span>
+                      <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="border-t border-border p-3">
+                      <StoryInputCard
+                        story={story}
+                        onChange={handleStoryChange}
+                        onClear={() => handleStoryChange("")}
+                        disabled={isGenerating}
+                      />
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+
+            {/* STAGE 3 — Cartesia duration & visual settings */}
+            {activeStage === 3 && (
+              <CartesiaDurationCard
+                minutes={minutes}
+                seconds={seconds}
+                onMinutesChange={handleMinutesChange}
+                onSecondsChange={handleSecondsChange}
+                settings={prodSettings}
+                onUpdateSetting={updateSetting}
+                onGenerateScenes={handleGenerateScenes}
+                onStop={handleStop}
+                elapsedSeconds={elapsedSeconds}
+                progressLabel={getProgressPhase(elapsedSeconds, "scenes")}
+                isGenerating={isGenerating && generationPhase === "scenes"}
+                disabled={isGenerating}
+              />
+            )}
+
+            {/* Fallback stop control if the user navigates away while scenes are generating */}
+            {isGenerating && generationPhase === "scenes" && activeStage !== 3 && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-2xs text-muted-foreground">
+                <span className="flex items-center gap-2 font-medium text-foreground">
+                  <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                  <span>Engineering scenes &amp; shots</span>
+                  <span className="font-mono">{formatSeconds(elapsedSeconds)}</span>
+                </span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleStop}
+                  className="gap-1.5"
+                >
+                  <Square className="size-3" />
+                  <span>Stop</span>
+                </Button>
+              </div>
+            )}
+
+            {/* STAGE 4 — Handoff */}
+            {activeStage === 4 && (
+              <div className="space-y-4 rounded-xl border border-border bg-card p-5">
+                <div className="flex items-start gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-success/30 bg-success-subtle text-success">
+                    <Check className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">
+                      Production package ready
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Copy the prompts into Google Flow, then assemble the final cut in
+                      the editor.
+                    </p>
                   </div>
                 </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+                      Scenes
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">
+                      {sceneCount}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+                      Voiceover
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">
+                      {actualVoiceoverDuration
+                        ? formatSeconds(Math.round(actualVoiceoverDuration))
+                        : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted p-3">
+                    <p className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+                      Prompt version
+                    </p>
+                    <p className="mt-1 truncate text-lg font-semibold text-foreground">
+                      {result?.metadata.promptVersion ?? "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={handleCopyAll}
+                    disabled={!result?.response || copied}
+                    className="gap-1.5"
+                  >
+                    {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                    <span>{copied ? "Copied package" : "Copy full package"}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-1.5"
+                    render={<Link href="/editor" />}
+                  >
+                    <Film className="size-4" />
+                    <span>Open video editor</span>
+                  </Button>
+                </div>
+
+                <p className="text-2xs text-muted-foreground">
+                  The full package — voiceover plus scene prompts — is shown below this
+                  workspace.
+                </p>
               </div>
             )}
-
-            {/* Compact Active Production Settings Bar with Reset Studio Button */}
-            <div className="relative">
-              <div className="absolute -inset-3 bg-linear-to-br from-surface-subtle via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-              <StudioSettingsBar
-                settings={prodSettings}
-                model={selectedModel}
-                onResetClick={() => setIsResetDialogOpen(true)}
-              />
-            </div>
 
             {/* Brief cancellation / reset notice */}
             {cancelNotice && (
-              <div className="relative">
-                <div className="absolute -inset-2 bg-linear-to-r from-muted/30 to-muted/10 rounded-xl blur-sm -z-10 opacity-70" />
-                <div className="flex items-center gap-3 rounded-xl bg-muted/80 backdrop-blur-sm px-4 py-2.5 text-sm text-muted-foreground animate-in fade-in">
-                  <span className="size-2.5 rounded-full bg-muted-foreground/60" />
-                  <span className="font-medium">{cancelNotice}</span>
-                </div>
+              <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <span className="size-1.5 rounded-full bg-muted-foreground" />
+                <span className="font-medium">{cancelNotice}</span>
               </div>
             )}
 
-            {/* How it works Card */}
-            <div className="relative">
-              <div className="absolute -inset-3 bg-linear-to-br from-info-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-              <HowItWorksCard />
-            </div>
+            {/* Wizard footer navigation */}
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <Button
+                variant="outline"
+                onClick={goToPreviousStage}
+                disabled={!canGoBack}
+                className="gap-1.5"
+              >
+                <ChevronLeft className="size-4" />
+                <span>Back</span>
+              </Button>
 
-            {/* Output format Card */}
-            <div className="relative">
-              <div className="absolute -inset-3 bg-linear-to-br from-warning-subtle/30 via-card to-card rounded-xl blur-md -z-10 opacity-70" />
-              <OutputFormatCard />
+              {activeStage < 4 ? (
+                <Button
+                  onClick={goToNextStage}
+                  disabled={!canGoForward}
+                  className="gap-1.5"
+                >
+                  <span>Continue</span>
+                  <ChevronRight className="size-4" />
+                </Button>
+              ) : (
+                <span className="text-2xs font-medium text-muted-foreground">
+                  Workflow complete
+                </span>
+              )}
             </div>
-          </div>
-
-          {/* Right Column: Generated Output (Voiceover & Scene Cards) */}
-          <div className="space-y-6 lg:sticky lg:top-20">
-            <div className="relative">
-              <div className="absolute -inset-3 bg-linear-to-br from-card via-card to-primary/5 rounded-xl blur-md -z-10 opacity-70" />
-              <OutputCard
-                result={result}
-                error={error}
-                copied={copied}
-                onCopyAll={handleCopyAll}
-              />
-            </div>
-          </div>
+          </section>
         </div>
+
+        {/* Full-width generated output */}
+        {(result || error) && (
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">
+                Generated output
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Full production package — voiceover and scene prompts.
+              </p>
+            </div>
+
+            <OutputCard
+              result={result}
+              error={error}
+              copied={copied}
+              onCopyAll={handleCopyAll}
+            />
+          </section>
+        )}
       </div>
 
       {/* Reset Studio Confirmation Alert Dialog */}

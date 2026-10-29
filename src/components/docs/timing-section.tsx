@@ -78,7 +78,7 @@ export function TimingSection() {
               </div>
               <motion.div
                 style={{ opacity: reduce ? 1 : holdOpacity }}
-                className="col-span-3 flex items-center justify-center bg-warning-subtle text-3xs font-medium text-warning-foreground"
+                className="col-span-3 flex items-center justify-center bg-warning-subtle text-3xs font-medium text-warning-subtle-foreground"
               >
                 freeze frame
               </motion.div>

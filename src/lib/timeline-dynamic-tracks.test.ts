@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type TimelineClip,
   type TimelineTrack,
+  type TimelineTransition,
   DEFAULT_TIMELINE_TRACKS,
   getTrackById,
   getVisualTracks,
@@ -16,6 +17,7 @@ import {
   isTrackVisible,
   getTrackVolume,
   normalizeLegacyTrackId,
+  calculateEffectivePlaybackRate,
 } from "@/types/timeline";
 import {
   deserializeTimelineState,
@@ -32,6 +34,7 @@ import {
   selectAudioEligibleClips,
   calculateExportPlan,
 } from "@/lib/video-export-engine";
+import { getTransitionProgress } from "@/lib/transition-helpers";
 import type { MediaAssetItem } from "@/lib/media-storage";
 
 describe("Dynamic Multi-Track Timeline Architecture", () => {
@@ -657,6 +660,202 @@ describe("Dynamic Multi-Track Timeline Architecture", () => {
       const visibleClips = clips.filter((c) => isVisualTrack(c.trackId, tracks) && isTrackVisible(c.trackId, tracks));
       expect(visibleClips).toHaveLength(1);
       expect(visibleClips[0].id).toBe("c1");
+    });
+  });
+
+  describe("G. Global Playback Speed Calculation", () => {
+    it("combines clip speed and global playback speed correctly", () => {
+      // 1x clip at various global speeds
+      expect(calculateEffectivePlaybackRate(1.0, 1.0)).toBe(1.0);
+      expect(calculateEffectivePlaybackRate(1.0, 0.5)).toBe(0.5);
+      expect(calculateEffectivePlaybackRate(1.0, 2.0)).toBe(2.0);
+
+      // Fast clip (2x) at global speeds
+      expect(calculateEffectivePlaybackRate(2.0, 1.0)).toBe(2.0);
+      expect(calculateEffectivePlaybackRate(2.0, 2.0)).toBe(4.0);
+      expect(calculateEffectivePlaybackRate(2.0, 0.5)).toBe(1.0);
+
+      // Slow-mo clip (0.5x) at global speeds
+      expect(calculateEffectivePlaybackRate(0.5, 1.0)).toBe(0.5);
+      expect(calculateEffectivePlaybackRate(0.5, 2.0)).toBe(1.0);
+
+      // Edge cases: null, undefined, negative
+      expect(calculateEffectivePlaybackRate(null, 1.0)).toBe(1.0);
+      expect(calculateEffectivePlaybackRate(undefined, 2.0)).toBe(2.0);
+      expect(calculateEffectivePlaybackRate(-1.0, 1.0)).toBe(1.0);
+      expect(calculateEffectivePlaybackRate(1.0, 0)).toBe(1.0);
+    });
+  });
+
+  describe("H. Lock Invariant Consistency & Downstream Collision Rejection", () => {
+    it("preserves locked downstream clips without shifting them during ripple extend", () => {
+      const tracks: TimelineTrack[] = [
+        { id: "vis-1", name: "Visual 1", type: "visual", order: 0, muted: false, volume: 1, visible: true, locked: false },
+        { id: "vis-locked", name: "Locked Visual", type: "visual", order: 1, muted: false, volume: 1, visible: true, locked: true },
+      ];
+
+      const clip1: TimelineClip = {
+        id: "c1",
+        assetId: "a1",
+        name: "clip1.png",
+        type: "image",
+        trackId: "vis-1",
+        startTime: 0,
+        duration: 3.0,
+        inPoint: 0,
+        outPoint: 3.0,
+      };
+
+      // Locked downstream clip starting at 5.0s
+      const lockedClip: TimelineClip = {
+        id: "c-lock",
+        assetId: "a2",
+        name: "locked.png",
+        type: "image",
+        trackId: "vis-locked",
+        startTime: 5.0,
+        duration: 4.0,
+        inPoint: 0,
+        outPoint: 4.0,
+      };
+
+      // Unlocked downstream clip starting at 6.0s
+      const unlockedClip: TimelineClip = {
+        id: "c-unlocked",
+        assetId: "a3",
+        name: "free.png",
+        type: "image",
+        trackId: "vis-1",
+        startTime: 6.0,
+        duration: 2.0,
+        inPoint: 0,
+        outPoint: 2.0,
+      };
+
+      // Extend c1 by +2.0s (from 3.0s to 5.0s)
+      const extended = applyRippleExtend(clip1.id, 5.0, [clip1, lockedClip, unlockedClip], tracks);
+
+      // c1 duration extended to 5.0s
+      expect(extended.find((c) => c.id === "c1")?.duration).toBe(5.0);
+
+      // Unlocked downstream clip shifted right by +2.0s (from 6.0s to 8.0s)
+      expect(extended.find((c) => c.id === "c-unlocked")?.startTime).toBe(8.0);
+
+      // Locked clip was NOT shifted, remains anchored at 5.0s!
+      expect(extended.find((c) => c.id === "c-lock")?.startTime).toBe(5.0);
+
+      // Extending a clip on a locked track is completely rejected
+      const rejected = applyRippleExtend(lockedClip.id, 8.0, [clip1, lockedClip, unlockedClip], tracks);
+      expect(rejected.find((c) => c.id === "c-lock")?.duration).toBe(4.0);
+    });
+
+    it("calculateFitVisualsToVoiceover completely preserves clips on locked visual tracks", () => {
+      const tracks: TimelineTrack[] = [
+        { id: "vis-unlocked", name: "Unlocked Track", type: "visual", order: 1, muted: false, volume: 1, visible: true, locked: false },
+        { id: "vis-locked", name: "Locked Track", type: "visual", order: 0, muted: false, volume: 1, visible: true, locked: true },
+        { id: "audio-vo", name: "Voiceover", type: "audio", role: "voiceover", order: 0, muted: false, volume: 1, visible: true, locked: false },
+      ];
+
+      const clips: TimelineClip[] = [
+        { id: "vo", assetId: "a-vo", name: "vo.mp3", type: "audio", trackId: "audio-vo", startTime: 0, duration: 12.0, inPoint: 0, outPoint: 12.0 },
+        { id: "unlocked-clip", assetId: "a1", name: "free.png", type: "image", trackId: "vis-unlocked", startTime: 0, duration: 4.0, inPoint: 0, outPoint: 4.0 },
+        { id: "locked-clip", assetId: "a2", name: "frozen.png", type: "image", trackId: "vis-locked", startTime: 2.0, duration: 3.5, inPoint: 0, outPoint: 3.5 },
+      ];
+
+      const result = calculateFitVisualsToVoiceover(clips, [], tracks);
+      expect(result.success).toBe(true);
+
+      const fittedLocked = result.updatedClips.find((c) => c.id === "locked-clip");
+      // Locked clip is 100% identical in start time and duration
+      expect(fittedLocked?.startTime).toBe(2.0);
+      expect(fittedLocked?.duration).toBe(3.5);
+
+      const fittedUnlocked = result.updatedClips.find((c) => c.id === "unlocked-clip");
+      // Unlocked clip scaled to fit the 12s voiceover
+      expect(fittedUnlocked?.duration).toBe(12.0);
+    });
+
+    it("calculateFitVisualsToVoiceover fails gracefully when all visual tracks are locked", () => {
+      const tracks: TimelineTrack[] = [
+        { id: "vis-locked", name: "Locked Track", type: "visual", order: 0, muted: false, volume: 1, visible: true, locked: true },
+        { id: "audio-vo", name: "Voiceover", type: "audio", role: "voiceover", order: 0, muted: false, volume: 1, visible: true, locked: false },
+      ];
+
+      const clips: TimelineClip[] = [
+        { id: "vo", assetId: "a-vo", name: "vo.mp3", type: "audio", trackId: "audio-vo", startTime: 0, duration: 10.0, inPoint: 0, outPoint: 10.0 },
+        { id: "locked-clip", assetId: "a-l", name: "frozen.png", type: "image", trackId: "vis-locked", startTime: 0, duration: 3.0, inPoint: 0, outPoint: 3.0 },
+      ];
+
+      const result = calculateFitVisualsToVoiceover(clips, [], tracks);
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("locked");
+    });
+  });
+
+  describe("I. Fit Visuals Source-Time Bounds & Speed Scaling", () => {
+    it("respects video speed and available sourceDuration when scaling duration and outPoint", () => {
+      const tracks: TimelineTrack[] = [
+        { id: "vis-1", name: "Visual Track", type: "visual", order: 0, muted: false, volume: 1, visible: true, locked: false },
+        { id: "audio-vo", name: "Voiceover", type: "audio", role: "voiceover", order: 0, muted: false, volume: 1, visible: true, locked: false },
+      ];
+
+      // Video at 2x speed with 10s source media. At 2x speed, max timeline duration is 10 / 2 = 5s!
+      const fastVideo: TimelineClip = {
+        id: "vid-fast",
+        assetId: "a-vid",
+        name: "action.mp4",
+        type: "video",
+        trackId: "vis-1",
+        startTime: 0,
+        duration: 3.0,
+        inPoint: 0,
+        outPoint: 6.0,
+        sourceDuration: 10.0,
+        speed: 2.0,
+      };
+
+      // Voiceover of 20 seconds
+      const vo: TimelineClip = {
+        id: "vo-1",
+        assetId: "a-vo",
+        name: "voice.mp3",
+        type: "audio",
+        trackId: "audio-vo",
+        startTime: 0,
+        duration: 20.0,
+        inPoint: 0,
+        outPoint: 20.0,
+      };
+
+      const result = calculateFitVisualsToVoiceover([fastVideo, vo], [], tracks);
+      expect(result.success).toBe(true);
+
+      const fittedVideo = result.updatedClips.find((c) => c.id === "vid-fast");
+      // Fast video is capped at 5.0s timeline duration (which exhausts all 10s source media at 2x speed)
+      expect(fittedVideo?.duration).toBe(5.0);
+      expect(fittedVideo?.outPoint).toBe(10.0); // 0 + 5.0 * 2.0 = 10.0
+      expect(fittedVideo?.outPoint).toBeLessThanOrEqual(fastVideo.sourceDuration!);
+    });
+  });
+
+  describe("J. Simultaneous Transitions on Separate Visual Tracks", () => {
+    it("calculates progress for simultaneous transitions on different tracks without interference", () => {
+      const c1: TimelineClip = { id: "c1", assetId: "a1", name: "1.png", type: "image", trackId: "visual-1", startTime: 0, duration: 4.0, inPoint: 0, outPoint: 4.0 };
+      const c2: TimelineClip = { id: "c2", assetId: "a2", name: "2.png", type: "image", trackId: "visual-1", startTime: 4.0, duration: 4.0, inPoint: 0, outPoint: 4.0 };
+      const c3: TimelineClip = { id: "c3", assetId: "a3", name: "overlay1.png", type: "image", trackId: "visual-2", startTime: 0, duration: 4.0, inPoint: 0, outPoint: 4.0 };
+      const c4: TimelineClip = { id: "c4", assetId: "a4", name: "overlay2.png", type: "image", trackId: "visual-2", startTime: 4.0, duration: 4.0, inPoint: 0, outPoint: 4.0 };
+
+      // Transition on visual-1 at 4.0s (duration 1.0s -> active from 3.5s to 4.5s)
+      const trans1: TimelineTransition = { id: "t1", fromClipId: "c1", toClipId: "c2", type: "cross-dissolve", duration: 1.0, trackId: "visual-1" };
+      // Transition on visual-2 at 4.0s (duration 1.0s -> active from 3.5s to 4.5s)
+      const trans2: TimelineTransition = { id: "t2", fromClipId: "c3", toClipId: "c4", type: "fade-black", duration: 1.0, trackId: "visual-2" };
+
+      // At playhead = 4.0s: both transitions are halfway through (progress = 0.5)
+      const prog1 = getTransitionProgress(4.0, trans1, c1, c2);
+      const prog2 = getTransitionProgress(4.0, trans2, c3, c4);
+
+      expect(prog1).toBeCloseTo(0.5, 2);
+      expect(prog2).toBeCloseTo(0.5, 2);
     });
   });
 });

@@ -229,7 +229,7 @@ export default function SettingsPage() {
               <div className="space-y-5">
                 {/* Warning / Fallback Notice */}
                 {modelWarning && (
-                  <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-subtle p-3 text-xs text-warning-foreground">
+                  <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-subtle p-3 text-xs text-warning-subtle-foreground">
                     <AlertCircle className="size-4 shrink-0 text-warning mt-0.5" />
                     <div className="space-y-1">
                       <p className="font-semibold">Model Discovery Notice</p>

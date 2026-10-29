@@ -5,6 +5,7 @@ import {
   isVisualTrack,
   isAudioTrack,
   normalizeVisualTrackId,
+  isTrackLocked,
 } from "../types/timeline";
 import { areClipsAdjacentForTransition, validateTransitionDuration } from "./transition-helpers";
 
@@ -92,13 +93,29 @@ export function calculateFitVisualsToVoiceover(
 
   const fittedClips: TimelineClip[] = [];
   let fittedCount = 0;
+  let unlockedTrackCount = 0;
 
-  for (const layerClips of visualClipsByTrack.values()) {
+  for (const [key, layerClips] of visualClipsByTrack.entries()) {
     if (layerClips.length > 0) {
+      if (isTrackLocked(key, tracks)) {
+        // Locked visual tracks must be kept untouched
+        fittedClips.push(...layerClips);
+        continue;
+      }
+      unlockedTrackCount++;
       const fitted = fitVisualLayer(layerClips, voiceoverEnd);
       fittedClips.push(...fitted);
       fittedCount += fitted.length;
     }
+  }
+
+  if (unlockedTrackCount === 0 && visualClips.length > 0) {
+    return {
+      success: false,
+      message: "All visual tracks containing scenes are locked. Unlock a track to fit visuals.",
+      updatedClips: clips,
+      updatedTransitions: transitions,
+    };
   }
 
   // Combine fitted visuals with untouched audio clips
@@ -113,7 +130,7 @@ export function calculateFitVisualsToVoiceover(
   );
 
   const droppedCount = transitions.length - reconciledTransitions.length;
-  let message = `Fitted ${fittedCount} visual clips across ${visualClipsByTrack.size} visual track(s) to ${voiceoverEnd.toFixed(1)}s voiceover.`;
+  let message = `Fitted ${fittedCount} visual clips across ${unlockedTrackCount} visual track(s) to ${voiceoverEnd.toFixed(1)}s voiceover.`;
   if (droppedCount > 0) {
     message += ` Removed ${droppedCount} stale transition${droppedCount === 1 ? "" : "s"}.`;
   }
@@ -124,6 +141,28 @@ export function calculateFitVisualsToVoiceover(
     updatedClips: finalClips,
     updatedTransitions: reconciledTransitions,
   };
+}
+
+function computeClipOutPoint(clip: TimelineClip, dur: number): number {
+  if (clip.type === "video" || clip.type === "audio") {
+    const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+    return parseFloat((clip.inPoint + dur * speed).toFixed(3));
+  }
+  return parseFloat((clip.inPoint + dur).toFixed(3));
+}
+
+function clampClipDurationToSource(clip: TimelineClip, proposedDur: number): number {
+  let dur = proposedDur;
+  if (
+    (clip.type === "video" || clip.type === "audio") &&
+    typeof clip.sourceDuration === "number" &&
+    clip.sourceDuration > 0
+  ) {
+    const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+    const maxAvailable = (clip.sourceDuration - clip.inPoint) / speed;
+    dur = Math.min(dur, maxAvailable);
+  }
+  return parseFloat(Math.max(MIN_CLIP_DURATION, dur).toFixed(3));
 }
 
 /**
@@ -159,13 +198,15 @@ function fitVisualLayer(layerClips: TimelineClip[], targetDuration: number): Tim
       fitted = sortedClips.map((clip) => {
         let dur = clip.duration;
         if (clip.type === "image") {
-          dur = Math.max(MIN_CLIP_DURATION, clip.duration * scale);
+          dur = parseFloat(Math.max(MIN_CLIP_DURATION, clip.duration * scale).toFixed(3));
+        } else {
+          dur = clampClipDurationToSource(clip, dur);
         }
         const updated: TimelineClip = {
           ...clip,
-          startTime: currentTime,
+          startTime: parseFloat(currentTime.toFixed(3)),
           duration: dur,
-          outPoint: clip.inPoint + dur,
+          outPoint: computeClipOutPoint(clip, dur),
         };
         currentTime += dur;
         return updated;
@@ -177,12 +218,17 @@ function fitVisualLayer(layerClips: TimelineClip[], targetDuration: number): Tim
 
       let currentTime = 0;
       fitted = sortedClips.map((clip) => {
-        const dur = Math.max(MIN_CLIP_DURATION, clip.duration * scale);
+        let dur = clip.duration * scale;
+        if (clip.type === "video") {
+          dur = clampClipDurationToSource(clip, dur);
+        } else {
+          dur = parseFloat(Math.max(MIN_CLIP_DURATION, dur).toFixed(3));
+        }
         const updated: TimelineClip = {
           ...clip,
-          startTime: currentTime,
+          startTime: parseFloat(currentTime.toFixed(3)),
           duration: dur,
-          outPoint: clip.inPoint + dur,
+          outPoint: computeClipOutPoint(clip, dur),
         };
         currentTime += dur;
         return updated;
@@ -199,16 +245,16 @@ function fitVisualLayer(layerClips: TimelineClip[], targetDuration: number): Tim
       // Last clip absorbs rounding discrepancy
       let dur: number;
       if (index === imageClips.length - 1) {
-        dur = Math.max(MIN_CLIP_DURATION, targetDuration - currentTime);
+        dur = parseFloat(Math.max(MIN_CLIP_DURATION, targetDuration - currentTime).toFixed(3));
       } else {
-        dur = Math.max(MIN_CLIP_DURATION, parseFloat((clip.duration * scale).toFixed(2)));
+        dur = parseFloat(Math.max(MIN_CLIP_DURATION, clip.duration * scale).toFixed(3));
       }
 
       const updated: TimelineClip = {
         ...clip,
-        startTime: currentTime,
+        startTime: parseFloat(currentTime.toFixed(3)),
         duration: dur,
-        outPoint: clip.inPoint + dur,
+        outPoint: parseFloat((clip.inPoint + dur).toFixed(3)),
       };
       currentTime += dur;
       return updated;
@@ -220,15 +266,12 @@ function fitVisualLayer(layerClips: TimelineClip[], targetDuration: number): Tim
 
     let currentTime = 0;
     fitted = videoClips.map((clip) => {
-      let dur = Math.max(MIN_CLIP_DURATION, clip.duration * scale);
-      if (clip.sourceDuration && clip.sourceDuration > 0) {
-        dur = Math.min(dur, clip.sourceDuration - clip.inPoint);
-      }
+      const dur = clampClipDurationToSource(clip, clip.duration * scale);
       const updated: TimelineClip = {
         ...clip,
-        startTime: currentTime,
+        startTime: parseFloat(currentTime.toFixed(3)),
         duration: dur,
-        outPoint: clip.inPoint + dur,
+        outPoint: computeClipOutPoint(clip, dur),
       };
       currentTime += dur;
       return updated;

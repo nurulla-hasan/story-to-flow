@@ -213,6 +213,27 @@ export function getTrackVolume(
   return typeof vol === "number" && !isNaN(vol) ? Math.max(0, Math.min(1, vol)) : 1.0;
 }
 
+/**
+ * Combine clip-level playback rate with global timeline playback speed.
+ * Clamps to a positive safe finite multiplier.
+ */
+export function calculateEffectivePlaybackRate(
+  clipSpeed?: number | null,
+  globalPlaybackSpeed: number = 1.0
+): number {
+  const safeClipSpeed =
+    typeof clipSpeed === "number" && Number.isFinite(clipSpeed) && clipSpeed > 0
+      ? clipSpeed
+      : 1.0;
+  const safeGlobal =
+    typeof globalPlaybackSpeed === "number" &&
+    Number.isFinite(globalPlaybackSpeed) &&
+    globalPlaybackSpeed > 0
+      ? globalPlaybackSpeed
+      : 1.0;
+  return parseFloat((safeClipSpeed * safeGlobal).toFixed(4));
+}
+
 export type TransitionType = "cross-dissolve" | "fade-black" | "slide-left" | "slide-right";
 
 export interface TimelineTransition {

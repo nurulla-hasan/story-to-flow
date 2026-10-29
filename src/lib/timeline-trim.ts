@@ -1,4 +1,10 @@
-import { type TimelineClip, type TimelineTrack, isVisualTrack, isTrackLocked } from "@/types/timeline";
+import {
+  type TimelineClip,
+  type TimelineTrack,
+  isVisualTrack,
+  isTrackLocked,
+  areClipsOnSameTrack,
+} from "@/types/timeline";
 import { clampLeftTrimToPreventOverlap } from "./timeline-overlap";
 
 export const MIN_CLIP_DURATION = 0.5; // 500ms minimum clip duration
@@ -198,17 +204,48 @@ export function applyRippleExtend(
   if (!target) return allClips;
   if (isTrackLocked(target.trackId, tracks)) return allClips;
 
-  const originalEndTime = target.startTime + target.duration;
-  const newEndTime = target.startTime + newDuration;
-  const durationDelta = parseFloat((newDuration - target.duration).toFixed(3));
   const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
+
+  // Constraint 1: Source media duration limit (cannot exceed source bounds)
+  let maxDuration = newDuration;
+  if (
+    (target.type === "video" || target.type === "audio") &&
+    typeof target.sourceDuration === "number" &&
+    target.sourceDuration > 0
+  ) {
+    const maxSourceAvailable = (target.sourceDuration - target.inPoint) / speed;
+    maxDuration = Math.min(maxDuration, maxSourceAvailable);
+  }
+
+  // Constraint 2: Cannot collide with downstream locked clips on the same visual track
+  if (isVisualTrack(target.trackId, tracks)) {
+    const lockedSucceeding = allClips
+      .filter(
+        (c) =>
+          c.id !== target.id &&
+          areClipsOnSameTrack(target.trackId, c.trackId, tracks) &&
+          isTrackLocked(c.trackId, tracks) &&
+          c.startTime >= target.startTime + target.duration - RIPPLE_EPSILON
+      )
+      .sort((a, b) => a.startTime - b.startTime);
+
+    if (lockedSucceeding.length > 0) {
+      const allowedUntilLocked = lockedSucceeding[0].startTime - target.startTime;
+      maxDuration = Math.min(maxDuration, allowedUntilLocked);
+    }
+  }
+
+  const effectiveDuration = parseFloat(Math.max(MIN_CLIP_DURATION, maxDuration).toFixed(3));
+  const originalEndTime = target.startTime + target.duration;
+  const newEndTime = target.startTime + effectiveDuration;
+  const durationDelta = parseFloat((effectiveDuration - target.duration).toFixed(3));
 
   return allClips.map((clip) => {
     if (clip.id === editedClipId) {
       return {
         ...clip,
-        duration: newDuration,
-        outPoint: clip.inPoint + newDuration * speed,
+        duration: effectiveDuration,
+        outPoint: clip.inPoint + effectiveDuration * speed,
       };
     }
 

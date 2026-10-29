@@ -229,7 +229,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
 
         {/* Safety warning for high resolution / long duration */}
         {safety.safe && safety.warning && (
-          <div className="flex items-start gap-2 rounded-lg bg-warning-subtle border border-warning/20 p-3 text-2xs text-warning-foreground">
+          <div className="flex items-start gap-2 rounded-lg bg-warning-subtle border border-warning/20 p-3 text-2xs text-warning-subtle-foreground">
             <AlertTriangle className="size-4 shrink-0 text-warning mt-0.5" />
             <div>
               <p className="font-semibold text-warning">Export Memory Warning</p>

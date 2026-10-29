@@ -18,6 +18,8 @@ import {
   getTrackById,
   getVisualTracks,
   getAudioTracks,
+  isTrackLocked,
+  calculateEffectivePlaybackRate,
 } from "@/types/timeline";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
@@ -125,6 +127,7 @@ export interface TimelineContextType {
 
   undo: () => void;
   redo: () => void;
+  cancelSpaceAction: () => void;
 }
 
 const TimelineContext = React.createContext<TimelineContextType | null>(null);
@@ -240,6 +243,21 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const wasPlayingRef = React.useRef<boolean>(false);
   const playbackSpeedRef = React.useRef<number>(1.0);
   const playheadCommitGateRef = React.useRef(createPlayheadCommitGate());
+
+  // Space Key Hold / Tap State Refs
+  const spaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHoldingSpaceRef = React.useRef<boolean>(false);
+  const wasPlayingBeforeHoldRef = React.useRef<boolean>(false);
+  const spaceCancelledRef = React.useRef<boolean>(false);
+
+  const cancelSpaceAction = React.useCallback(() => {
+    if (spaceTimerRef.current) {
+      clearTimeout(spaceTimerRef.current);
+      spaceTimerRef.current = null;
+    }
+    spaceCancelledRef.current = true;
+    isHoldingSpaceRef.current = false;
+  }, []);
 
   // Dedicated Audio Elements Pool for multi-track synchronized timeline playback
   const audioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -551,7 +569,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       audioEl.volume = finalVolume;
       audioEl.muted = isMuted || isTrackMutedBool || finalVolume === 0;
 
-      const targetRate = speed * playbackSpeedRef.current;
+      const targetRate = calculateEffectivePlaybackRate(speed, playbackSpeedRef.current);
       if (audioEl.playbackRate !== targetRate) {
         audioEl.playbackRate = targetRate;
       }
@@ -994,7 +1012,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         clampedDuration = Math.min(clampedDuration, remaining);
       }
 
-      const updatedClips = applyRippleExtend(clipId, clampedDuration, clips);
+      const updatedClips = applyRippleExtend(clipId, clampedDuration, clips, tracks);
 
       const validTransitions = transitions
         .filter((t) => {
@@ -1018,15 +1036,69 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Transient clip update (during real-time drag gestures, without pushing history)
-  const setClipsTransient = React.useCallback((newClips: TimelineClip[]) => {
-    setLocalClips(newClips);
-  }, []);
+  const setClipsTransient = React.useCallback(
+    (newClips: TimelineClip[]) => {
+      // Enforce lock constraint: clips on locked tracks stay at committed positions
+      const origMap = new Map(clips.map((c) => [c.id, c]));
+      const safeClips = newClips.map((c) => {
+        const orig = origMap.get(c.id);
+        if (orig && isTrackLocked(orig.trackId, tracks)) {
+          return orig;
+        }
+        return c;
+      });
+      setLocalClips(safeClips);
+    },
+    [clips, tracks]
+  );
 
   // Commit completed drag gesture as one single undoable history snapshot
   const commitClipGesture = React.useCallback(
     (originalClips: TimelineClip[], finalClips: TimelineClip[]) => {
       const changed = JSON.stringify(originalClips) !== JSON.stringify(finalClips);
       if (!changed) return;
+
+      // Lock Guard: Verify that no clip on a locked track was modified,
+      // and no clip was reassigned onto a locked track.
+      const origMap = new Map(originalClips.map((c) => [c.id, c]));
+      let hasLockedTrackViolation = false;
+
+      for (const final of finalClips) {
+        const orig = origMap.get(final.id);
+        if (orig && isTrackLocked(orig.trackId, tracks)) {
+          if (
+            orig.startTime !== final.startTime ||
+            orig.duration !== final.duration ||
+            orig.trackId !== final.trackId ||
+            orig.inPoint !== final.inPoint ||
+            orig.outPoint !== final.outPoint ||
+            orig.speed !== final.speed
+          ) {
+            hasLockedTrackViolation = true;
+            break;
+          }
+        }
+        if (isTrackLocked(final.trackId, tracks) && (!orig || orig.trackId !== final.trackId)) {
+          hasLockedTrackViolation = true;
+          break;
+        }
+      }
+
+      if (!hasLockedTrackViolation) {
+        const finalIds = new Set(finalClips.map((c) => c.id));
+        for (const orig of originalClips) {
+          if (isTrackLocked(orig.trackId, tracks) && !finalIds.has(orig.id)) {
+            hasLockedTrackViolation = true;
+            break;
+          }
+        }
+      }
+
+      if (hasLockedTrackViolation) {
+        // Revert any transient UI state immediately so screen matches committed state
+        setLocalClips(originalClips);
+        return;
+      }
 
       pushHistorySnapshot(originalClips, transitions, tracks);
 
@@ -1360,16 +1432,16 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     (effect?: Partial<ClipZoomEffect> | null) => {
       const safe = sanitizeZoomEffect(effect);
       const targetClips = clips.filter(
-        (c) => isVisualTrack(c.trackId, tracks) && c.type === "image"
+        (c) => isVisualTrack(c.trackId, tracks) && c.type === "image" && !isTrackLocked(c.trackId, tracks)
       );
       if (targetClips.length === 0) {
-        return { success: false, message: "No image scenes found on timeline.", count: 0 };
+        return { success: false, message: "No unlocked image scenes found on timeline.", count: 0 };
       }
 
       pushHistorySnapshot(clips, transitions, tracks);
 
       const updatedClips = clips.map((c) => {
-        if (isVisualTrack(c.trackId, tracks) && c.type === "image") {
+        if (isVisualTrack(c.trackId, tracks) && c.type === "image" && !isTrackLocked(c.trackId, tracks)) {
           return { ...c, zoomEffect: safe };
         }
         return c;
@@ -1444,11 +1516,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     syncHistoryFlags();
   }, [tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
 
-  // Space Key Hold / Tap State Refs (persistent across renders)
-  const spaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isHoldingSpaceRef = React.useRef<boolean>(false);
-  const wasPlayingBeforeHoldRef = React.useRef<boolean>(false);
-
   // Stable actions ref so global keyboard shortcuts never tear down 60 times per second during playback
   const actionsRef = React.useRef({
     undo,
@@ -1506,16 +1573,19 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       if (e.code === "Space") {
         e.preventDefault();
-        if (e.repeat) return;
+        if (e.repeat) return; // Prevent repeated keydowns from restarting hold timer
 
+        spaceCancelledRef.current = false;
         wasPlayingBeforeHoldRef.current = isPlayingRef.current;
         isHoldingSpaceRef.current = false;
 
         if (spaceTimerRef.current) clearTimeout(spaceTimerRef.current);
         spaceTimerRef.current = setTimeout(() => {
-          isHoldingSpaceRef.current = true;
-          if (!wasPlayingBeforeHoldRef.current) {
-            actionsRef.current.togglePlay();
+          if (!spaceCancelledRef.current) {
+            isHoldingSpaceRef.current = true;
+            if (!wasPlayingBeforeHoldRef.current) {
+              actionsRef.current.togglePlay();
+            }
           }
         }, 250);
         return;
@@ -1584,6 +1654,12 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
       if (isInput) return;
 
+      const isInsideDialog = Boolean(
+        activeEl?.closest('[role="dialog"]') ||
+        activeEl?.closest('[role="alertdialog"]')
+      );
+      if (isInsideDialog) return;
+
       if (e.code === "Space") {
         e.preventDefault();
 
@@ -1592,23 +1668,44 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           spaceTimerRef.current = null;
         }
 
+        // If canvas pan or another gesture cancelled the Space action, do nothing
+        if (spaceCancelledRef.current) {
+          spaceCancelledRef.current = false;
+          isHoldingSpaceRef.current = false;
+          return;
+        }
+
         if (isHoldingSpaceRef.current) {
+          // If playback was started by holding space, pause on release
           if (!wasPlayingBeforeHoldRef.current && isPlayingRef.current) {
             actionsRef.current.togglePlay();
           }
           isHoldingSpaceRef.current = false;
         } else {
+          // Short tap toggles playback exactly once
           actionsRef.current.togglePlay();
         }
       }
     };
 
+    // Prevent stuck Space hold state if focus leaves window while Space is pressed
+    const handleBlur = () => {
+      if (spaceTimerRef.current) {
+        clearTimeout(spaceTimerRef.current);
+        spaceTimerRef.current = null;
+      }
+      spaceCancelledRef.current = false;
+      isHoldingSpaceRef.current = false;
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
       if (spaceTimerRef.current) clearTimeout(spaceTimerRef.current);
     };
   }, []);
@@ -1679,6 +1776,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
         toggleTrackVisibility,
         undo,
         redo,
+        cancelSpaceAction,
       }}
     >
       {children}

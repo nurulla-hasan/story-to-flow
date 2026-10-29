@@ -34,6 +34,10 @@ import {
   isTrackVisible,
   isTrackMuted,
   getTrackVolume,
+  calculateEffectivePlaybackRate,
+  normalizeVisualTrackId,
+  getVisualTracks,
+  areClipsOnSameTrack,
 } from "@/types/timeline";
 import { getTransitionProgress } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
@@ -69,6 +73,7 @@ export function PreviewCanvasPanel() {
     setMasterVolume,
     isMuted,
     setIsMuted,
+    cancelSpaceAction,
   } = useTimeline();
 
   const { assets } = useMediaLibrary();
@@ -168,15 +173,23 @@ export function PreviewCanvasPanel() {
       const isInput =
         activeEl?.tagName === "INPUT" ||
         activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.getAttribute("contenteditable") === "true";
+        activeEl?.tagName === "SELECT" ||
+        activeEl?.getAttribute("contenteditable") === "true" ||
+        activeEl?.getAttribute("role") === "slider";
       if (isInput) return;
+
+      const isInsideDialog = Boolean(
+        activeEl?.closest('[role="dialog"]') ||
+        activeEl?.closest('[role="alertdialog"]')
+      );
+      if (isInsideDialog) return;
 
       if (e.key === "Control" || e.key === "Meta") {
         setIsCtrlPressed(true);
       }
       if (e.code === "Space" || e.key === " ") {
-        e.preventDefault();
-        togglePlay();
+        // Space acts as the Hand / Pan modifier on canvas
+        setIsSpacePressed(true);
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.key.toLowerCase() === "m") {
@@ -198,13 +211,21 @@ export function PreviewCanvasPanel() {
       }
     };
 
+    const onBlur = () => {
+      setIsCtrlPressed(false);
+      setIsSpacePressed(false);
+      setIsPanning(false);
+    };
+
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
-  }, [handleToggleMute, togglePlay]);
+  }, [handleToggleMute]);
 
   // CapCut-style Canvas Zoom & Pan with Mouse Wheel
   // CRITICAL: Must use native `{ passive: false }` listener with `e.preventDefault()`
@@ -259,6 +280,12 @@ export function PreviewCanvasPanel() {
 
     e.preventDefault();
     e.stopPropagation();
+
+    // If Space is being used to pan, cancel any pending Space togglePlay action
+    if (isSpacePressed) {
+      cancelSpaceAction();
+    }
+
     if (isPlaying) {
       togglePlay();
     }
@@ -334,15 +361,18 @@ export function PreviewCanvasPanel() {
   const clipMap = React.useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
   const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 
-  // Check if an active transition is currently taking effect at playhead
-  let activeTransitionData: {
+  interface ActiveTransitionData {
     transition: typeof transitions[0];
     fromClip: typeof clips[0];
     toClip: typeof clips[0];
     progress: number;
-  } | null = null;
+  }
 
-  if (isHydrated && transitions.length > 0) {
+  // Map active transitions by normalized track ID so multiple visual tracks can have simultaneous transitions
+  const activeTransitionsByTrack = React.useMemo(() => {
+    const map = new Map<string, ActiveTransitionData>();
+    if (!isHydrated || transitions.length === 0) return map;
+
     for (const trans of transitions) {
       const fromClip = clipMap.get(trans.fromClipId);
       const toClip = clipMap.get(trans.toClipId);
@@ -352,11 +382,14 @@ export function PreviewCanvasPanel() {
 
       const progress = getTransitionProgress(playhead, trans, fromClip, toClip);
       if (progress !== null) {
-        activeTransitionData = { transition: trans, fromClip, toClip, progress };
-        break;
+        const key = normalizeVisualTrackId(fromClip.trackId);
+        if (!map.has(key)) {
+          map.set(key, { transition: trans, fromClip, toClip, progress });
+        }
       }
     }
-  }
+    return map;
+  }, [isHydrated, transitions, clipMap, playhead, tracks]);
 
   // Find all active visual clips under current playhead sorted by z-order
   // Excludes visual clips on hidden tracks
@@ -371,67 +404,74 @@ export function PreviewCanvasPanel() {
       .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
   }, [isHydrated, visualClips, playhead, tracks]);
 
-  // Synchronize video element playback time with timeline playhead
+  // Canonical visual tracks sorted from bottom (background z-index 1) to top (highest z-index)
+  const orderedVisibleVisualTracks = React.useMemo(() => {
+    const list = getVisualTracks(tracks).filter((t) => t.visible);
+    return [...list].reverse();
+  }, [tracks]);
+
+  // Synchronize ALL active video elements with timeline playhead and global playback speed
   React.useEffect(() => {
-    // If transition is active, sync both connecting clips if they are videos
-    if (activeTransitionData) {
-      const { fromClip, toClip } = activeTransitionData;
-      [fromClip, toClip].forEach((clip) => {
-        const vid = videoRefs.current.get(clip.id);
-        if (vid) {
-          const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-          const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
-          if (!isPlaying || Math.abs(vid.currentTime - targetTime) > 0.25) {
-            if (Math.abs(vid.currentTime - targetTime) > 0.05) {
-              vid.currentTime = Math.max(0, targetTime);
-            }
-          }
-          if (vid.playbackRate !== speed) {
-            vid.playbackRate = speed;
-          }
-          if (isPlaying && vid.paused) {
-            vid.play().catch(() => {});
-          } else if (!isPlaying && !vid.paused) {
-            vid.pause();
-          }
-        }
-      });
-      return;
-    }
+    const videosToSync = new Map<string, typeof clips[0]>();
 
-    activeVisuals.forEach((clip) => {
-      const vid = videoRefs.current.get(clip.id);
-      if (vid) {
-        const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-        const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
-        if (!isPlaying || Math.abs(vid.currentTime - targetTime) > 0.25) {
-          if (Math.abs(vid.currentTime - targetTime) > 0.05) {
-            vid.currentTime = Math.max(0, targetTime);
-          }
-        }
-        if (vid.playbackRate !== speed) {
-          vid.playbackRate = speed;
-        }
-
-        // Apply video clip volume, track volume, track mute, and master volume
-        const clipVol = typeof clip.volume === "number" ? clip.volume : 1.0;
-        const trackVol = getTrackVolume(clip.trackId, tracks);
-        const isTrackMutedBool = isTrackMuted(clip.trackId, tracks);
-        const effectiveVol =
-          isMuted || isTrackMutedBool
-            ? 0
-            : Math.max(0, Math.min(1.0, clipVol * trackVol * masterVolume));
-        vid.volume = effectiveVol;
-        vid.muted = isMuted || isTrackMutedBool || effectiveVol === 0;
-
-        if (isPlaying && vid.paused) {
-          vid.play().catch(() => {});
-        } else if (!isPlaying && !vid.paused) {
-          vid.pause();
-        }
+    // 1. All active visual clips on unhidden tracks
+    activeVisuals.forEach((c) => {
+      if (c.type === "video") {
+        videosToSync.set(c.id, c);
       }
     });
-  }, [activeTransitionData, activeVisuals, playhead, isPlaying, isMuted, masterVolume, tracks]);
+
+    // 2. Connecting clips in active transitions
+    activeTransitionsByTrack.forEach(({ fromClip, toClip }) => {
+      if (fromClip.type === "video") videosToSync.set(fromClip.id, fromClip);
+      if (toClip.type === "video") videosToSync.set(toClip.id, toClip);
+    });
+
+    videosToSync.forEach((clip) => {
+      const vid = videoRefs.current.get(clip.id);
+      if (!vid) return;
+
+      const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+      const effectiveRate = calculateEffectivePlaybackRate(speed, playbackSpeed);
+      const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
+
+      if (!isPlaying || Math.abs(vid.currentTime - targetTime) > 0.25) {
+        if (Math.abs(vid.currentTime - targetTime) > 0.05) {
+          vid.currentTime = Math.max(0, targetTime);
+        }
+      }
+
+      if (vid.playbackRate !== effectiveRate) {
+        vid.playbackRate = effectiveRate;
+      }
+
+      // Apply video clip volume, track volume, track mute, and master volume
+      const clipVol = typeof clip.volume === "number" ? clip.volume : 1.0;
+      const trackVol = getTrackVolume(clip.trackId, tracks);
+      const isTrackMutedBool = isTrackMuted(clip.trackId, tracks);
+      const effectiveVol =
+        isMuted || isTrackMutedBool
+          ? 0
+          : Math.max(0, Math.min(1.0, clipVol * trackVol * masterVolume));
+      vid.volume = effectiveVol;
+      vid.muted = isMuted || isTrackMutedBool || effectiveVol === 0;
+
+      if (isPlaying && vid.paused) {
+        vid.play().catch(() => {});
+      } else if (!isPlaying && !vid.paused) {
+        vid.pause();
+      }
+    });
+  }, [
+    activeTransitionsByTrack,
+    activeVisuals,
+    playhead,
+    isPlaying,
+    playbackSpeed,
+    isMuted,
+    masterVolume,
+    tracks,
+  ]);
 
   const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
@@ -539,12 +579,13 @@ export function PreviewCanvasPanel() {
             </Button>
           </div>
 
-          {activeTransitionData ? (
+          {activeTransitionsByTrack.size > 0 ? (
             <Badge variant="outline">
               <span className="flex items-center gap-1">
                 <Sparkles className="size-3 shrink-0 text-primary" />
                 <span>
-                  {activeTransitionData.transition.type} · {Math.round(activeTransitionData.progress * 100)}%
+                  {activeTransitionsByTrack.values().next().value?.transition.type} ·{" "}
+                  {Math.round((activeTransitionsByTrack.values().next().value?.progress ?? 0) * 100)}%
                 </span>
               </span>
             </Badge>
@@ -641,19 +682,19 @@ export function PreviewCanvasPanel() {
                 )}
               {/* Media clips container (clipped to phone boundary) */}
               <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-auto">
-                {isHydrated && activeTransitionData ? (
-                  /* TRANSITION COMPOSITING RENDERING (Layer-Aware: preserves overlays & other tracks) */
+                {isHydrated && (activeVisuals.length > 0 || activeTransitionsByTrack.size > 0) ? (
+                  /* MULTI-TRACK LAYER COMPOSITING (Renders each visual track in canonical z-order with simultaneous transition support) */
                   (() => {
-                    const { transition, fromClip, toClip, progress } = activeTransitionData;
-                    const transitionTrackIndex = getVisualTrackLayerIndex(fromClip.trackId, tracks);
-                    const otherVisuals = activeVisuals.filter(
-                      (c) => c.id !== fromClip.id && c.id !== toClip.id
-                    );
-
-                    const renderTransitionContent = () => {
+                    const renderTransitionContent = (
+                      transition: (typeof transitions)[0],
+                      fromClip: (typeof clips)[0],
+                      toClip: (typeof clips)[0],
+                      progress: number,
+                      zIndex: number
+                    ) => {
                       if (transition.type === "cross-dissolve") {
                         return (
-                          <div className="relative w-full h-full" style={{ isolation: "isolate" }}>
+                          <div className="absolute inset-0 w-full h-full" style={{ isolation: "isolate", zIndex }}>
                             {renderVisualNode(fromClip, { opacity: 1 - progress, zIndex: 1 })}
                             {renderVisualNode(toClip, { opacity: progress, zIndex: 2, mixBlendMode: "plus-lighter" })}
                           </div>
@@ -664,7 +705,7 @@ export function PreviewCanvasPanel() {
                         const fromOpacity = progress < 0.5 ? 1 - progress * 2 : 0;
                         const toOpacity = progress >= 0.5 ? (progress - 0.5) * 2 : 0;
                         return (
-                          <div className="relative w-full h-full bg-editor-screen z-1">
+                          <div className="absolute inset-0 w-full h-full bg-editor-screen" style={{ zIndex }}>
                             {renderVisualNode(fromClip, { opacity: fromOpacity, zIndex: 1 })}
                             {renderVisualNode(toClip, { opacity: toOpacity, zIndex: 2 })}
                           </div>
@@ -673,7 +714,7 @@ export function PreviewCanvasPanel() {
 
                       if (transition.type === "slide-left") {
                         return (
-                          <>
+                          <div className="absolute inset-0 w-full h-full overflow-hidden" style={{ zIndex }}>
                             {renderVisualNode(fromClip, {
                               transform: `translateX(${-progress * 100}%)`,
                               zIndex: 1,
@@ -682,13 +723,13 @@ export function PreviewCanvasPanel() {
                               transform: `translateX(${(1 - progress) * 100}%)`,
                               zIndex: 2,
                             })}
-                          </>
+                          </div>
                         );
                       }
 
                       if (transition.type === "slide-right") {
                         return (
-                          <>
+                          <div className="absolute inset-0 w-full h-full overflow-hidden" style={{ zIndex }}>
                             {renderVisualNode(fromClip, {
                               transform: `translateX(${progress * 100}%)`,
                               zIndex: 1,
@@ -697,7 +738,7 @@ export function PreviewCanvasPanel() {
                               transform: `translateX(${-(1 - progress) * 100}%)`,
                               zIndex: 2,
                             })}
-                          </>
+                          </div>
                         );
                       }
 
@@ -706,34 +747,45 @@ export function PreviewCanvasPanel() {
 
                     return (
                       <>
-                        {/* 1. Layers below the transition layer */}
-                        {otherVisuals
-                          .filter((c) => getVisualTrackLayerIndex(c.trackId, tracks) < transitionTrackIndex)
-                          .map((c) =>
-                            renderVisualNode(c, { position: "absolute", inset: 0, zIndex: 0 })
-                          )}
+                        {orderedVisibleVisualTracks.map((track) => {
+                          const trackKey = normalizeVisualTrackId(track.id);
+                          const layerZIndex = getVisualTrackLayerIndex(track.id, tracks);
+                          const activeTrans = activeTransitionsByTrack.get(trackKey);
+                          const trackClip = activeVisuals.find((c) =>
+                            areClipsOnSameTrack(c.trackId, track.id, tracks)
+                          );
 
-                        {/* 2. Transition content on its layer */}
-                        {renderTransitionContent()}
+                          if (activeTrans) {
+                            return (
+                              <React.Fragment key={`trans_track_${track.id}`}>
+                                {renderTransitionContent(
+                                  activeTrans.transition,
+                                  activeTrans.fromClip,
+                                  activeTrans.toClip,
+                                  activeTrans.progress,
+                                  layerZIndex
+                                )}
+                              </React.Fragment>
+                            );
+                          }
 
-                        {/* 3. Overlay layers above the transition layer */}
-                        {otherVisuals
-                          .filter((c) => getVisualTrackLayerIndex(c.trackId, tracks) > transitionTrackIndex)
-                          .map((c) =>
-                            renderVisualNode(c, { position: "absolute", inset: 0, zIndex: 10 })
-                          )}
+                          if (trackClip) {
+                            return (
+                              <React.Fragment key={`clip_track_${track.id}`}>
+                                {renderVisualNode(trackClip, {
+                                  position: "absolute",
+                                  inset: 0,
+                                  zIndex: layerZIndex,
+                                })}
+                              </React.Fragment>
+                            );
+                          }
+
+                          return null;
+                        })}
                       </>
                     );
                   })()
-                ) : isHydrated && activeVisuals.length > 0 ? (
-                  activeVisuals.map((clip, index) => {
-                    const isOverlay = index > 0;
-                    return renderVisualNode(clip, {
-                      position: "absolute",
-                      inset: 0,
-                      zIndex: isOverlay ? 10 : 0,
-                    });
-                  })
                 ) : (
                   /* High-End Studio Cinema Empty State */
                   <div className="flex flex-col items-center justify-center text-center space-y-3 p-4 h-full bg-radial from-card/30 to-editor-screen">

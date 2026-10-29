@@ -12,6 +12,9 @@ import {
   isTrackMuted,
   isTrackVisible,
   getTrackVolume,
+  normalizeVisualTrackId,
+  getVisualTracks,
+  areClipsOnSameTrack,
 } from "../types/timeline";
 import type { MediaAssetItem } from "./media-storage";
 import { getTransitionProgress } from "./transition-helpers";
@@ -978,7 +981,12 @@ export async function exportTimelineToMp4({
           const vid = videoElements.get(asset.id);
           if (vid) {
             const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-            const videoTime = (currentTime - clip.startTime) * speed + clip.inPoint;
+            const rawVideoTime = (currentTime - clip.startTime) * speed + clip.inPoint;
+            const maxDuration =
+              vid.duration && !isNaN(vid.duration) && vid.duration > 0
+                ? Math.max(0, vid.duration - 0.01)
+                : rawVideoTime;
+            const videoTime = Math.max(0, Math.min(rawVideoTime, maxDuration));
             await seekVideoElement(vid, videoTime, signal);
             const vidW = vid.videoWidth || width;
             const vidH = vid.videoHeight || height;
@@ -1007,49 +1015,12 @@ export async function exportTimelineToMp4({
       const drawClip = (clip: TimelineClip, alpha: number = 1.0, xOffset: number = 0) =>
         drawClipToContext(ctx, clip, alpha, xOffset);
 
-      // Check if an active transition is currently taking effect at currentTime
-      let activeTransitionData: {
-        transition: TimelineTransition;
-        fromClip: TimelineClip;
-        toClip: TimelineClip;
-        progress: number;
-      } | null = null;
-
-      if (transitions && transitions.length > 0) {
-        for (const trans of transitions) {
-          const fromClip = clipMap.get(trans.fromClipId);
-          const toClip = clipMap.get(trans.toClipId);
-          if (!fromClip || !toClip) continue;
-
-          const progress = getTransitionProgress(currentTime, trans, fromClip, toClip);
-          if (progress !== null) {
-            activeTransitionData = { transition: trans, fromClip, toClip, progress };
-            break;
-          }
-        }
-      }
-
-      // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
-      const activeVisuals = visualClips
-        .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
-        .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
-
-      if (activeTransitionData) {
-        const { transition, fromClip, toClip, progress } = activeTransitionData;
-        const transitionLayerIndex = getVisualTrackLayerIndex(fromClip.trackId, tracks);
-
-        // 1. Draw any active visual clips on tracks below the transition layer
-        for (const activeClip of activeVisuals) {
-          if (
-            activeClip.id !== fromClip.id &&
-            activeClip.id !== toClip.id &&
-            getVisualTrackLayerIndex(activeClip.trackId, tracks) < transitionLayerIndex
-          ) {
-            await drawClip(activeClip, 1.0, 0);
-          }
-        }
-
-        // 2. Draw the transition on its track layer (Normalized isolated compositing for cross-dissolve)
+      const drawTransition = async (
+        transition: TimelineTransition,
+        fromClip: TimelineClip,
+        toClip: TimelineClip,
+        progress: number
+      ) => {
         if (transition.type === "cross-dissolve") {
           if (blendCtxA && blendCtxB) {
             blendCtxA.clearRect(0, 0, width, height);
@@ -1088,20 +1059,95 @@ export async function exportTimelineToMp4({
           await drawClip(fromClip, 1, progress * width);
           await drawClip(toClip, 1, -(1 - progress) * width);
         }
+      };
 
-        // 3. Draw any active visual clips (e.g. overlays) on tracks above the transition layer
-        for (const activeClip of activeVisuals) {
-          if (
-            activeClip.id !== fromClip.id &&
-            activeClip.id !== toClip.id &&
-            getVisualTrackLayerIndex(activeClip.trackId, tracks) > transitionLayerIndex
-          ) {
-            await drawClip(activeClip, 1.0, 0);
+      // Collect active transitions at currentTime mapped by normalized track ID
+      const activeTransitionsByTrack = new Map<
+        string,
+        {
+          transition: TimelineTransition;
+          fromClip: TimelineClip;
+          toClip: TimelineClip;
+          progress: number;
+        }
+      >();
+
+      if (transitions && transitions.length > 0) {
+        for (const trans of transitions) {
+          const fromClip = clipMap.get(trans.fromClipId);
+          const toClip = clipMap.get(trans.toClipId);
+          if (!fromClip || !toClip) continue;
+          if (!isTrackVisible(fromClip.trackId, tracks)) continue;
+
+          const progress = getTransitionProgress(currentTime, trans, fromClip, toClip);
+          if (progress !== null) {
+            const key = normalizeVisualTrackId(fromClip.trackId);
+            if (!activeTransitionsByTrack.has(key)) {
+              activeTransitionsByTrack.set(key, { transition: trans, fromClip, toClip, progress });
+            }
+          }
+        }
+      }
+
+      // Find all active visual clips at current frame timestamp sorted by layer z-order (lowest to highest)
+      const activeVisuals = visualClips
+        .filter((c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration)
+        .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
+
+      if (tracks && tracks.length > 0) {
+        // Multi-track layer-by-layer compositing in exact z-order (bottom layer to top layer)
+        const orderedVisibleTracks = getVisualTracks(tracks)
+          .filter((t) => t.visible)
+          .reverse();
+
+        for (const tr of orderedVisibleTracks) {
+          const trackKey = normalizeVisualTrackId(tr.id);
+          const activeTrans = activeTransitionsByTrack.get(trackKey);
+          const trackClip = activeVisuals.find((c) => areClipsOnSameTrack(c.trackId, tr.id, tracks));
+
+          if (activeTrans) {
+            await drawTransition(
+              activeTrans.transition,
+              activeTrans.fromClip,
+              activeTrans.toClip,
+              activeTrans.progress
+            );
+          } else if (trackClip) {
+            await drawClip(trackClip, 1.0, 0);
           }
         }
       } else {
-        for (const activeClip of activeVisuals) {
-          await drawClip(activeClip, 1.0, 0);
+        // Fallback for callers without tracks array
+        const firstTrans = activeTransitionsByTrack.values().next().value;
+        if (firstTrans) {
+          const { transition, fromClip, toClip, progress } = firstTrans;
+          const transitionLayerIndex = getVisualTrackLayerIndex(fromClip.trackId);
+
+          for (const activeClip of activeVisuals) {
+            if (
+              activeClip.id !== fromClip.id &&
+              activeClip.id !== toClip.id &&
+              getVisualTrackLayerIndex(activeClip.trackId) < transitionLayerIndex
+            ) {
+              await drawClip(activeClip, 1.0, 0);
+            }
+          }
+
+          await drawTransition(transition, fromClip, toClip, progress);
+
+          for (const activeClip of activeVisuals) {
+            if (
+              activeClip.id !== fromClip.id &&
+              activeClip.id !== toClip.id &&
+              getVisualTrackLayerIndex(activeClip.trackId) > transitionLayerIndex
+            ) {
+              await drawClip(activeClip, 1.0, 0);
+            }
+          }
+        } else {
+          for (const activeClip of activeVisuals) {
+            await drawClip(activeClip, 1.0, 0);
+          }
         }
       }
 

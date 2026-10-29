@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Mic, Clock, Film, FileText } from "lucide-react";
+import { Check, Minus, Lock, FileText, Mic, Clock, Film } from "lucide-react";
 
 interface StudioStepperProps {
   currentStage: number; // 1, 2, 3, 4
@@ -26,109 +26,128 @@ export function StudioStepper({
   const steps = [
     {
       id: 1,
-      title: isDirect ? "Story (Skipped)" : "Story",
+      title: "Story",
+      hint: "Original narrative",
       icon: FileText,
-      isCompleted: isDirect ? true : hasStory && (hasVoiceover || currentStage > 1),
+      isSkipped: isDirect,
+      isCompleted: !isDirect && hasStory && (hasVoiceover || currentStage > 1),
       isActive: !isDirect && currentStage === 1,
+      canNavigate: isDirect || hasStory,
     },
     {
       id: 2,
-      title: isDirect ? "Direct Voiceover" : "Voiceover",
+      title: isDirect ? "Direct voiceover" : "Voiceover",
+      hint: isDirect ? "Your own script" : "Bengali narration",
       icon: Mic,
+      isSkipped: false,
       isCompleted: hasVoiceover && (hasDuration || currentStage > 2),
       isActive: currentStage === 2 || (isDirect && currentStage === 1),
+      canNavigate: isDirect || hasStory || hasVoiceover,
     },
     {
       id: 3,
       title: "Duration",
+      hint: "Cartesia timing",
       icon: Clock,
+      isSkipped: false,
       isCompleted: hasDuration && (hasScenes || currentStage > 3),
       isActive: currentStage === 3,
+      canNavigate: hasVoiceover,
     },
     {
       id: 4,
       title: "Prompts",
+      hint: "Scene & shot plan",
       icon: Film,
+      isSkipped: false,
       isCompleted: hasScenes,
       isActive: currentStage === 4,
+      canNavigate: hasDuration && hasScenes,
     },
   ];
 
-  const currentStep =
-    steps.find((s) => s.isActive) ||
-    steps.find((s) => s.id === currentStage) ||
-    steps[0];
-
-  const displayStepNumber = isDirect && currentStage === 1 ? 2 : currentStage;
+  const completedCount = steps.filter((s) => s.isCompleted || s.isSkipped).length;
 
   return (
-    <div className="w-full bg-card/70 backdrop-blur-sm border border-border/80 rounded-xl px-3.5 py-2.5 shadow-2xs">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* Left: Current Active Step Info */}
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="size-7 rounded-lg bg-primary/10 border border-primary/25 text-primary flex items-center justify-center shrink-0">
-            <currentStep.icon className="size-3.5" />
-          </div>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Step {displayStepNumber} of 4:
-            </span>
-            <span className="text-xs font-semibold text-foreground truncate">
-              {currentStep.title}
-            </span>
-          </div>
-        </div>
+    <nav
+      aria-label="Studio workflow"
+      className="rounded-xl border border-border bg-card p-2"
+    >
+      <div className="flex items-center justify-between px-2 pt-1 pb-2">
+        <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
+          Workflow
+        </span>
+        <span className="text-2xs font-mono font-semibold text-muted-foreground">
+          {completedCount}/4 done
+        </span>
+      </div>
 
-        {/* Right: Minimal Interactive Segmented Progress Bar */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {steps.map((step, idx) => {
-            const isClickable =
-              (step.id === 1 && !isDirect && hasStory) ||
-              (step.id === 1 && isDirect) ||
-              (step.id === 2 && (isDirect || hasStory || hasVoiceover)) ||
-              (step.id === 3 && hasVoiceover) ||
-              (step.id === 4 && hasDuration && hasScenes);
+      <ol className="space-y-1">
+        {steps.map((step) => {
+          const isLocked = !step.canNavigate && !step.isActive;
 
-            return (
-              <div key={step.id} className="flex items-center gap-1.5 sm:gap-2">
-                <button
-                  type="button"
-                  onClick={() => isClickable && onStageClick?.(step.id)}
-                  disabled={!isClickable}
-                  title={`${step.title} (Step ${step.id})`}
-                  className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${
+          return (
+            <li key={step.id}>
+              <button
+                type="button"
+                onClick={() => step.canNavigate && onStageClick?.(step.id)}
+                disabled={!step.canNavigate}
+                aria-current={step.isActive ? "step" : undefined}
+                title={isLocked ? `${step.title} — complete the previous step first` : step.title}
+                className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                  step.isActive
+                    ? "bg-primary/10 ring-1 ring-primary/25"
+                    : isLocked
+                      ? "opacity-45 cursor-not-allowed"
+                      : "hover:bg-muted"
+                }`}
+              >
+                <span
+                  className={`flex size-7 shrink-0 items-center justify-center rounded-md border ${
                     step.isActive
-                      ? "bg-primary text-primary-foreground font-semibold shadow-2xs"
+                      ? "border-primary bg-primary text-primary-foreground"
                       : step.isCompleted
-                        ? "bg-muted text-foreground hover:bg-primary/10 hover:text-primary cursor-pointer"
-                        : "text-muted-foreground/40 cursor-not-allowed"
+                        ? "border-success/30 bg-success-subtle text-success"
+                        : "border-border bg-muted text-muted-foreground"
                   }`}
                 >
-                  <span className="size-3.5 rounded-full flex items-center justify-center shrink-0">
-                    {step.isCompleted ? (
-                      <Check className="size-3 stroke-[2.5]" />
-                    ) : (
-                      <span className="text-3xs font-mono font-bold">{step.id}</span>
-                    )}
+                  {step.isSkipped ? (
+                    <Minus className="size-3.5" />
+                  ) : step.isCompleted ? (
+                    <Check className="size-3.5" />
+                  ) : (
+                    <step.icon className="size-3.5" />
+                  )}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block text-2xs font-medium text-muted-foreground">
+                    Step {step.id}
                   </span>
-                  <span className="text-2xs font-medium hidden md:inline">
+                  <span
+                    className={`block truncate text-sm font-semibold ${
+                      step.isActive ? "text-primary" : "text-foreground"
+                    }`}
+                  >
                     {step.title}
                   </span>
-                </button>
+                  <span className="block truncate text-2xs text-muted-foreground">
+                    {step.hint}
+                  </span>
+                </span>
 
-                {idx < steps.length - 1 && (
-                  <div
-                    className={`h-0.5 w-3 sm:w-5 rounded-full transition-colors ${
-                      step.isCompleted ? "bg-primary/60" : "bg-border"
-                    }`}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
+                <span className="shrink-0 text-muted-foreground">
+                  {isLocked ? (
+                    <Lock className="size-3" aria-hidden="true" />
+                  ) : step.isSkipped ? (
+                    <span className="text-3xs font-medium">Skipped</span>
+                  ) : null}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
-

@@ -24,6 +24,13 @@ describe("buildClipSpeedUpdate source bounds", () => {
     expect(update.outPoint).toBeLessThanOrEqual(5);
   });
 
+  it("rejects non-positive or non-finite playback rates", () => {
+    expect(buildClipSpeedUpdate(baseClip, 0)).toEqual({});
+    expect(buildClipSpeedUpdate(baseClip, -1)).toEqual({});
+    expect(buildClipSpeedUpdate(baseClip, Number.NaN)).toEqual({});
+    expect(buildClipSpeedUpdate(baseClip, Number.POSITIVE_INFINITY)).toEqual({});
+  });
+
   it("allows a sub-500ms duration when only a short source tail remains", () => {
     const update = buildClipSpeedUpdate(baseClip, 1);
     expect(update.duration).toBeCloseTo(0.2, 3);

@@ -24,14 +24,10 @@ import {
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
   DEFAULT_TIMELINE_STATE,
-  INITIAL_TIMELINE_SAVE_STATUS,
-  createPlayheadCommitGate,
-  formatTimelineSaveError,
   resolveTimelineSelection,
-  saveStoredTimelineState,
-  timelineSaveStatusReducer,
   useTimelineStorage,
 } from "@/lib/timeline-storage";
+import { useTimelinePersistence } from "@/lib/use-timeline-persistence";
 import {
   registerTimelineAssetReferences,
 } from "@/lib/media-references";
@@ -166,10 +162,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
   const [localPlayhead, setLocalPlayhead] = React.useState<number | null>(null);
   const [localZoom, setLocalZoom] = React.useState<number | null>(null);
-  const [saveStatus, dispatchSaveStatus] = React.useReducer(
-    timelineSaveStatusReducer,
-    INITIAL_TIMELINE_SAVE_STATUS
-  );
 
   // Derived active state: perfectly identical between server and client first render
   const projectTitle = localTitle ?? (isHydrated ? storedState.projectTitle : DEFAULT_TIMELINE_STATE.projectTitle);
@@ -213,7 +205,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const totalDurationRef = React.useRef<number>(0);
   const wasPlayingRef = React.useRef<boolean>(false);
   const playbackSpeedRef = React.useRef<number>(1.0);
-  const playheadCommitGateRef = React.useRef(createPlayheadCommitGate());
 
   // Dedicated Audio Elements Pool for multi-track synchronized timeline playback
   const audioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -235,63 +226,19 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     setCanRedo(history.canRedo);
   }, [history]);
 
-  // Persist a partial patch and feed success/failure back into visible state.
-  const persistPartial = React.useCallback(
-    (patch: Partial<typeof DEFAULT_TIMELINE_STATE>): boolean => {
-      if (!isHydrated) return false;
-
-      dispatchSaveStatus({ type: "attempt" });
-      const result = saveStoredTimelineState(patch);
-      if (result.ok) {
-        dispatchSaveStatus({ type: "success" });
-        return true;
-      }
-
-      console.error("Failed to persist timeline state:", result.error);
-      dispatchSaveStatus({ type: "failure", message: formatTimelineSaveError(result.error) });
-      return false;
-    },
-    [isHydrated]
-  );
-
-  // Save changes to localStorage with hydration guard
-  const persistTimeline = React.useCallback(
-    (
-      newClips: TimelineClip[],
-      newTransitions: TimelineTransition[],
-      newTracks?: TimelineTrack[],
-      newSelectedClipId?: string | null,
-      newSelectedTransitionId?: string | null
-    ) => {
-      if (!isHydrated) return false;
-      return persistPartial({
-        tracks: newTracks ?? tracks,
-        clips: newClips,
-        transitions: newTransitions,
-        selectedClipId: newSelectedClipId !== undefined ? newSelectedClipId : selectedClipId,
-        selectedTransitionId:
-          newSelectedTransitionId !== undefined ? newSelectedTransitionId : selectedTransitionId,
-      });
-    },
-    [isHydrated, persistPartial, tracks, selectedClipId, selectedTransitionId]
-  );
-
-  const dismissSaveError = React.useCallback(() => {
-    dispatchSaveStatus({ type: "dismiss" });
-  }, []);
-
-  // Persist playhead only at explicit boundaries (seek end, pause, frame step).
-  const commitPlayhead = React.useCallback(
-    (time?: number) => {
-      if (!isHydrated) return;
-      const targetTime = time !== undefined ? time : playheadRef.current;
-      const next = Math.max(0, targetTime);
-      playheadCommitGateRef.current.commit(next, (seconds) => {
-        persistPartial({ playhead: seconds });
-      });
-    },
-    [isHydrated, persistPartial]
-  );
+  const {
+    saveStatus,
+    persistPartial,
+    persistTimeline,
+    dismissSaveError,
+    commitPlayhead,
+  } = useTimelinePersistence({
+    isHydrated,
+    tracks,
+    selectedClipId,
+    selectedTransitionId,
+    playheadRef,
+  });
 
   // Record the pre-mutation project snapshot; the manager owns cloning and limits.
   const pushHistorySnapshot = React.useCallback(

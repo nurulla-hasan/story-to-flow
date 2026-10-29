@@ -52,6 +52,11 @@ describe("locked track gesture validation", () => {
     expect(hasLockedTrackGestureViolation([clip], [edited], tracks)).toBe(true);
   });
 
+  it("ignores optional properties that are explicitly undefined", () => {
+    const gestureSnapshot = { ...clip, zoomEffect: undefined };
+    expect(hasLockedTrackGestureViolation([clip], [gestureSnapshot], tracks)).toBe(false);
+  });
+
   it("blocks volume, fade, and zoom-effect changes on a locked track", () => {
     expect(
       hasLockedTrackGestureViolation([clip], [{ ...clip, volume: 0.5 }], tracks)

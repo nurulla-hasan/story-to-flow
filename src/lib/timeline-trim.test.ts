@@ -310,6 +310,7 @@ describe("P1 — Left Trim Overlap Clamping & Source Synchronization", () => {
       speed: 2.0, // 2x speed
       inPoint: 4.0,
       outPoint: 12.0, // 4.0 + 4.0 * 2 = 12.0
+      sourceDuration: 12.0,
     };
 
     // Try to drag left by -4.0s (blocked by clip1 ending at 4.0s, allowed delta is -2.0s)

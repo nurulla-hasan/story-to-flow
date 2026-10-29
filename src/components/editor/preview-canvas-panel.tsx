@@ -41,9 +41,8 @@ import {
 } from "@/types/timeline";
 import { getTransitionProgress } from "@/lib/transition-helpers";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
-import { sanitizeClipTransform } from "@/lib/clip-transform";
-import { getClipMotionAtTime } from "@/lib/zoom-effect";
 import { PreviewTransformGizmo } from "@/components/editor/preview-transform-gizmo";
+import { PreviewMediaClip } from "@/components/editor/preview-media-clip";
 
 function formatTimecode(seconds: number): string {
   return formatFrameTimecode(seconds, 30);
@@ -233,59 +232,21 @@ export function PreviewCanvasPanel() {
 
   const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
-  // Render a visual clip node (Image or Video) with transform & click selection
+  // Rendering one media node is a dedicated presentational component.
   const renderVisualNode = (clip: typeof clips[0], baseStyle?: React.CSSProperties) => {
     const asset = assetMap.get(clip.assetId);
     if (!asset) return null;
-
-    const transform = sanitizeClipTransform(clip.transform);
-    const isSelected = clip.id === selectedClipId;
-    const motion = getClipMotionAtTime(clip, playhead);
-
-    const netX = (transform.x + motion.offsetX) * 100;
-    const netY = (transform.y + motion.offsetY) * 100;
-    const netScale = parseFloat((transform.scale * motion.scale).toFixed(4));
-
-    const transformStr = `translate(${netX}%, ${netY}%) scale(${netScale}) rotate(${transform.rotation || 0}deg)`;
-    const nodeStyle: React.CSSProperties = {
-      ...baseStyle,
-      transform: baseStyle?.transform
-        ? `${baseStyle.transform} ${transformStr}`
-        : transformStr,
-      transformOrigin: "center center",
-    };
-
     return (
-      <div
+      <PreviewMediaClip
         key={clip.id}
-        onClick={(e) => {
-          e.stopPropagation();
-          selectClip(clip.id);
-        }}
-        style={nodeStyle}
-        className={`absolute inset-0 w-full h-full overflow-hidden select-none cursor-pointer transition-shadow ${
-          isSelected ? "ring-1 ring-primary/40" : ""
-        }`}
-      >
-        {asset.category === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={asset.url}
-            alt={asset.name}
-            className="w-full h-full object-cover rounded-xl pointer-events-none"
-          />
-        ) : asset.category === "video" ? (
-          <video
-            ref={(el) => {
-              if (el) videoRefs.current.set(clip.id, el);
-              else videoRefs.current.delete(clip.id);
-            }}
-            src={asset.url}
-            playsInline
-            className="w-full h-full object-cover rounded-xl pointer-events-none"
-          />
-        ) : null}
-      </div>
+        clip={clip}
+        asset={asset}
+        playhead={playhead}
+        isSelected={clip.id === selectedClipId}
+        videoRefs={videoRefs}
+        onSelectClip={selectClip}
+        baseStyle={baseStyle}
+      />
     );
   };
 

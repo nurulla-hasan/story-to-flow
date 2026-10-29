@@ -146,6 +146,21 @@ describe("Right-Edge Trim Math", () => {
     expect(result.duration).toBe(MIN_CLIP_DURATION);
   });
 
+  it("uses the remaining source duration even when it is below the usual minimum", () => {
+    const shortTail: TimelineClip = {
+      ...sampleVideoClip,
+      duration: 1,
+      inPoint: 4.8,
+      sourceDuration: 5,
+      outPoint: 5.8,
+    };
+
+    const result = calculateRightTrim(shortTail, 5);
+    expect(result.duration).toBeCloseTo(0.2, 3);
+    expect(result.outPoint).toBe(5);
+    expect(result.inPoint + result.duration).toBeCloseTo(5, 3);
+  });
+
   it("scales max right-trim duration and calculates outPoint according to clip speed", () => {
     // 2x speed: 8.0 sourceDuration, 2.0 inPoint -> 6.0 remaining source.
     // At 2x speed, remaining timeline duration is 6.0 / 2.0 = 3.0s!

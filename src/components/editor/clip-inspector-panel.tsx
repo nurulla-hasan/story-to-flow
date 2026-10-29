@@ -380,6 +380,7 @@ export function ClipInspectorPanel({
 
             <ClipTransformSection
               clip={selectedClip}
+              tracks={tracks}
               isLocked={isCurrentTrackLocked}
               onUpdateClip={updateClip}
               getBaseClips={getBaseClips}

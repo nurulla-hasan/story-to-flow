@@ -3,11 +3,13 @@
 import { Move, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import type { TimelineClip } from "@/types/timeline";
+import type { TimelineClip, TimelineTrack } from "@/types/timeline";
+import { isVisualTrack } from "@/types/timeline";
 import { DEFAULT_CLIP_TRANSFORM, sanitizeClipTransform } from "@/lib/clip-transform";
 
 interface ClipTransformSectionProps {
   clip: TimelineClip;
+  tracks: TimelineTrack[];
   isLocked: boolean;
   onUpdateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   getBaseClips: () => TimelineClip[];
@@ -18,6 +20,7 @@ interface ClipTransformSectionProps {
 
 export function ClipTransformSection({
   clip,
+  tracks,
   isLocked,
   onUpdateClip,
   getBaseClips,

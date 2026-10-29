@@ -183,6 +183,13 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     expect(areClipsAdjacentForTransition(b, c)).toBe(true);
   });
 
+  it("ignores non-finite or non-positive requested durations", () => {
+    expect(applyRippleExtend("clip-B", Number.NaN, initialClips)).toEqual(initialClips);
+    expect(applyRippleExtend("clip-B", Number.POSITIVE_INFINITY, initialClips)).toEqual(initialClips);
+    expect(applyRippleExtend("clip-B", 0, initialClips)).toEqual(initialClips);
+    expect(applyRippleExtend("clip-B", -1, initialClips)).toEqual(initialClips);
+  });
+
   it("never extends a source-limited video past a short remaining source tail", () => {
     const shortVideo: TimelineClip = {
       ...clipB,

@@ -71,6 +71,7 @@ import { hasVisualOverlap } from "@/lib/timeline-overlap";
 import { useInspectorClipGestures } from "@/lib/use-inspector-clip-gestures";
 import { TransitionInspectorSection } from "@/components/editor/transition-inspector-section";
 import { ClipAudioSection } from "@/components/editor/clip-audio-section";
+import { ClipTimingSection } from "@/components/editor/clip-timing-section";
 
 export function ClipInspectorPanel({
   collapsed = false,
@@ -823,87 +824,14 @@ export function ClipInspectorPanel({
               );
             })()}
 
-            {/* Start Time Position Display */}
-            <div className="flex items-center justify-between text-2xs rounded-md bg-muted/20 p-2 border border-border">
-              <span className="text-muted-foreground font-medium">Timeline Position</span>
-              <span className="font-mono text-foreground font-semibold">
-                {selectedClip.startTime.toFixed(2)}s
-              </span>
-            </div>
-
-            {/* Duration Slider & Number Editor */}
-            <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5 font-medium text-foreground">
-                  <Clock className="size-3 text-muted-foreground" />
-                  <span>Duration</span>
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {selectedClip.type === "image" && (
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant={Math.abs(selectedClip.duration - 4) < 0.05 ? "default" : "outline"}
-                        size="xs"
-                        disabled={isCurrentTrackLocked}
-                        onClick={() => handleSetImageDurationPreset(4)}
-                        title="Set duration to 4 seconds"
-                      >
-                        4s
-                      </Button>
-                      <Button
-                        variant={Math.abs(selectedClip.duration - 5) < 0.05 ? "default" : "outline"}
-                        size="xs"
-                        disabled={isCurrentTrackLocked}
-                        onClick={() => handleSetImageDurationPreset(5)}
-                        title="Set duration to 5 seconds"
-                      >
-                        5s
-                      </Button>
-                    </div>
-                  )}
-                  <span className="font-mono text-xs font-semibold text-primary">
-                    {selectedClip.duration.toFixed(2)}s
-                  </span>
-                </div>
-              </div>
-
-              <Slider
-                min={0.5}
-                max={
-                  selectedClip.sourceDuration && selectedClip.sourceDuration > 0
-                    ? Math.max(
-                        0.5,
-                        (selectedClip.sourceDuration - selectedClip.inPoint) /
-                          (selectedClip.speed || 1.0)
-                      )
-                    : 30
-                }
-                step={0.1}
-                value={selectedClip.duration}
-                disabled={isCurrentTrackLocked}
-                onPointerDown={handleSliderPointerDown}
-                onPointerUp={handleSliderPointerUp}
-                onPointerCancel={handleSliderPointerUp}
-                onKeyDown={handleSliderPointerDown}
-                onKeyUp={handleSliderPointerUp}
-                onValueChange={handleTransientDurationChange}
-                aria-label="Clip duration"
-                className="w-full"
-              />
-
-              <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
-                <span>0.5s</span>
-                <span>
-                  Max:{" "}
-                  {selectedClip.sourceDuration && selectedClip.sourceDuration > 0
-                    ? `${(
-                        (selectedClip.sourceDuration - selectedClip.inPoint) /
-                        (selectedClip.speed || 1.0)
-                      ).toFixed(1)}s`
-                    : "30.0s"}
-                </span>
-              </div>
-            </div>
+            <ClipTimingSection
+              clip={selectedClip}
+              isLocked={isCurrentTrackLocked}
+              onSetImageDurationPreset={handleSetImageDurationPreset}
+              handleSliderPointerDown={handleSliderPointerDown}
+              handleSliderPointerUp={handleSliderPointerUp}
+              handleTransientDurationChange={handleTransientDurationChange}
+            />
 
             {/* Visual Transitions to Next Scene */}
             {transitionToNext && (

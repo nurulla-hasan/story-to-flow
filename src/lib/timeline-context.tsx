@@ -52,6 +52,7 @@ import { applyRippleExtend, applyRippleDelete } from "@/lib/timeline-trim";
 import {
   hasVisualOverlap,
   findNextAvailableStartTime,
+  findTrackEndTime,
 } from "@/lib/timeline-overlap";
 import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import { insertClipAtTime } from "@/lib/timeline-insert";
@@ -941,12 +942,15 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
           tracks
         );
       } else {
-        // No explicit position: append / next-free-slot behavior
+        // No explicit position means append after the last clip on this
+        // track, even if there are earlier gaps. Drag-and-drop supplies an
+        // explicit position above and keeps insertion-at-drop behavior.
+        const trackEnd = findTrackEndTime(resolvedTrackId, clips, tracks);
         const startTime = findNextAvailableStartTime(
           resolvedTrackId,
           duration,
           clips,
-          0,
+          trackEnd,
           tracks
         );
         updatedClips = [

@@ -301,6 +301,7 @@ export function usePreviewCanvasViewport({
     viewportZoom,
     viewportPan,
     isSpacePressed,
+    setIsSpacePressed,
     isCtrlPressed,
     isPanning,
     isFullscreen,

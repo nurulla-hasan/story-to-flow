@@ -82,6 +82,7 @@ export function PreviewCanvasPanel() {
     viewportZoom,
     viewportPan,
     isSpacePressed,
+    setIsSpacePressed,
     isCtrlPressed,
     isPanning,
     isFullscreen,

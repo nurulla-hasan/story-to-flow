@@ -36,11 +36,7 @@ import {
   registerTimelineAssetReferences,
 } from "@/lib/media-references";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
-import {
-  validateTransitionDuration,
-  areClipsAdjacentForTransition,
-  applyToAllTransitions as executeApplyToAll,
-} from "@/lib/transition-helpers";
+import { applyToAllTransitions as executeApplyToAll } from "@/lib/transition-helpers";
 import {
   sanitizeZoomEffect,
   type ClipZoomEffect,
@@ -57,6 +53,8 @@ import {
 import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import { insertClipAtTime } from "@/lib/timeline-insert";
 import { hasLockedTrackGestureViolation } from "@/lib/timeline-locks";
+import { calculateTimelineDuration, reconcileTransitionsForClips } from "@/lib/timeline-derived-state";
+import { useTimelineKeyboardShortcuts } from "@/lib/use-timeline-keyboard-shortcuts";
 
 export interface TimelineContextType {
   isHydrated: boolean;
@@ -137,32 +135,6 @@ const TimelineContext = React.createContext<TimelineContextType | null>(null);
 const MAX_HISTORY = 50;
 const MIN_CLIP_DURATION = 0.5; // minimum 500ms
 const emptySubscribe = () => () => {};
-
-/**
- * Keep only transitions whose connecting clips are still adjacent on the same
- * visual track, and clamp durations to the (possibly changed) clip lengths.
- */
-function reconcileTransitionsForClips(
-  candidateTransitions: TimelineTransition[],
-  candidateClips: TimelineClip[],
-  tracks?: readonly TimelineTrack[]
-): TimelineTransition[] {
-  return candidateTransitions
-    .filter((t) => {
-      const from = candidateClips.find((c) => c.id === t.fromClipId);
-      const to = candidateClips.find((c) => c.id === t.toClipId);
-      if (!from || !to) return false;
-      return areClipsAdjacentForTransition(from, to, tracks);
-    })
-    .map((t) => {
-      const from = candidateClips.find((c) => c.id === t.fromClipId);
-      const to = candidateClips.find((c) => c.id === t.toClipId);
-      return {
-        ...t,
-        duration: validateTransitionDuration(t.duration, from, to),
-      };
-    });
-}
 
 interface HistorySnapshot {
   tracks: TimelineTrack[];
@@ -245,21 +217,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const wasPlayingRef = React.useRef<boolean>(false);
   const playbackSpeedRef = React.useRef<number>(1.0);
   const playheadCommitGateRef = React.useRef(createPlayheadCommitGate());
-
-  // Space Key Hold / Tap State Refs
-  const spaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isHoldingSpaceRef = React.useRef<boolean>(false);
-  const wasPlayingBeforeHoldRef = React.useRef<boolean>(false);
-  const spaceCancelledRef = React.useRef<boolean>(false);
-
-  const cancelSpaceAction = React.useCallback(() => {
-    if (spaceTimerRef.current) {
-      clearTimeout(spaceTimerRef.current);
-      spaceTimerRef.current = null;
-    }
-    spaceCancelledRef.current = true;
-    isHoldingSpaceRef.current = false;
-  }, []);
 
   // Dedicated Audio Elements Pool for multi-track synchronized timeline playback
   const audioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -387,9 +344,7 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   const totalDuration = React.useMemo(() => {
     const activeClips = isHydrated ? clips : DEFAULT_TIMELINE_STATE.clips;
-    if (activeClips.length === 0) return 0;
-    const maxEnd = Math.max(...activeClips.map((c) => c.startTime + c.duration));
-    return parseFloat(maxEnd.toFixed(3));
+    return calculateTimelineDuration(activeClips);
   }, [isHydrated, clips]);
 
   React.useEffect(() => {
@@ -1487,23 +1442,10 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     syncHistoryFlags();
   }, [tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
 
-  // Stable actions ref so global keyboard shortcuts never tear down 60 times per second during playback
-  const actionsRef = React.useRef({
-    undo,
-    redo,
-    stepFrameForward,
-    stepFrameBackward,
-    splitClipAtPlayhead,
-    duplicateClip,
-    deleteClip,
-    deleteTransition,
-    togglePlay,
-    selectedClipId,
-    selectedTransitionId,
-  });
-
-  React.useEffect(() => {
-    actionsRef.current = {
+  // Keyboard bindings live in their own hook so editor input handling is separate
+  // from the timeline state/persistence provider.
+  const cancelSpaceAction = useTimelineKeyboardShortcuts(
+    {
       undo,
       redo,
       stepFrameForward,
@@ -1515,171 +1457,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       togglePlay,
       selectedClipId,
       selectedTransitionId,
-    };
-  });
-
-  // Keyboard Shortcuts Listener
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      const isInput =
-        activeEl?.tagName === "INPUT" ||
-        activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.tagName === "SELECT" ||
-        activeEl?.getAttribute("contenteditable") === "true" ||
-        activeEl?.getAttribute("role") === "slider";
-
-      // Guard: do not intercept if typing in an input, textarea, or slider
-      if (isInput) return;
-
-      // Guard: do not intercept if a modal or dialog owns focus
-      const isInsideDialog = Boolean(
-        activeEl?.closest('[role="dialog"]') ||
-        activeEl?.closest('[role="alertdialog"]')
-      );
-      if (isInsideDialog) return;
-
-      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-      const modifier = isMac ? e.metaKey : e.ctrlKey;
-
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (e.repeat) return; // Prevent repeated keydowns from restarting hold timer
-
-        spaceCancelledRef.current = false;
-        wasPlayingBeforeHoldRef.current = isPlayingRef.current;
-        isHoldingSpaceRef.current = false;
-
-        if (spaceTimerRef.current) clearTimeout(spaceTimerRef.current);
-        spaceTimerRef.current = setTimeout(() => {
-          if (!spaceCancelledRef.current) {
-            isHoldingSpaceRef.current = true;
-            if (!wasPlayingBeforeHoldRef.current) {
-              actionsRef.current.togglePlay();
-            }
-          }
-        }, 250);
-        return;
-      }
-
-      if (modifier && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
-        e.preventDefault();
-        actionsRef.current.undo();
-        return;
-      }
-
-      if (modifier && (e.key === "y" || e.key === "Y" || (e.shiftKey && (e.key === "z" || e.key === "Z")))) {
-        e.preventDefault();
-        actionsRef.current.redo();
-        return;
-      }
-
-      if (modifier && (e.key === "b" || e.key === "B")) {
-        e.preventDefault();
-        actionsRef.current.splitClipAtPlayhead();
-        return;
-      }
-
-      if (modifier && (e.key === "d" || e.key === "D")) {
-        e.preventDefault();
-        if (actionsRef.current.selectedClipId) {
-          actionsRef.current.duplicateClip(actionsRef.current.selectedClipId);
-        }
-        return;
-      }
-
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (actionsRef.current.selectedClipId) {
-          e.preventDefault();
-          actionsRef.current.deleteClip(actionsRef.current.selectedClipId);
-          return;
-        }
-        if (actionsRef.current.selectedTransitionId) {
-          e.preventDefault();
-          actionsRef.current.deleteTransition(actionsRef.current.selectedTransitionId);
-          return;
-        }
-      }
-
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        actionsRef.current.stepFrameBackward();
-        return;
-      }
-
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
-        actionsRef.current.stepFrameForward();
-        return;
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      const isInput =
-        activeEl?.tagName === "INPUT" ||
-        activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.tagName === "SELECT" ||
-        activeEl?.getAttribute("contenteditable") === "true" ||
-        activeEl?.getAttribute("role") === "slider";
-
-      if (isInput) return;
-
-      const isInsideDialog = Boolean(
-        activeEl?.closest('[role="dialog"]') ||
-        activeEl?.closest('[role="alertdialog"]')
-      );
-      if (isInsideDialog) return;
-
-      if (e.code === "Space") {
-        e.preventDefault();
-
-        if (spaceTimerRef.current) {
-          clearTimeout(spaceTimerRef.current);
-          spaceTimerRef.current = null;
-        }
-
-        // If canvas pan or another gesture cancelled the Space action, do nothing
-        if (spaceCancelledRef.current) {
-          spaceCancelledRef.current = false;
-          isHoldingSpaceRef.current = false;
-          return;
-        }
-
-        if (isHoldingSpaceRef.current) {
-          // If playback was started by holding space, pause on release
-          if (!wasPlayingBeforeHoldRef.current && isPlayingRef.current) {
-            actionsRef.current.togglePlay();
-          }
-          isHoldingSpaceRef.current = false;
-        } else {
-          // Short tap toggles playback exactly once
-          actionsRef.current.togglePlay();
-        }
-      }
-    };
-
-    // Prevent stuck Space hold state if focus leaves window while Space is pressed
-    const handleBlur = () => {
-      if (spaceTimerRef.current) {
-        clearTimeout(spaceTimerRef.current);
-        spaceTimerRef.current = null;
-      }
-      spaceCancelledRef.current = false;
-      isHoldingSpaceRef.current = false;
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleBlur);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleBlur);
-      if (spaceTimerRef.current) clearTimeout(spaceTimerRef.current);
-    };
-  }, []);
+    },
+    isPlayingRef,
+  );
 
   return (
     <TimelineContext.Provider

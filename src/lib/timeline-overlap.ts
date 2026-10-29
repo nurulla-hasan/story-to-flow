@@ -113,7 +113,11 @@ export function clampLeftTrimToPreventOverlap(
   }
 
   const clampedStart = Math.max(minAllowedStart, proposedStartTime);
-  const clampedDuration = Math.max(0.5, originalRightEdge - clampedStart);
+  // Never force a minimum duration that pushes the clip past its anchored
+  // right edge. If a pre-existing overlap makes the minimum impossible, keep
+  // the clip within the available interval instead of recreating an overlap.
+  const availableDuration = Math.max(0, originalRightEdge - clampedStart);
+  const clampedDuration = Math.min(proposedDuration, availableDuration);
 
   return {
     startTime: parseFloat(clampedStart.toFixed(3)),

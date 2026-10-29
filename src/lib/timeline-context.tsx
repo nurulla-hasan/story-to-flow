@@ -20,7 +20,6 @@ import { useTimelinePersistence } from "@/lib/use-timeline-persistence";
 import {
   registerTimelineAssetReferences,
 } from "@/lib/media-references";
-import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
 import { calculateTimelineDuration } from "@/lib/timeline-derived-state";
 import type { ClipZoomEffect } from "@/lib/zoom-effect";
 import { useTimelineKeyboardShortcuts } from "@/lib/use-timeline-keyboard-shortcuts";
@@ -28,6 +27,7 @@ import { TimelineHistoryManager } from "@/lib/timeline-history";
 import { useTimelineAudioPlayback } from "@/lib/use-timeline-audio-playback";
 import { useTimelineTrackCommands } from "@/lib/use-timeline-track-commands";
 import { useTimelineEditingCommands } from "@/lib/use-timeline-editing-commands";
+import { useTimelinePlaybackClock } from "@/lib/use-timeline-playback-clock";
 
 export interface TimelineContextType {
   isHydrated: boolean;
@@ -170,11 +170,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
   const [canRedo, setCanRedo] = React.useState<boolean>(false);
 
-  // Playhead Clock & Playback Synchronization Refs
+  // Clock refs are shared with persistence, keyboard shortcuts, and audio playback.
   const playheadRef = React.useRef<number>(0);
   const isPlayingRef = React.useRef<boolean>(false);
-  const totalDurationRef = React.useRef<number>(0);
-  const wasPlayingRef = React.useRef<boolean>(false);
   const playbackSpeedRef = React.useRef<number>(1.0);
 
 
@@ -244,60 +242,26 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     return calculateTimelineDuration(activeClips);
   }, [isHydrated, clips]);
 
-  React.useEffect(() => {
-    totalDurationRef.current = totalDuration;
-  }, [totalDuration]);
-
-  const setPlayhead = React.useCallback((time: number) => {
-    const clamped = Math.max(0, time);
-    playheadRef.current = clamped;
-    setLocalPlayhead(clamped);
-  }, []);
-
-  const seek = React.useCallback(
-    (time: number) => {
-      const clamped = Math.max(0, Math.min(totalDurationRef.current, time));
-      playheadRef.current = clamped;
-      setLocalPlayhead(clamped);
-      commitPlayhead(clamped);
-    },
-    [commitPlayhead]
-  );
-
-  const stepFrameForward = React.useCallback(() => {
-    const next = stepFrame(playheadRef.current, 1, totalDurationRef.current, TIMELINE_FPS);
-    playheadRef.current = next;
-    setLocalPlayhead(next);
-    commitPlayhead(next);
-  }, [commitPlayhead]);
-
-  const stepFrameBackward = React.useCallback(() => {
-    const next = stepFrame(playheadRef.current, -1, totalDurationRef.current, TIMELINE_FPS);
-    playheadRef.current = next;
-    setLocalPlayhead(next);
-    commitPlayhead(next);
-  }, [commitPlayhead]);
-
-  const togglePlay = React.useCallback(() => {
-    setIsPlaying((prev) => {
-      const willPlay = !prev;
-      if (willPlay && playheadRef.current >= totalDurationRef.current) {
-        playheadRef.current = 0;
-        setLocalPlayhead(0);
-      }
-      return willPlay;
-    });
-  }, []);
-
-  const pause = React.useCallback(() => {
-    setIsPlaying(false);
-  }, []);
-
-  const [playbackSpeed, setPlaybackSpeedState] = React.useState<number>(1.0);
-  const setPlaybackSpeed = React.useCallback((speed: number) => {
-    playbackSpeedRef.current = speed;
-    setPlaybackSpeedState(speed);
-  }, []);
+  const {
+    playbackSpeed,
+    setPlaybackSpeed,
+    setPlayhead,
+    seek,
+    stepFrameForward,
+    stepFrameBackward,
+    togglePlay,
+    pause,
+  } = useTimelinePlaybackClock({
+    playhead,
+    totalDuration,
+    isPlaying,
+    setIsPlaying,
+    setLocalPlayhead,
+    playheadRef,
+    isPlayingRef,
+    playbackSpeedRef,
+    commitPlayhead,
+  });
 
   const [masterVolume, setMasterVolume] = React.useState<number>(1.0);
   const [isMuted, setIsMuted] = React.useState<boolean>(false);
@@ -313,59 +277,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     masterVolume,
     playbackSpeedRef,
   });
-
-  // Safely commit playhead when transitioning from playing to paused
-  React.useEffect(() => {
-    if (wasPlayingRef.current && !isPlaying) {
-      commitPlayhead(playheadRef.current);
-    }
-    wasPlayingRef.current = isPlaying;
-  }, [isPlaying, commitPlayhead]);
-
-  React.useEffect(() => {
-    isPlayingRef.current = isPlaying;
-    // Only update playheadRef from React state when NOT playing!
-    // During active playback, performance.now() loop advances playheadRef monotonically
-    // without lagging React state updates dragging it backward.
-    if (!isPlaying) {
-      playheadRef.current = playhead;
-    }
-  }, [isPlaying, playhead]);
-
-  React.useEffect(() => {
-    if (!isPlaying) return;
-
-    let animationFrameId: number;
-    let lastTimestamp = performance.now();
-
-    const loop = (currentTimestamp: number) => {
-      const elapsedSec = ((currentTimestamp - lastTimestamp) / 1000) * playbackSpeedRef.current;
-      lastTimestamp = currentTimestamp;
-
-      const current = playheadRef.current;
-      const targetDuration = Math.max(0.1, totalDurationRef.current);
-
-      if (current >= targetDuration) {
-        setIsPlaying(false);
-        setLocalPlayhead(targetDuration);
-        commitPlayhead(targetDuration);
-        return;
-      }
-
-      const next = Math.min(targetDuration, current + elapsedSec);
-      playheadRef.current = next;
-      setLocalPlayhead(next);
-
-      animationFrameId = requestAnimationFrame(loop);
-    };
-
-    animationFrameId = requestAnimationFrame(loop);
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [isPlaying, commitPlayhead]);
-
 
   const selectClip = React.useCallback(
     (clipId: string | null) => {

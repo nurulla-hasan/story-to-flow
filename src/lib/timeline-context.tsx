@@ -1059,43 +1059,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       const changed = JSON.stringify(originalClips) !== JSON.stringify(finalClips);
       if (!changed) return;
 
-      // Lock Guard: Verify that no clip on a locked track was modified,
-      // and no clip was reassigned onto a locked track.
-      const origMap = new Map(originalClips.map((c) => [c.id, c]));
-      let hasLockedTrackViolation = false;
-
-      for (const final of finalClips) {
-        const orig = origMap.get(final.id);
-        if (orig && isTrackLocked(orig.trackId, tracks)) {
-          if (
-            orig.startTime !== final.startTime ||
-            orig.duration !== final.duration ||
-            orig.trackId !== final.trackId ||
-            orig.inPoint !== final.inPoint ||
-            orig.outPoint !== final.outPoint ||
-            orig.speed !== final.speed
-          ) {
-            hasLockedTrackViolation = true;
-            break;
-          }
-        }
-        if (isTrackLocked(final.trackId, tracks) && (!orig || orig.trackId !== final.trackId)) {
-          hasLockedTrackViolation = true;
-          break;
-        }
-      }
-
-      if (!hasLockedTrackViolation) {
-        const finalIds = new Set(finalClips.map((c) => c.id));
-        for (const orig of originalClips) {
-          if (isTrackLocked(orig.trackId, tracks) && !finalIds.has(orig.id)) {
-            hasLockedTrackViolation = true;
-            break;
-          }
-        }
-      }
-
-      if (hasLockedTrackViolation) {
+      // Compare every clip property, including transforms, zoom effects,
+      // volume and fades. Checking timing alone allowed locked clips to be edited.
+      if (hasLockedTrackGestureViolation(originalClips, finalClips, tracks)) {
         // Revert any transient UI state immediately so screen matches committed state
         setLocalClips(originalClips);
         return;

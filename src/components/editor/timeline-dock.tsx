@@ -2,19 +2,13 @@
 
 import * as React from "react";
 import {
-  Scissors,
   Trash2,
-  Copy,
   Video,
   Mic,
   Music,
   Radio,
-  ZoomIn,
-  ZoomOut,
-  Magnet,
   Volume2,
   VolumeX,
-  Wand2,
   Layers,
   Plus,
   Sparkles,
@@ -24,7 +18,6 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -53,6 +46,7 @@ import { TimelineRuler } from "@/components/editor/timeline-ruler";
 import { TimelinePlayhead } from "@/components/editor/timeline-playhead";
 import { TimelineTrackSidebarHeader } from "@/components/editor/timeline-track-sidebar-header";
 import { TimelineMotionToolbar } from "@/components/editor/timeline-motion-toolbar";
+import { TimelineActionsToolbar } from "@/components/editor/timeline-actions-toolbar";
 import {
   type TimelineClip,
   type TimelineTrack,
@@ -71,7 +65,6 @@ import {
 } from "@/lib/transition-helpers";
 import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
 import { useTimelineCanvasViewport } from "@/lib/use-timeline-canvas-viewport";
-import { MIN_TIMELINE_ZOOM, MAX_TIMELINE_ZOOM } from "@/lib/ruler-scale";
 import { useTimelineClipGestures } from "@/lib/use-timeline-clip-gestures";
 import { groupTimelineClipsByTrack } from "@/lib/timeline-derived-state";
 
@@ -307,231 +300,24 @@ export function TimelineDock() {
     <div className="flex w-full flex-col">
       {/* Timeline toolbar — tools on the left, contextual scene controls on the right */}
       <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2">
-        {/* Left: Icon-Only Ghost Action Buttons + Playhead/Zoom/Snap */}
-        <div className="flex shrink-0 items-center gap-1.5">
-          <div className="mr-1 flex items-center gap-2">
-            <span className="text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Timeline
-            </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    title="Create a new timeline track"
-                  >
-                    <Plus className="size-3 text-primary" />
-                    <span className="hidden sm:inline">Add track</span>
-                  </Button>
-                }
-              />
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-3xs text-muted-foreground uppercase font-semibold">
-                      Add Track
-                    </DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => addTrack("visual")}>
-                      <Layers className="size-3.5 mr-2 text-primary" />
-                      <span>Visual Track</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => addTrack("audio", "voiceover")}>
-                      <Mic className="size-3.5 mr-2 text-primary" />
-                      <span>Voiceover Track</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => addTrack("audio", "music")}>
-                      <Music className="size-3.5 mr-2 text-primary" />
-                      <span>Music Track</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => addTrack("audio", "sfx")}>
-                      <Volume2 className="size-3.5 mr-2 text-primary" />
-                      <span>SFX Track</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => addTrack("audio", "ambient")}>
-                      <Radio className="size-3.5 mr-2 text-primary" />
-                      <span>Ambient Track</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => addTrack("audio", "general")}>
-                      <Volume2 className="size-3.5 mr-2 text-primary" />
-                      <span>Audio Track</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={!selectedClipId}
-                    onClick={() => splitClipAtPlayhead()}
-                    aria-label="Split clip at playhead (Ctrl+B)"
-                  >
-                    <Scissors className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>Split clip at playhead (Ctrl+B)</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={!selectedClipId && !selectedTransitionId}
-                    onClick={() => {
-                      if (selectedClipId) deleteClip(selectedClipId);
-                      else if (selectedTransitionId) deleteTransition(selectedTransitionId);
-                    }}
-                    aria-label="Delete selected clip or transition (Del / Backspace)"
-                    className="text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>Delete selected clip or transition (Del / Backspace)</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={!selectedClipId}
-                    onClick={() => selectedClipId && duplicateClip(selectedClipId)}
-                    aria-label="Duplicate clip (Ctrl+D)"
-                  >
-                    <Copy className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>Duplicate selected clip (Ctrl+D)</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={!hasAudio || !hasVisual}
-                    onClick={() => fitVisualsToVoiceover()}
-                    aria-label="Fit visual scenes to voiceover"
-                  >
-                    <Wand2 className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>Auto-fit visual scenes to voiceover duration</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
-
-            {/* Playhead Time Display */}
-            <div className="flex shrink-0 items-baseline gap-1 rounded-md bg-muted px-2 py-1 font-mono text-2xs font-semibold tabular-nums text-foreground">
-              <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-              {isHydrated ? playhead.toFixed(2) : "0.00"}s
-            </div>
-
-            {/* Magnetic Snapping Ghost Toggle with Tooltip */}
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setSnapEnabled(!snapEnabled)}
-                    aria-label="Toggle magnetic snapping"
-                  >
-                    <Magnet
-                      className={`size-4 ${
-                        snapEnabled
-                          ? "text-primary bg-primary/10 rounded-md"
-                          : "text-muted-foreground"
-                      }`}
-                    />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>{snapEnabled ? "Snapping ON (Hold Shift while dragging to disable)" : "Snapping OFF"}</span>
-              </TooltipContent>
-            </Tooltip>
-
-            {/* Expanded Zoom Controls (10% to 500%) with Ghost Styling */}
-            <div className="flex items-center gap-1 p-0.5 shrink-0">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleZoomChange(zoom - 25)}
-                      disabled={zoom <= MIN_TIMELINE_ZOOM}
-                      aria-label="Zoom out timeline"
-                    >
-                      <ZoomOut className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipContent>
-                  <span>Zoom out timeline</span>
-                </TooltipContent>
-              </Tooltip>
-
-              <Slider
-                min={MIN_TIMELINE_ZOOM}
-                max={MAX_TIMELINE_ZOOM}
-                step={5}
-                value={zoom}
-                onValueChange={(val) => {
-                  const num = Array.isArray(val) ? val[0] : val;
-                  handleZoomChange(num);
-                }}
-                aria-label="Timeline zoom scale"
-                className="w-20"
-              />
-
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleZoomChange(zoom + 25)}
-                      disabled={zoom >= MAX_TIMELINE_ZOOM}
-                      aria-label="Zoom in timeline"
-                    >
-                      <ZoomIn className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipContent>
-                  <span>Zoom in timeline</span>
-                </TooltipContent>
-              </Tooltip>
-
-              <span className="font-mono text-2xs text-muted-foreground tabular-nums w-8 shrink-0">
-                {isHydrated ? zoom : 100}%
-              </span>
-            </div>
-          </div>
+        <TimelineActionsToolbar
+          isHydrated={isHydrated}
+          playhead={playhead}
+          zoom={zoom}
+          snapEnabled={snapEnabled}
+          setSnapEnabled={setSnapEnabled}
+          selectedClipId={selectedClipId}
+          selectedTransitionId={selectedTransitionId}
+          hasAudio={hasAudio}
+          hasVisual={hasVisual}
+          addTrack={addTrack}
+          splitClipAtPlayhead={splitClipAtPlayhead}
+          deleteClip={deleteClip}
+          deleteTransition={deleteTransition}
+          duplicateClip={duplicateClip}
+          fitVisualsToVoiceover={fitVisualsToVoiceover}
+          handleZoomChange={handleZoomChange}
+        />
 
           {/* Right: THE MARKED AREA — Contextual Selected Clip & Scene Controls */}
           <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto py-0.5">

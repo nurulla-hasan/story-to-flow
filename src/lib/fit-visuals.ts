@@ -94,6 +94,7 @@ export function calculateFitVisualsToVoiceover(
   const fittedClips: TimelineClip[] = [];
   let fittedCount = 0;
   let unlockedTrackCount = 0;
+  let hasVideoSourceCoverageGap = false;
 
   for (const [key, layerClips] of visualClipsByTrack.entries()) {
     if (layerClips.length > 0) {
@@ -113,8 +114,9 @@ export function calculateFitVisualsToVoiceover(
           updatedTransitions: transitions,
         };
       }
-      fittedClips.push(...fitted);
-      fittedCount += fitted.length;
+      fittedClips.push(...fitted.clips);
+      fittedCount += fitted.clips.length;
+      hasVideoSourceCoverageGap ||= fitted.hasCoverageGap;
     }
   }
 
@@ -142,6 +144,10 @@ export function calculateFitVisualsToVoiceover(
   let message = `Fitted ${fittedCount} visual clips across ${unlockedTrackCount} visual track(s) to ${voiceoverEnd.toFixed(1)}s voiceover.`;
   if (droppedCount > 0) {
     message += ` Removed ${droppedCount} stale transition${droppedCount === 1 ? "" : "s"}.`;
+  }
+  if (hasVideoSourceCoverageGap) {
+    message +=
+      " Some video-only tracks end before the voiceover because the source footage is too short; add images or shorten the voiceover for full coverage.";
   }
 
   return {
@@ -285,11 +291,16 @@ function allocateDurations(
  * Video source limits are hard bounds. Images absorb remaining duration when
  * possible; otherwise all clips are adjusted within their valid bounds.
  */
+interface FitVisualLayerResult {
+  clips: TimelineClip[];
+  hasCoverageGap: boolean;
+}
+
 function fitVisualLayer(
   layerClips: TimelineClip[],
   targetDuration: number
-): TimelineClip[] | null {
-  if (layerClips.length === 0) return [];
+): FitVisualLayerResult | null {
+  if (layerClips.length === 0) return { clips: [], hasCoverageGap: false };
 
   const sortedClips = [...layerClips].sort((a, b) => a.startTime - b.startTime);
   const imageIndexes = sortedClips
@@ -349,12 +360,30 @@ function fitVisualLayer(
       bounds.map((bound) => bound.min),
       bounds.map((bound) => bound.max)
     );
+
+    // Preserve established behavior for video-only tracks: if all available
+    // source footage ends before the voiceover, cap at source EOF and report
+    // the uncovered remainder instead of making the entire fit operation fail.
+    const maximumSourceCoverage = sum(bounds.map((bound) => bound.max));
+    if (
+      !durations &&
+      videoIndexes.length === sortedClips.length &&
+      Number.isFinite(maximumSourceCoverage) &&
+      targetDuration > maximumSourceCoverage
+    ) {
+      durations = allocateDurations(
+        maximumSourceCoverage,
+        preferred,
+        bounds.map((bound) => bound.min),
+        bounds.map((bound) => bound.max)
+      );
+    }
   }
 
   if (!durations) return null;
 
   let currentTime = 0;
-  return sortedClips.map((clip, index) => {
+  const fitted = sortedClips.map((clip, index) => {
     const duration = durations![index];
     const updated: TimelineClip = {
       ...clip,
@@ -365,6 +394,11 @@ function fitVisualLayer(
     currentTime += duration;
     return updated;
   });
+
+  return {
+    clips: fitted,
+    hasCoverageGap: currentTime < targetDuration - 0.001,
+  };
 }
 
 /**

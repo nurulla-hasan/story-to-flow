@@ -244,7 +244,18 @@ export function applyRippleExtend(
     }
   }
 
-  const effectiveDuration = parseFloat(Math.max(MIN_CLIP_DURATION, maxDuration).toFixed(3));
+  // Source and locked-neighbor boundaries are hard upper bounds. The usual
+  // minimum duration yields to those bounds when less than 500ms is available.
+  maxDuration = Math.max(0, maxDuration);
+  const minimumAllowed = Math.min(MIN_CLIP_DURATION, maxDuration);
+  const boundedDuration = Math.max(
+    minimumAllowed,
+    Math.min(maxDuration, newDuration)
+  );
+  const effectiveDuration = Math.min(
+    maxDuration,
+    parseFloat(boundedDuration.toFixed(3))
+  );
   const originalEndTime = target.startTime + target.duration;
   const newEndTime = target.startTime + effectiveDuration;
   const durationDelta = parseFloat((effectiveDuration - target.duration).toFixed(3));

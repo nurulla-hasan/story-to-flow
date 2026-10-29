@@ -46,9 +46,6 @@ export function calculateLeftTrim(
     typeof clip.sourceDuration === "number" &&
     clip.sourceDuration > 0;
 
-  // Maximum delta: cannot shrink clip below minDuration
-  const maxDelta = originalDuration - minDuration;
-
   // Minimum delta:
   // 1. Cannot move startTime below 0 on the timeline
   let minDelta = -originalStartTime;
@@ -58,7 +55,14 @@ export function calculateLeftTrim(
     minDelta = Math.max(minDelta, -originalInPoint / speed);
   }
 
-  // Clamp deltaSeconds within [minDelta, maxDelta]
+  // Preserve the 500ms minimum only if it can be reached without moving
+  // before timeline/source start. Short source tails at timeline 0 must remain
+  // short rather than being expanded beyond their anchored source out-point.
+  const minimumReachableDuration = Math.max(0, originalDuration - minDelta);
+  const effectiveMinDuration = Math.min(minDuration, minimumReachableDuration);
+  const maxDelta = originalDuration - effectiveMinDuration;
+
+  // Clamp deltaSeconds within the feasible interval.
   const clampedDelta = Math.max(minDelta, Math.min(maxDelta, deltaSeconds));
 
   const newStartTime = parseFloat((originalStartTime + clampedDelta).toFixed(3));
@@ -70,7 +74,7 @@ export function calculateLeftTrim(
 
   return {
     startTime: Math.max(0, newStartTime),
-    duration: Math.max(minDuration, newDuration),
+    duration: Math.max(effectiveMinDuration, newDuration),
     inPoint: Math.max(0, newInPoint),
     outPoint: newOutPoint,
   };

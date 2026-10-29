@@ -160,6 +160,24 @@ export function clampRightTrimToPreventOverlap(
 }
 
 /**
+ * Returns the end of the last clip on a track. Unlike "next available slot",
+ * this deliberately ignores earlier gaps and is used for explicit append actions.
+ */
+export function findTrackEndTime(
+  trackId: TrackId,
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
+): number {
+  let latestEnd = 0;
+  for (const clip of allClips) {
+    if (areClipsOnSameTrack(trackId, clip.trackId, tracks)) {
+      latestEnd = Math.max(latestEnd, clip.startTime + clip.duration);
+    }
+  }
+  return parseFloat(latestEnd.toFixed(3));
+}
+
+/**
  * Find the next available non-overlapping start time on a visual track.
  * Used when duplicating or inserting clips to ensure they never collide with existing clips.
  */

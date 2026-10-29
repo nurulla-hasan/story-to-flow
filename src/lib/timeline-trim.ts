@@ -262,10 +262,15 @@ export function applyRippleExtend(
 
   return allClips.map((clip) => {
     if (clip.id === editedClipId) {
+      const sourceOutPoint = clip.inPoint + effectiveDuration * speed;
+      const outPoint =
+        typeof clip.sourceDuration === "number" && clip.sourceDuration > 0
+          ? Math.min(clip.sourceDuration, sourceOutPoint)
+          : sourceOutPoint;
       return {
         ...clip,
         duration: effectiveDuration,
-        outPoint: clip.inPoint + effectiveDuration * speed,
+        outPoint,
       };
     }
 

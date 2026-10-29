@@ -220,8 +220,10 @@ export function applyRippleExtend(
 
   const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
 
-  // Constraint 1: Source media duration limit (cannot exceed source bounds)
-  let maxDuration = newDuration;
+  // Hard upper bound from source media and locked neighbors. Keep the
+  // requested duration separate from this bound so short requests for images
+  // still obey MIN_CLIP_DURATION when that minimum is feasible.
+  let maxDuration = Number.POSITIVE_INFINITY;
   if (
     (target.type === "video" || target.type === "audio") &&
     typeof target.sourceDuration === "number" &&

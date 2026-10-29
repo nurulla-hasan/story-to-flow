@@ -75,8 +75,6 @@ import {
   getTransitionToNext,
 } from "@/lib/transition-helpers";
 import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
-import { calculateLeftTrimWithOverlap, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
-import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import {
   getPixelsPerSecond,
   generateAdaptiveRulerTicks,
@@ -84,6 +82,7 @@ import {
   MAX_TIMELINE_ZOOM,
 } from "@/lib/ruler-scale";
 import { useTimelinePlayheadScrub } from "@/lib/use-timeline-playhead-scrub";
+import { useTimelineClipGestures } from "@/lib/use-timeline-clip-gestures";
 import {
   DEFAULT_ZOOM_EFFECT_AMOUNT,
   sanitizeZoomEffect,
@@ -340,264 +339,20 @@ export function TimelineDock() {
     }
   };
 
-  // Compute snap points from playhead, timeline start, and other clips' boundaries
-  const getSnapPoints = React.useCallback(
-    (excludeClipId: string): number[] => {
-      const points = [0, playhead];
-      clips.forEach((c) => {
-        if (c.id !== excludeClipId) {
-          points.push(c.startTime);
-          points.push(c.startTime + c.duration);
-        }
-      });
-      return points;
-    },
-    [clips, playhead]
-  );
-
-  // Interactive Clip Move Dragging Handler with Magnetic Snapping & Track Reordering
-  const startMoveDrag = (e: React.PointerEvent, clip: TimelineClip) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    selectClip(clip.id);
-    if (isTrackLocked(clip.trackId, tracks)) return;
-
-    const startX = e.clientX;
-    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
-    const initialStart = clip.startTime;
-    const snapThresholdSec = 10 / pxPerSec;
-    const snapPoints = getSnapPoints(clip.id);
-    const isVisualClip = isVisualTrack(clip.trackId, tracks);
-    let latestClips = initialClips;
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      let rawStart = Math.max(0, initialStart + deltaX / pxPerSec);
-      let snapped = false;
-
-      // Magnetic Snapping
-      if (snapEnabled && !moveEvent.shiftKey) {
-        const rawEnd = rawStart + clip.duration;
-        for (const pt of snapPoints) {
-          if (Math.abs(rawStart - pt) <= snapThresholdSec) {
-            rawStart = pt;
-            setActiveSnapGuide(pt);
-            snapped = true;
-            break;
-          }
-          if (Math.abs(rawEnd - pt) <= snapThresholdSec) {
-            rawStart = Math.max(0, pt - clip.duration);
-            setActiveSnapGuide(pt);
-            snapped = true;
-            break;
-          }
-        }
-      }
-
-      if (!snapped) {
-        setActiveSnapGuide(null);
-      }
-
-      if (isVisualClip) {
-        // Reorder within the lane: closes the source gap and opens an insertion
-        // gap at the drop position instead of clamping against occupied clips.
-        const result = reorderClipOnTrack(clip, rawStart, initialClips, tracks);
-        latestClips = result.clips;
-        setDragInsertTime(result.insertionTime);
-      } else {
-        // Audio clips keep free positioning so voiceovers can overlap music.
-        const safeStart = parseFloat(Math.max(0, rawStart).toFixed(3));
-        latestClips = initialClips.map((c) =>
-          c.id === clip.id ? { ...c, startTime: safeStart } : c
-        );
-        setDragInsertTime(safeStart);
-      }
-
-      setClipsTransient(latestClips);
-    };
-
-    const cleanup = () => {
-      setActiveSnapGuide(null);
-      setDragInsertTime(null);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-
-    const onPointerUp = () => {
-      cleanup();
-      commitClipGesture(initialClips, latestClips);
-    };
-
-    const onPointerCancel = () => {
-      cleanup();
-      cancelClipGesture(initialClips);
-    };
-
-    const onKeyDown = (keyEvent: KeyboardEvent) => {
-      if (keyEvent.key === "Escape") {
-        cleanup();
-        cancelClipGesture(initialClips);
-      }
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-    window.addEventListener("keydown", onKeyDown);
-  };
-
-  // Interactive Clip LEFT-EDGE Trim Dragging (In-Point & Anchored Right Edge & Overlap Prevention)
-  const startLeftTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
-    e.stopPropagation();
-    selectClip(clip.id);
-    if (isTrackLocked(clip.trackId, tracks)) return;
-
-    const startX = e.clientX;
-    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
-    const initialStartTime = clip.startTime;
-    const snapThresholdSec = 10 / pxPerSec;
-    const snapPoints = getSnapPoints(clip.id);
-    let latestClips = initialClips;
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      let deltaSec = deltaX / pxPerSec;
-      let snapped = false;
-
-      if (snapEnabled && !moveEvent.shiftKey) {
-        const proposedStart = initialStartTime + deltaSec;
-        for (const pt of snapPoints) {
-          if (Math.abs(proposedStart - pt) <= snapThresholdSec) {
-            deltaSec = pt - initialStartTime;
-            setActiveSnapGuide(pt);
-            snapped = true;
-            break;
-          }
-        }
-      }
-
-      if (!snapped) {
-        setActiveSnapGuide(null);
-      }
-
-      const trimResult = calculateLeftTrimWithOverlap(clip, deltaSec, initialClips, 0.5, tracks);
-
-      latestClips = initialClips.map((c) =>
-        c.id === clip.id
-          ? {
-              ...c,
-              startTime: trimResult.startTime,
-              duration: trimResult.duration,
-              inPoint: trimResult.inPoint,
-              outPoint: trimResult.outPoint,
-            }
-          : c
-      );
-      setClipsTransient(latestClips);
-    };
-
-    const cleanup = () => {
-      setActiveSnapGuide(null);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-
-    const onPointerUp = () => {
-      cleanup();
-      commitClipGesture(initialClips, latestClips);
-    };
-
-    const onPointerCancel = () => {
-      cleanup();
-      cancelClipGesture(initialClips);
-    };
-
-    const onKeyDown = (keyEvent: KeyboardEvent) => {
-      if (keyEvent.key === "Escape") {
-        cleanup();
-        cancelClipGesture(initialClips);
-      }
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-    window.addEventListener("keydown", onKeyDown);
-  };
-
-  // Interactive Clip RIGHT-EDGE Trim Dragging (Duration & Anchored Start Time & Overlap Prevention)
-  const startRightTrimDrag = (e: React.PointerEvent, clip: TimelineClip) => {
-    e.stopPropagation();
-    selectClip(clip.id);
-    if (isTrackLocked(clip.trackId, tracks)) return;
-
-    const startX = e.clientX;
-    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
-    const initialEndTime = clip.startTime + clip.duration;
-    const snapThresholdSec = 10 / pxPerSec;
-    const snapPoints = getSnapPoints(clip.id);
-    let latestClips = initialClips;
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      let deltaSec = deltaX / pxPerSec;
-      let snapped = false;
-
-      if (snapEnabled && !moveEvent.shiftKey) {
-        const proposedEnd = initialEndTime + deltaSec;
-        for (const pt of snapPoints) {
-          if (pt > clip.startTime && Math.abs(proposedEnd - pt) <= snapThresholdSec) {
-            deltaSec = pt - initialEndTime;
-            setActiveSnapGuide(pt);
-            snapped = true;
-            break;
-          }
-        }
-      }
-
-      if (!snapped) {
-        setActiveSnapGuide(null);
-      }
-
-      const trimResult = calculateRightTrim(clip, deltaSec);
-      latestClips = applyRippleExtend(clip.id, trimResult.duration, initialClips, tracks);
-      setClipsTransient(latestClips);
-    };
-
-    const cleanup = () => {
-      setActiveSnapGuide(null);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-
-    const onPointerUp = () => {
-      cleanup();
-      commitClipGesture(initialClips, latestClips);
-    };
-
-    const onPointerCancel = () => {
-      cleanup();
-      cancelClipGesture(initialClips);
-    };
-
-    const onKeyDown = (keyEvent: KeyboardEvent) => {
-      if (keyEvent.key === "Escape") {
-        cleanup();
-        cancelClipGesture(initialClips);
-      }
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-    window.addEventListener("keydown", onKeyDown);
-  };
+  // Clip move/trim interactions own their pointer lifecycle in a dedicated hook.
+  const { startMoveDrag, startLeftTrimDrag, startRightTrimDrag } = useTimelineClipGestures({
+    clips,
+    tracks,
+    playhead,
+    pixelsPerSecond: pxPerSec,
+    snapEnabled,
+    selectClip,
+    setClipsTransient,
+    commitClipGesture,
+    cancelClipGesture,
+    setActiveSnapGuide,
+    setDragInsertTime,
+  });
 
   // Dynamic Ordered Tracks
   const orderedVisualTracks = React.useMemo(() => getVisualTracks(tracks), [tracks]);

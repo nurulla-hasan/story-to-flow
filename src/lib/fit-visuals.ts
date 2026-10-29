@@ -219,8 +219,8 @@ function allocateDurations(
   const maximumTotal = sum(maximums);
 
   if (
-    target < minimumTotal - 0.001 ||
-    target > maximumTotal + 0.001
+    target < minimumTotal - 0.000001 ||
+    target > maximumTotal + 0.000001
   ) {
     return null;
   }
@@ -284,7 +284,7 @@ function allocateDurations(
     remainder = parseFloat((target - sum(allocated)).toFixed(3));
   }
 
-  if (Math.abs(sum(allocated) - target) > 0.001) return null;
+  if (Math.abs(sum(allocated) - target) > 0.0005) return null;
   return allocated;
 }
 

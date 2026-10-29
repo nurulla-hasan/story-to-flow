@@ -19,7 +19,6 @@ import {
   getVisualTracks,
   getAudioTracks,
   isTrackLocked,
-  calculateEffectivePlaybackRate,
 } from "@/types/timeline";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
@@ -43,7 +42,6 @@ import {
   type ZoomEffectType,
 } from "@/lib/zoom-effect";
 import { stepFrame, TIMELINE_FPS } from "@/lib/frame-navigation";
-import { calculateAudioGain } from "@/lib/audio-fade-helpers";
 import { applyRippleExtend, applyRippleDelete } from "@/lib/timeline-trim";
 import {
   hasVisualOverlap,
@@ -56,6 +54,7 @@ import { hasLockedTrackGestureViolation } from "@/lib/timeline-locks";
 import { calculateTimelineDuration, reconcileTransitionsForClips } from "@/lib/timeline-derived-state";
 import { useTimelineKeyboardShortcuts } from "@/lib/use-timeline-keyboard-shortcuts";
 import { TimelineHistoryManager } from "@/lib/timeline-history";
+import { useTimelineAudioPlayback } from "@/lib/use-timeline-audio-playback";
 
 export interface TimelineContextType {
   isHydrated: boolean;
@@ -206,20 +205,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const wasPlayingRef = React.useRef<boolean>(false);
   const playbackSpeedRef = React.useRef<number>(1.0);
 
-  // Dedicated Audio Elements Pool for multi-track synchronized timeline playback
-  const audioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
-
-  React.useEffect(() => {
-    const pool = audioElementsRef.current;
-    return () => {
-      for (const el of pool.values()) {
-        el.pause();
-        el.removeAttribute("src");
-        el.load();
-      }
-      pool.clear();
-    };
-  }, []);
 
   const syncHistoryFlags = React.useCallback(() => {
     setCanUndo(history.canUndo);
@@ -345,6 +330,18 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const [masterVolume, setMasterVolume] = React.useState<number>(1.0);
   const [isMuted, setIsMuted] = React.useState<boolean>(false);
 
+  // Browser audio resource management lives outside the project-state provider.
+  useTimelineAudioPlayback({
+    clips,
+    tracks,
+    assets,
+    playhead,
+    isPlaying,
+    isMuted,
+    masterVolume,
+    playbackSpeedRef,
+  });
+
   // Safely commit playhead when transitioning from playing to paused
   React.useEffect(() => {
     if (wasPlayingRef.current && !isPlaying) {
@@ -397,87 +394,6 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isPlaying, commitPlayhead]);
 
-  // Synchronize dynamic multi-track audio playback with timeline clock
-  React.useEffect(() => {
-    const pool = audioElementsRef.current;
-    const trackMap = new Map(tracks.map((t) => [t.id, t]));
-
-    // Eligible audio clips: on tracks with type === "audio" (or audio track ID)
-    const allAudioClips = clips.filter((c) => isAudioTrack(c.trackId, tracks));
-    const activeAudioClips = allAudioClips.filter(
-      (c) => playhead >= c.startTime && playhead < c.startTime + c.duration
-    );
-    const activeClipIds = new Set(activeAudioClips.map((c) => c.id));
-
-    // Pause and remove audio elements for clips that are no longer active
-    for (const [clipId, audioEl] of pool.entries()) {
-      if (!activeClipIds.has(clipId)) {
-        audioEl.pause();
-        audioEl.removeAttribute("src");
-        audioEl.load();
-        pool.delete(clipId);
-      }
-    }
-
-    // Synchronize and mix each active audio clip concurrently across all tracks
-    for (const clip of activeAudioClips) {
-      const track = trackMap.get(clip.trackId);
-      const isTrackMutedBool = track?.muted === true;
-      const trackVolume = typeof track?.volume === "number" && !isNaN(track.volume) ? track.volume : 1.0;
-
-      const asset = assets.find((a) => a.id === clip.assetId);
-      if (!asset || !asset.url) continue;
-
-      let audioEl = pool.get(clip.id);
-      if (!audioEl) {
-        audioEl = new Audio();
-        audioEl.preload = "auto";
-        pool.set(clip.id, audioEl);
-      }
-
-      if (audioEl.src !== asset.url) {
-        audioEl.src = asset.url;
-      }
-
-      const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-      const targetTime = (playhead - clip.startTime) * speed + clip.inPoint;
-      if (!isPlaying || Math.abs(audioEl.currentTime - targetTime) > 0.25) {
-        if (Math.abs(audioEl.currentTime - targetTime) > 0.05) {
-          audioEl.currentTime = Math.max(0, targetTime);
-        }
-      }
-
-      const clipRelativeTime = playhead - clip.startTime;
-      const currentGain = calculateAudioGain(
-        clipRelativeTime,
-        clip.duration,
-        clip.volume ?? 1.0,
-        clip.fadeInDuration ?? 0,
-        clip.fadeOutDuration ?? 0
-      );
-
-      // Volume calculation combines clip volume/fade, track volume/mute, and global master volume/mute
-      const effectiveTrackVol = isTrackMutedBool ? 0 : trackVolume;
-      const finalVolume =
-        isMuted || isTrackMutedBool
-          ? 0
-          : Math.max(0, Math.min(1.0, currentGain * effectiveTrackVol * masterVolume));
-
-      audioEl.volume = finalVolume;
-      audioEl.muted = isMuted || isTrackMutedBool || finalVolume === 0;
-
-      const targetRate = calculateEffectivePlaybackRate(speed, playbackSpeedRef.current);
-      if (audioEl.playbackRate !== targetRate) {
-        audioEl.playbackRate = targetRate;
-      }
-
-      if (isPlaying && audioEl.paused) {
-        audioEl.play().catch(() => {});
-      } else if (!isPlaying && !audioEl.paused) {
-        audioEl.pause();
-      }
-    }
-  }, [playhead, isPlaying, clips, tracks, assets, isMuted, masterVolume]);
 
   const selectClip = React.useCallback(
     (clipId: string | null) => {

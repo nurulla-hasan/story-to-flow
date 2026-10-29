@@ -36,7 +36,11 @@ import {
   registerTimelineAssetReferences,
 } from "@/lib/media-references";
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
-import { applyToAllTransitions as executeApplyToAll } from "@/lib/transition-helpers";
+import {
+  validateTransitionDuration,
+  areClipsAdjacentForTransition,
+  applyToAllTransitions as executeApplyToAll,
+} from "@/lib/transition-helpers";
 import {
   sanitizeZoomEffect,
   type ClipZoomEffect,

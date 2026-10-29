@@ -359,11 +359,23 @@ export function applyRippleDelete(
         clip.startTime < deletedStartTime &&
         clipEnd > deletedStartTime + RIPPLE_EPSILON
       ) {
-        clip.duration = parseFloat(Math.max(MIN_CLIP_DURATION, deletedStartTime - clip.startTime).toFixed(3));
-        if (clip.outPoint) {
-          const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-          clip.outPoint = clip.inPoint + clip.duration * speed;
-        }
+        const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+        const timelineAvailable = Math.max(0, deletedStartTime - clip.startTime);
+        const sourceAvailable =
+          (clip.type === "video" || clip.type === "audio") &&
+          typeof clip.sourceDuration === "number" &&
+          clip.sourceDuration > 0
+            ? Math.max(0, (clip.sourceDuration - clip.inPoint) / speed)
+            : Number.POSITIVE_INFINITY;
+        const boundedDuration = Math.min(timelineAvailable, sourceAvailable);
+        clip.duration = Math.min(
+          boundedDuration,
+          Math.max(0, parseFloat(boundedDuration.toFixed(3)))
+        );
+        clip.outPoint =
+          typeof clip.sourceDuration === "number" && clip.sourceDuration > 0
+            ? Math.min(clip.sourceDuration, clip.inPoint + clip.duration * speed)
+            : clip.inPoint + clip.duration * speed;
       }
 
       let proposedStart: number;

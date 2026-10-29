@@ -3,7 +3,6 @@
 import * as React from "react";
 import {
   SlidersHorizontal,
-  Clock,
   Gauge,
   MousePointerClick,
   Scissors,
@@ -11,7 +10,6 @@ import {
   Trash2,
   Film,
   Mic,
-  Image as ImageIcon,
   Volume2,
   Layers,
   Sparkles,
@@ -19,13 +17,6 @@ import {
   CopyCheck,
   CheckCircle2,
   Move,
-  RotateCcw,
-  ZoomIn,
-  ZoomOut,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  ArrowDown,
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
@@ -47,15 +38,6 @@ import {
   type TimelineClip,
 } from "@/types/timeline";
 import {
-} from "@/lib/clip-transform";
-import {
-  DEFAULT_ZOOM_EFFECT_AMOUNT,
-  MAX_ZOOM_EFFECT_AMOUNT,
-  MIN_ZOOM_EFFECT_AMOUNT,
-  sanitizeZoomEffect,
-  type ZoomEffectType,
-} from "@/lib/zoom-effect";
-import {
   TRANSITION_PRESETS,
   findEligibleTransitionPairs,
   getTransitionToNext,
@@ -71,6 +53,7 @@ import { TransitionInspectorSection } from "@/components/editor/transition-inspe
 import { ClipAudioSection } from "@/components/editor/clip-audio-section";
 import { ClipTimingSection } from "@/components/editor/clip-timing-section";
 import { ClipTransformSection } from "@/components/editor/clip-transform-section";
+import { ClipMotionSection } from "@/components/editor/clip-motion-section";
 
 export function ClipInspectorPanel({
   collapsed = false,
@@ -147,39 +130,6 @@ export function ClipInspectorPanel({
     const isCurrentlyMuted = (selectedClip.volume ?? 1.0) === 0;
     const newVol = isCurrentlyMuted ? 1.0 : 0;
     updateClip(selectedClip.id, { volume: newVol });
-  };
-
-  // Scene Motion & Zoom (Ken Burns): pick a preset or remove the effect entirely
-  const handleSetZoomEffect = (type: "off" | ZoomEffectType) => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    if (type === "off") {
-      updateClip(selectedClip.id, { zoomEffect: undefined });
-      return;
-    }
-    const current = sanitizeZoomEffect(selectedClip.zoomEffect);
-    updateClip(selectedClip.id, {
-      zoomEffect: {
-        type,
-        amount: current?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT,
-      },
-    });
-  };
-
-  const [motionApplyFeedback, setMotionApplyFeedback] = React.useState<string | null>(null);
-
-  // Eligible image scenes for applying motion across the project
-  const imageClipsCount = React.useMemo(
-    () => clips.filter((c) => isVisualTrack(c.trackId, tracks) && c.type === "image" && !isTrackLocked(c.trackId, tracks)).length,
-    [clips, tracks]
-  );
-
-  const handleApplyMotionToAll = () => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
-    if (!effect) return;
-    const res = applyMotionToAllClips(effect);
-    setMotionApplyFeedback(res.message);
-    setTimeout(() => setMotionApplyFeedback(null), 4000);
   };
 
   // Dynamic visual tracks list from context
@@ -437,201 +387,16 @@ export function ClipInspectorPanel({
               handleSliderPointerUp={handleSliderPointerUp}
             />
 
-            {/* Scene Motion & Zoom (Ken Burns) — image scenes only */}
-            {selectedClip.type === "image" && (() => {
-              const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
-              const amountPct = Math.round(
-                (effect?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT) * 100
-              );
-              const zoomOptions: Array<{
-                value: "off" | "zoom-in" | "zoom-out";
-                label: string;
-              }> = [
-                { value: "off", label: "Off" },
-                { value: "zoom-in", label: "Zoom In" },
-                { value: "zoom-out", label: "Zoom Out" },
-              ];
-              const panOptions: Array<{
-                value: ZoomEffectType;
-                label: string;
-                title: string;
-              }> = [
-                { value: "pan-left", label: "Left", title: "Pan Left" },
-                { value: "pan-right", label: "Right", title: "Pan Right" },
-                { value: "pan-up", label: "Up", title: "Pan Up" },
-                { value: "pan-down", label: "Down", title: "Pan Down" },
-              ];
-
-              const getMotionDescription = () => {
-                if (!effect) return "";
-                switch (effect.type) {
-                  case "zoom-in":
-                    return `Zooms in ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
-                  case "zoom-out":
-                    return `Zooms out ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
-                  case "pan-left":
-                    return `Pans left ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
-                  case "pan-right":
-                    return `Pans right ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
-                  case "pan-up":
-                    return `Pans up ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
-                  case "pan-down":
-                    return `Pans down ${amountPct}% across ${selectedClip.duration.toFixed(1)}s`;
-                }
-              };
-
-              return (
-                <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1.5 font-medium text-foreground">
-                      <ZoomIn className="size-3 text-primary" />
-                      <span>Scene Motion</span>
-                    </span>
-                    {effect && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() =>
-                          updateClip(selectedClip.id, { zoomEffect: undefined })
-                        }
-                        title="Remove motion effect from this scene"
-                      >
-                        <RotateCcw className="size-2.5" />
-                        <span>Remove</span>
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Zoom Options */}
-                  <div className="grid grid-cols-3 gap-1">
-                    {zoomOptions.map((option) => {
-                      const isActive =
-                        option.value === "off"
-                          ? !effect
-                          : effect?.type === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => handleSetZoomEffect(option.value)}
-                          className={`py-1 text-2xs rounded-md border transition-colors cursor-pointer ${
-                            isActive
-                              ? "border-primary bg-primary/10 text-primary font-bold"
-                              : "border-border text-muted-foreground hover:bg-muted"
-                          }`}
-                        >
-                          {option.value === "zoom-in" ? (
-                            <span className="flex items-center justify-center gap-1">
-                              <ZoomIn className="size-3" />
-                              {option.label}
-                            </span>
-                          ) : option.value === "zoom-out" ? (
-                            <span className="flex items-center justify-center gap-1">
-                              <ZoomOut className="size-3" />
-                              {option.label}
-                            </span>
-                          ) : (
-                            option.label
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Pan & Drift Options */}
-                  <div className="space-y-1">
-                    <span className="text-3xs text-muted-foreground font-medium">Pan &amp; Drift</span>
-                    <div className="grid grid-cols-4 gap-1">
-                      {panOptions.map((option) => {
-                        const isActive = effect?.type === option.value;
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => handleSetZoomEffect(option.value)}
-                            title={option.title}
-                            className={`py-1 text-2xs rounded-md border transition-colors cursor-pointer ${
-                              isActive
-                                ? "border-primary bg-primary/10 text-primary font-bold"
-                                : "border-border text-muted-foreground hover:bg-muted"
-                            }`}
-                          >
-                            <span className="flex items-center justify-center gap-1">
-                              {option.value === "pan-left" ? (
-                                <ArrowLeft className="size-3" />
-                              ) : option.value === "pan-right" ? (
-                                <ArrowRight className="size-3" />
-                              ) : option.value === "pan-up" ? (
-                                <ArrowUp className="size-3" />
-                              ) : (
-                                <ArrowDown className="size-3" />
-                              )}
-                              <span>{option.label}</span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {effect && (
-                    <div className="space-y-1.5 pt-1">
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-3xs">
-                          <span className="text-muted-foreground">Strength</span>
-                          <span className="font-mono font-semibold text-primary">
-                            {amountPct}%
-                          </span>
-                        </div>
-                        <Slider
-                          min={MIN_ZOOM_EFFECT_AMOUNT * 100}
-                          max={MAX_ZOOM_EFFECT_AMOUNT * 100}
-                          step={1}
-                          value={amountPct}
-                          onPointerDown={handleSliderPointerDown}
-                          onPointerUp={handleSliderPointerUp}
-                          onPointerCancel={handleSliderPointerUp}
-                          onKeyDown={handleSliderPointerDown}
-                          onKeyUp={handleSliderPointerUp}
-                          onValueChange={handleTransientZoomAmountChange}
-                          aria-label="Scene motion strength"
-                          className="w-full"
-                        />
-                        <p className="text-3xs text-muted-foreground">
-                          {getMotionDescription()}
-                        </p>
-                      </div>
-
-                      {/* Apply to All Clips Button */}
-                      <div className="space-y-1.5 pt-1">
-                        <Button
-                          variant="outline"
-                          size="default"
-                          onClick={handleApplyMotionToAll}
-                          disabled={imageClipsCount <= 1}
-                          className="w-full"
-                          title={
-                            imageClipsCount <= 1
-                              ? "Only 1 image scene on timeline"
-                              : `Apply this motion (${amountPct}%) to all ${imageClipsCount} image scenes`
-                          }
-                        >
-                          <CopyCheck className="size-3.5" />
-                          <span>Apply to All Scenes ({imageClipsCount})</span>
-                        </Button>
-
-                        {motionApplyFeedback && (
-                          <div className="flex items-start gap-1.5 rounded-lg border border-primary/20 bg-primary/10 p-2 text-3xs font-medium leading-relaxed text-primary animate-in fade-in">
-                            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
-                            <span>{motionApplyFeedback}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            <ClipMotionSection
+              clip={selectedClip}
+              clips={clips}
+              tracks={tracks}
+              onUpdateClip={updateClip}
+              applyMotionToAllClips={applyMotionToAllClips}
+              handleSliderPointerDown={handleSliderPointerDown}
+              handleSliderPointerUp={handleSliderPointerUp}
+              handleTransientZoomAmountChange={handleTransientZoomAmountChange}
+            />
 
             <ClipTimingSection
               clip={selectedClip}

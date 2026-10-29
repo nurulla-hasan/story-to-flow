@@ -152,14 +152,6 @@ export function calculateFitVisualsToVoiceover(
   };
 }
 
-function computeClipOutPoint(clip: TimelineClip, dur: number): number {
-  if (clip.type === "video" || clip.type === "audio") {
-    const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-    return parseFloat((clip.inPoint + dur * speed).toFixed(3));
-  }
-  return parseFloat((clip.inPoint + dur).toFixed(3));
-}
-
 function getClipDurationBounds(
   clip: TimelineClip
 ): { min: number; max: number } {

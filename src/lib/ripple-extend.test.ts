@@ -190,6 +190,16 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     expect(applyRippleExtend("clip-B", -1, initialClips)).toEqual(initialClips);
   });
 
+  it("keeps ordinary image clips at the minimum duration for short requests", () => {
+    const updated = applyRippleExtend("clip-B", 0.2, initialClips);
+    const edited = updated.find((clip) => clip.id === "clip-B")!;
+    const downstream = updated.find((clip) => clip.id === "clip-C")!;
+
+    expect(edited.duration).toBe(0.5);
+    expect(downstream.startTime).toBe(5.5);
+    expect(edited.startTime + edited.duration).toBe(downstream.startTime);
+  });
+
   it("never extends a source-limited video past a short remaining source tail", () => {
     const shortVideo: TimelineClip = {
       ...clipB,

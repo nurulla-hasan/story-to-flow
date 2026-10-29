@@ -32,6 +32,7 @@ export function ClipAudioSection({
   handleTransientFadeOutChange,
 }: ClipAudioSectionProps) {
   return (
+    <>
             {(isAudioTrack(clip.trackId, tracks) || clip.type === "video") && (
               <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
@@ -179,6 +180,6 @@ export function ClipAudioSection({
                 </div>
               </div>
             )}
-
+    </>
   );
 }

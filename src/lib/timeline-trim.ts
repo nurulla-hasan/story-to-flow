@@ -138,21 +138,30 @@ export function calculateRightTrim(
     typeof clip.sourceDuration === "number" &&
     clip.sourceDuration > 0;
 
-  let maxDuration = 9999;
-  if (isMediaWithSource && clip.sourceDuration) {
-    maxDuration = (clip.sourceDuration - clip.inPoint) / speed;
+  let maxDuration = Number.POSITIVE_INFINITY;
+  if (isMediaWithSource && typeof clip.sourceDuration === "number") {
+    maxDuration = Math.max(0, (clip.sourceDuration - clip.inPoint) / speed);
   }
 
+  // Source bounds are a hard upper limit. If less than the normal 500ms
+  // minimum remains, allow a shorter clip rather than reading past EOF.
+  const minimumAllowed = Math.min(minDuration, maxDuration);
   const requestedDuration = originalDuration + deltaSeconds;
-  const clampedDuration = parseFloat(
-    Math.max(minDuration, Math.min(maxDuration, requestedDuration)).toFixed(3)
+  const boundedDuration = Math.max(
+    minimumAllowed,
+    Math.min(maxDuration, requestedDuration)
   );
+  const roundedDuration = parseFloat(boundedDuration.toFixed(3));
+  const clampedDuration = Math.min(maxDuration, roundedDuration);
 
   return {
     startTime: clip.startTime,
     duration: clampedDuration,
     inPoint: clip.inPoint,
-    outPoint: clip.inPoint + clampedDuration * speed,
+    outPoint:
+      isMediaWithSource && typeof clip.sourceDuration === "number"
+        ? Math.min(clip.sourceDuration, clip.inPoint + clampedDuration * speed)
+        : clip.inPoint + clampedDuration * speed,
   };
 }
 

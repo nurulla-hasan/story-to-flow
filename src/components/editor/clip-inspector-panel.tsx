@@ -67,9 +67,9 @@ import {
   MIN_TRANSITION_DURATION,
 } from "@/lib/transition-helpers";
 import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
-import { validateFadeDuration } from "@/lib/audio-fade-helpers";
 import { applyRippleExtend } from "@/lib/timeline-trim";
 import { hasVisualOverlap } from "@/lib/timeline-overlap";
+import { useInspectorClipGestures } from "@/lib/use-inspector-clip-gestures";
 
 export function ClipInspectorPanel({
   collapsed = false,
@@ -98,49 +98,22 @@ export function ClipInspectorPanel({
     commitClipGesture,
   } = useTimeline();
 
-  // Gesture snapshot tracking for inspector sliders to ensure exactly 1 history commit per drag
-  const initialClipsRef = React.useRef<TimelineClip[] | null>(null);
-  const latestClipsRef = React.useRef<TimelineClip[] | null>(null);
-
-  const handleSliderPointerDown = () => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    initialClipsRef.current = JSON.parse(JSON.stringify(clips));
-    latestClipsRef.current = null;
-  };
-
-  const handleSliderPointerUp = React.useCallback(() => {
-    if (initialClipsRef.current) {
-      const finalClips = latestClipsRef.current ?? clips;
-      commitClipGesture(initialClipsRef.current, finalClips);
-      initialClipsRef.current = null;
-      latestClipsRef.current = null;
-    }
-  }, [clips, commitClipGesture]);
-
-  // Window-level listener ensures dragging slider released outside bounding box cleanly commits
-  React.useEffect(() => {
-    const onWindowPointerUp = () => {
-      if (initialClipsRef.current) {
-        handleSliderPointerUp();
-      }
-    };
-    window.addEventListener("pointerup", onWindowPointerUp);
-    window.addEventListener("pointercancel", onWindowPointerUp);
-    return () => {
-      window.removeEventListener("pointerup", onWindowPointerUp);
-      window.removeEventListener("pointercancel", onWindowPointerUp);
-    };
-  }, [handleSliderPointerUp]);
-
-  const getBaseClips = () => {
-    if (!initialClipsRef.current) {
-      const snapshot: TimelineClip[] = JSON.parse(JSON.stringify(clips));
-      initialClipsRef.current = snapshot;
-      latestClipsRef.current = null;
-      return snapshot;
-    }
-    return initialClipsRef.current;
-  };
+  const {
+    getBaseClips,
+    handleSliderPointerDown,
+    handleSliderPointerUp,
+    handleTransientDurationChange,
+    handleTransientVolumeChange,
+    handleTransientFadeInChange,
+    handleTransientFadeOutChange,
+    handleTransientZoomAmountChange,
+  } = useInspectorClipGestures({
+    clips,
+    selectedClip,
+    tracks,
+    setClipsTransient,
+    commitClipGesture,
+  });
 
   const [applyFeedback, setApplyFeedback] = React.useState<string | null>(null);
 
@@ -156,30 +129,6 @@ export function ClipInspectorPanel({
     setTimeout(() => setApplyFeedback(null), 4000);
   };
 
-  // Intermediate transient handler for smooth slider scrubbing with ripple extension
-  const handleTransientDurationChange = (val: number | readonly number[]) => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    const baseClips = getBaseClips();
-    const rawVal = Array.isArray(val) ? val[0] : val;
-    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-    if (!isNaN(num) && num >= 0.5) {
-      const speed = selectedClip.speed && selectedClip.speed > 0 ? selectedClip.speed : 1.0;
-      let clampedDur = num;
-      if (selectedClip.sourceDuration && selectedClip.sourceDuration > 0) {
-        const remaining = (selectedClip.sourceDuration - selectedClip.inPoint) / speed;
-        clampedDur = Math.min(clampedDur, remaining);
-      }
-      const transientClips = applyRippleExtend(
-        selectedClip.id,
-        clampedDur,
-        baseClips,
-        tracks
-      );
-      latestClipsRef.current = transientClips;
-      setClipsTransient(transientClips);
-    }
-  };
-
   const handleSetImageDurationPreset = (targetDuration: number) => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
@@ -192,45 +141,11 @@ export function ClipInspectorPanel({
     commitClipGesture(initialClips, updatedClips);
   };
 
-  const handleTransientVolumeChange = (val: number | readonly number[]) => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    const baseClips = getBaseClips();
-    const rawVal = Array.isArray(val) ? val[0] : val;
-    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-    if (!isNaN(num)) {
-      const updated = baseClips.map((c) => (c.id === selectedClip.id ? { ...c, volume: num } : c));
-      latestClipsRef.current = updated;
-      setClipsTransient(updated);
-    }
-  };
-
   const handleToggleClipMute = () => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const isCurrentlyMuted = (selectedClip.volume ?? 1.0) === 0;
     const newVol = isCurrentlyMuted ? 1.0 : 0;
     updateClip(selectedClip.id, { volume: newVol });
-  };
-
-  const handleTransientFadeInChange = (val: number | readonly number[]) => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    const baseClips = getBaseClips();
-    const rawVal = Array.isArray(val) ? val[0] : val;
-    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-    const safeFade = validateFadeDuration(num, selectedClip.duration, selectedClip.fadeOutDuration ?? 0);
-    setClipsTransient(
-      baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeInDuration: safeFade } : c))
-    );
-  };
-
-  const handleTransientFadeOutChange = (val: number | readonly number[]) => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    const baseClips = getBaseClips();
-    const rawVal = Array.isArray(val) ? val[0] : val;
-    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-    const safeFade = validateFadeDuration(num, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
-    setClipsTransient(
-      baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeOutDuration: safeFade } : c))
-    );
   };
 
   // Scene Motion & Zoom (Ken Burns): pick a preset or remove the effect entirely
@@ -264,21 +179,6 @@ export function ClipInspectorPanel({
     const res = applyMotionToAllClips(effect);
     setMotionApplyFeedback(res.message);
     setTimeout(() => setMotionApplyFeedback(null), 4000);
-  };
-
-  // Transient strength scrubbing keeps a single history entry per drag
-  const handleTransientZoomAmountChange = (val: number | readonly number[]) => {
-    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
-    const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
-    if (!effect) return;
-    const baseClips = getBaseClips();
-    const rawVal = Array.isArray(val) ? val[0] : val;
-    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-    const amount = num / 100;
-    const zoomEffect = sanitizeZoomEffect({ ...effect, amount });
-    setClipsTransient(
-      baseClips.map((c) => (c.id === selectedClip.id ? { ...c, zoomEffect } : c))
-    );
   };
 
   // Dynamic visual tracks list from context

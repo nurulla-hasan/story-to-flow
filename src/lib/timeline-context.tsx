@@ -59,6 +59,7 @@ import { insertClipAtTime } from "@/lib/timeline-insert";
 import { hasLockedTrackGestureViolation } from "@/lib/timeline-locks";
 import { calculateTimelineDuration, reconcileTransitionsForClips } from "@/lib/timeline-derived-state";
 import { useTimelineKeyboardShortcuts } from "@/lib/use-timeline-keyboard-shortcuts";
+import { TimelineHistoryManager } from "@/lib/timeline-history";
 
 export interface TimelineContextType {
   isHydrated: boolean;
@@ -136,15 +137,8 @@ export interface TimelineContextType {
 
 const TimelineContext = React.createContext<TimelineContextType | null>(null);
 
-const MAX_HISTORY = 50;
 const MIN_CLIP_DURATION = 0.5; // minimum 500ms
 const emptySubscribe = () => () => {};
-
-interface HistorySnapshot {
-  tracks: TimelineTrack[];
-  clips: TimelineClip[];
-  transitions: TimelineTransition[];
-}
 
 export function TimelineProvider({ children }: { children: React.ReactNode }) {
   const { assets } = useMediaLibrary();
@@ -208,9 +202,8 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
       : null;
   }, [localSelectedTransitionId, storedSelection.selectedTransitionId, transitions]);
 
-  // Undo / Redo Stacks storing tracks, clips and transitions atomically
-  const undoStackRef = React.useRef<HistorySnapshot[]>([]);
-  const redoStackRef = React.useRef<HistorySnapshot[]>([]);
+  // History owns bounded undo/redo snapshots; React state mirrors its visible capabilities.
+  const [history] = React.useState(() => new TimelineHistoryManager());
   const [canUndo, setCanUndo] = React.useState<boolean>(false);
   const [canRedo, setCanRedo] = React.useState<boolean>(false);
 
@@ -238,9 +231,9 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const syncHistoryFlags = React.useCallback(() => {
-    setCanUndo(undoStackRef.current.length > 0);
-    setCanRedo(redoStackRef.current.length > 0);
-  }, []);
+    setCanUndo(history.canUndo);
+    setCanRedo(history.canRedo);
+  }, [history]);
 
   // Persist a partial patch and feed success/failure back into visible state.
   const persistPartial = React.useCallback(
@@ -300,25 +293,21 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
     [isHydrated, persistPartial]
   );
 
-  // Push current snapshot to undo stack before a mutation
+  // Record the pre-mutation project snapshot; the manager owns cloning and limits.
   const pushHistorySnapshot = React.useCallback(
     (
       currentClips: TimelineClip[],
       currentTransitions: TimelineTransition[],
       currentTracks?: TimelineTrack[]
     ) => {
-      undoStackRef.current.push({
-        tracks: JSON.parse(JSON.stringify(currentTracks ?? tracks)),
-        clips: JSON.parse(JSON.stringify(currentClips)),
-        transitions: JSON.parse(JSON.stringify(currentTransitions)),
+      history.push({
+        tracks: currentTracks ?? tracks,
+        clips: currentClips,
+        transitions: currentTransitions,
       });
-      if (undoStackRef.current.length > MAX_HISTORY) {
-        undoStackRef.current.shift();
-      }
-      redoStackRef.current = [];
       syncHistoryFlags();
     },
-    [tracks, syncHistoryFlags]
+    [tracks, history, syncHistoryFlags]
   );
 
   const setProjectTitle = React.useCallback(
@@ -1413,38 +1402,26 @@ export function TimelineProvider({ children }: { children: React.ReactNode }) {
 
   // 14. UNDO & REDO
   const undo = React.useCallback(() => {
-    if (undoStackRef.current.length === 0) return;
-
-    const previous = undoStackRef.current.pop()!;
-    redoStackRef.current.push({
-      tracks: JSON.parse(JSON.stringify(tracks)),
-      clips: JSON.parse(JSON.stringify(clips)),
-      transitions: JSON.parse(JSON.stringify(transitions)),
-    });
+    const previous = history.undo({ tracks, clips, transitions });
+    if (!previous) return;
 
     setLocalTracks(previous.tracks);
     setLocalClips(previous.clips);
     setLocalTransitions(previous.transitions);
     persistTimeline(previous.clips, previous.transitions, previous.tracks);
     syncHistoryFlags();
-  }, [tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
+  }, [history, tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
 
   const redo = React.useCallback(() => {
-    if (redoStackRef.current.length === 0) return;
-
-    const next = redoStackRef.current.pop()!;
-    undoStackRef.current.push({
-      tracks: JSON.parse(JSON.stringify(tracks)),
-      clips: JSON.parse(JSON.stringify(clips)),
-      transitions: JSON.parse(JSON.stringify(transitions)),
-    });
+    const next = history.redo({ tracks, clips, transitions });
+    if (!next) return;
 
     setLocalTracks(next.tracks);
     setLocalClips(next.clips);
     setLocalTransitions(next.transitions);
     persistTimeline(next.clips, next.transitions, next.tracks);
     syncHistoryFlags();
-  }, [tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
+  }, [history, tracks, clips, transitions, persistTimeline, syncHistoryFlags]);
 
   // Keyboard bindings live in their own hook so editor input handling is separate
   // from the timeline state/persistence provider.

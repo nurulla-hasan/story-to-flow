@@ -10,7 +10,6 @@ import type {
 } from "@/types/timeline";
 import {
   areClipsOnSameTrack,
-  areClipsAdjacentForTransition,
   getAudioTracks,
   getTrackById,
   getVisualTracks,
@@ -21,6 +20,7 @@ import {
 import { calculateFitVisualsToVoiceover } from "@/lib/fit-visuals";
 import {
   validateTransitionDuration,
+  areClipsAdjacentForTransition,
   applyToAllTransitions as executeApplyToAll,
 } from "@/lib/transition-helpers";
 import { applyRippleExtend, applyRippleDelete } from "@/lib/timeline-trim";

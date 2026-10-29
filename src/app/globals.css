@@ -76,6 +76,7 @@
   --color-editor-stage: var(--editor-stage);
   --color-editor-screen: var(--editor-screen);
   --color-editor-line: var(--editor-line);
+  --color-editor-grid: var(--editor-grid);
   --color-editor-on-dark: var(--editor-on-dark);
   --color-editor-on-dark-muted: var(--editor-on-dark-muted);
   --color-track-video: var(--track-video);
@@ -136,6 +137,7 @@
   --editor-stage: #2a1e3e;
   --editor-screen: #1a1529;
   --editor-line: oklch(1 0 0 / 0.14);
+  --editor-grid: color-mix(in oklab, var(--foreground) 8%, transparent);
   --editor-on-dark: #e2e8f0;
   --editor-on-dark-muted: #94a3b8;
   --track-video: #e76f8c;
@@ -225,6 +227,7 @@
   --editor-stage: oklch(0.145 0.014 255);
   --editor-screen: oklch(0.105 0.01 255);
   --editor-line: oklch(1 0 0 / 0.12);
+  --editor-grid: oklch(1 0 0 / 0.06);
   --editor-on-dark: oklch(0.93 0.008 250);
   --editor-on-dark-muted: oklch(0.72 0.015 250);
   --track-video: oklch(0.76 0.12 180);
@@ -342,3 +345,66 @@
   );
   background-size: 22px 22px;
 }
+
+/* Editor slider — native range input styled with semantic tokens */
+@layer components {
+  .editor-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 1.25rem;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .editor-range::-webkit-slider-runnable-track {
+    height: 0.25rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 20%, var(--muted));
+  }
+
+  .editor-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 0.75rem;
+    width: 0.75rem;
+    margin-top: -0.25rem;
+    border-radius: 999px;
+    background: var(--primary);
+    border: 2px solid var(--card);
+    box-shadow: 0 1px 4px color-mix(in oklab, var(--foreground) 28%, transparent);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+
+  .editor-range:hover::-webkit-slider-thumb {
+    transform: scale(1.12);
+  }
+
+  .editor-range:focus-visible {
+    outline: none;
+  }
+
+  .editor-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 35%, transparent);
+  }
+
+  .editor-range::-moz-range-track {
+    height: 0.25rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 20%, var(--muted));
+  }
+
+  .editor-range::-moz-range-thumb {
+    height: 0.75rem;
+    width: 0.75rem;
+    border-radius: 999px;
+    background: var(--primary);
+    border: 2px solid var(--card);
+    box-shadow: 0 1px 4px color-mix(in oklab, var(--foreground) 28%, transparent);
+  }
+
+  .editor-range:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+

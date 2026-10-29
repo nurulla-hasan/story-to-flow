@@ -941,6 +941,7 @@ export default function StudioPage() {
                   </Button>
                   <Button
                     variant="outline"
+                    nativeButton={false}
                     className="gap-1.5"
                     render={<Link href="/editor" />}
                   >

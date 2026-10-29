@@ -27,16 +27,16 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowDown,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/card";
+  EditorPanel,
+  EditorPanelBody,
+  EditorPanelHeader,
+} from "@/components/editor/editor-panel";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
 import { useTimeline } from "@/lib/timeline-context";
 import {
   isVisualTrack,
@@ -60,17 +60,24 @@ import {
 } from "@/lib/zoom-effect";
 import {
   TRANSITION_PRESETS,
-  areClipsAdjacentForTransition,
   findEligibleTransitionPairs,
+  getTransitionToNext,
   validateTransitionDuration,
   MAX_TRANSITION_DURATION,
   MIN_TRANSITION_DURATION,
 } from "@/lib/transition-helpers";
+import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
 import { validateFadeDuration } from "@/lib/audio-fade-helpers";
 import { applyRippleExtend } from "@/lib/timeline-trim";
 import { hasVisualOverlap } from "@/lib/timeline-overlap";
 
-export function ClipInspectorPanel() {
+export function ClipInspectorPanel({
+  collapsed = false,
+  onToggleCollapsed,
+}: {
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+} = {}) {
   const {
     isHydrated,
     tracks,
@@ -150,13 +157,14 @@ export function ClipInspectorPanel() {
   };
 
   // Intermediate transient handler for smooth slider scrubbing with ripple extension
-  const handleTransientDurationChange = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleTransientDurationChange = (val: number | readonly number[]) => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const baseClips = getBaseClips();
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    if (!isNaN(val) && val >= 0.5) {
+    const rawVal = Array.isArray(val) ? val[0] : val;
+    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+    if (!isNaN(num) && num >= 0.5) {
       const speed = selectedClip.speed && selectedClip.speed > 0 ? selectedClip.speed : 1.0;
-      let clampedDur = val;
+      let clampedDur = num;
       if (selectedClip.sourceDuration && selectedClip.sourceDuration > 0) {
         const remaining = (selectedClip.sourceDuration - selectedClip.inPoint) / speed;
         clampedDur = Math.min(clampedDur, remaining);
@@ -172,12 +180,25 @@ export function ClipInspectorPanel() {
     }
   };
 
-  const handleTransientVolumeChange = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleSetImageDurationPreset = (targetDuration: number) => {
+    if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
+    const initialClips: TimelineClip[] = JSON.parse(JSON.stringify(clips));
+    const updatedClips = applyRippleExtend(
+      selectedClip.id,
+      targetDuration,
+      initialClips,
+      tracks
+    );
+    commitClipGesture(initialClips, updatedClips);
+  };
+
+  const handleTransientVolumeChange = (val: number | readonly number[]) => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const baseClips = getBaseClips();
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    if (!isNaN(val)) {
-      const updated = baseClips.map((c) => (c.id === selectedClip.id ? { ...c, volume: val } : c));
+    const rawVal = Array.isArray(val) ? val[0] : val;
+    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+    if (!isNaN(num)) {
+      const updated = baseClips.map((c) => (c.id === selectedClip.id ? { ...c, volume: num } : c));
       latestClipsRef.current = updated;
       setClipsTransient(updated);
     }
@@ -190,21 +211,23 @@ export function ClipInspectorPanel() {
     updateClip(selectedClip.id, { volume: newVol });
   };
 
-  const handleTransientFadeInChange = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleTransientFadeInChange = (val: number | readonly number[]) => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const baseClips = getBaseClips();
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeOutDuration ?? 0);
+    const rawVal = Array.isArray(val) ? val[0] : val;
+    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+    const safeFade = validateFadeDuration(num, selectedClip.duration, selectedClip.fadeOutDuration ?? 0);
     setClipsTransient(
       baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeInDuration: safeFade } : c))
     );
   };
 
-  const handleTransientFadeOutChange = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleTransientFadeOutChange = (val: number | readonly number[]) => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const baseClips = getBaseClips();
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    const safeFade = validateFadeDuration(val, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
+    const rawVal = Array.isArray(val) ? val[0] : val;
+    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+    const safeFade = validateFadeDuration(num, selectedClip.duration, selectedClip.fadeInDuration ?? 0);
     setClipsTransient(
       baseClips.map((c) => (c.id === selectedClip.id ? { ...c, fadeOutDuration: safeFade } : c))
     );
@@ -244,12 +267,14 @@ export function ClipInspectorPanel() {
   };
 
   // Transient strength scrubbing keeps a single history entry per drag
-  const handleTransientZoomAmountChange = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleTransientZoomAmountChange = (val: number | readonly number[]) => {
     if (!selectedClip || isTrackLocked(selectedClip.trackId, tracks)) return;
     const effect = sanitizeZoomEffect(selectedClip.zoomEffect);
     if (!effect) return;
     const baseClips = getBaseClips();
-    const amount = parseFloat((e.target as HTMLInputElement).value) / 100;
+    const rawVal = Array.isArray(val) ? val[0] : val;
+    const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+    const amount = num / 100;
     const zoomEffect = sanitizeZoomEffect({ ...effect, amount });
     setClipsTransient(
       baseClips.map((c) => (c.id === selectedClip.id ? { ...c, zoomEffect } : c))
@@ -275,84 +300,103 @@ export function ClipInspectorPanel() {
   }, [selectedClip, tracks]);
 
   // Find if selected visual clip has an adjacent next clip eligible for transition
-  const transitionToNext = React.useMemo(() => {
-    if (!selectedClip || !isVisualTrack(selectedClip.trackId, tracks)) return null;
-
-    const trackVisuals = clips
-      .filter((c) => c.trackId === selectedClip.trackId)
-      .sort((a, b) => a.startTime - b.startTime);
-
-    const myIndex = trackVisuals.findIndex((c) => c.id === selectedClip.id);
-    if (myIndex === -1 || myIndex >= trackVisuals.length - 1) return null;
-
-    const nextClip = trackVisuals[myIndex + 1];
-    if (!areClipsAdjacentForTransition(selectedClip, nextClip, tracks)) return null;
-
-    const existing = transitions.find(
-      (t) => t.fromClipId === selectedClip.id && t.toClipId === nextClip.id
-    );
-
-    return { nextClip, existing };
-  }, [selectedClip, clips, transitions, tracks]);
+  const transitionToNext = React.useMemo(
+    () => getTransitionToNext(selectedClip, clips, transitions, tracks),
+    [selectedClip, clips, transitions, tracks]
+  );
 
   const isCurrentTrackLocked = React.useMemo(() => {
     if (!selectedClip) return false;
     return isTrackLocked(selectedClip.trackId, tracks);
   }, [selectedClip, tracks]);
 
-  return (
-    <Card size="sm" className="flex flex-col h-full overflow-hidden">
-      <CardHeader className="flex flex-col gap-1.5 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="size-4 text-primary" />
-            <CardTitle>
-              {selectedTransition ? "Transition Inspector" : "Clip Inspector"}
-            </CardTitle>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {isCurrentTrackLocked && (
-              <Badge variant="outline" className="text-amber-500 border-amber-500/30 gap-1 text-3xs font-medium">
-                <Lock className="size-2.5" /> Locked
-              </Badge>
-            )}
-            <Badge
-              variant={
-                isHydrated && (selectedClip || selectedTransition)
-                  ? "secondary"
-                  : "outline"
-              }
+  if (collapsed) {
+    return (
+      <EditorPanel>
+        <div className="flex h-full items-center justify-center gap-2 px-2 py-2 lg:flex-col lg:justify-start">
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            onClick={onToggleCollapsed}
+            title="Expand inspector"
+            aria-label="Expand inspector"
+          >
+            <PanelRightOpen className="size-3.5" />
+          </Button>
+
+          <span className="hidden h-px w-6 bg-border lg:block" />
+
+          <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none lg:flex-col lg:gap-2">
+            <span
+              className={`size-1.5 shrink-0 rounded-full ${
+                selectedClip || selectedTransition ? "bg-primary" : "bg-muted-foreground/40"
+              }`}
+            />
+            <span className="truncate font-mono text-3xs font-semibold uppercase tracking-widest text-muted-foreground lg:hidden">
+              {selectedClip?.name ?? selectedTransition?.type ?? "Inspector"}
+            </span>
+            <span
+              className="hidden font-mono text-3xs font-semibold uppercase tracking-widest text-muted-foreground lg:block"
+              style={{ writingMode: "vertical-rl" }}
             >
-              {selectedTransition
-                ? "TRANSITION"
-                : isHydrated && selectedClip
-                ? `${selectedClip.type.toUpperCase()}`
-                : "No Selection"}
-            </Badge>
+              Inspector
+            </span>
           </div>
         </div>
-        <CardDescription>
-          {selectedTransition
+      </EditorPanel>
+    );
+  }
+
+  return (
+    <EditorPanel>
+      <EditorPanelHeader
+        icon={<SlidersHorizontal className="size-4" />}
+        title={selectedTransition ? "Transition inspector" : "Clip inspector"}
+        meta={
+          selectedTransition
             ? `Configuring ${selectedTransition.type}`
             : isHydrated && selectedClip
-            ? `Editing "${selectedClip.name}"`
-            : "Select a clip or transition on the timeline to edit properties"}
-        </CardDescription>
-      </CardHeader>
+              ? `Editing "${selectedClip.name}"`
+              : "Nothing selected"
+        }
+        actions={
+          <div className="flex items-center gap-1">
+            {isCurrentTrackLocked && (
+              <span className="flex items-center gap-1 rounded-full border border-warning/30 bg-warning-subtle px-2 py-0.5 text-3xs font-medium text-warning-subtle-foreground">
+                <Lock className="size-2.5" /> Locked
+              </span>
+            )}
+            {(selectedTransition || (isHydrated && selectedClip)) && (
+              <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-3xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {selectedTransition ? "transition" : selectedClip?.type}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onToggleCollapsed}
+              title="Collapse inspector"
+              aria-label="Collapse inspector"
+            >
+              <PanelRightClose className="size-3.5" />
+            </Button>
+          </div>
+        }
+      />
 
-      <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-3 p-3 overflow-y-auto">
+      <EditorPanelBody className="gap-3 overflow-y-auto p-3">
         {!isHydrated || (!selectedClip && !selectedTransition) ? (
           /* Empty selection guidance box */
-          <div className="flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-5 text-center space-y-2 bg-muted/20 my-auto">
-            <div className="size-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+          <div className="my-auto flex flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-border bg-surface-subtle/60 p-5 text-center">
+            <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/20">
               <MousePointerClick className="size-4" />
             </div>
-            <p className="text-xs font-semibold text-foreground">
-              No selection
-            </p>
-            <p className="text-2xs text-muted-foreground max-w-44 leading-relaxed">
-              Click any scene clip or transition on the timeline below to inspect and edit its properties.
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-foreground">No selection</p>
+              <p className="mx-auto max-w-44 text-2xs leading-relaxed text-muted-foreground">
+                Pick a scene clip or transition on the timeline to inspect and edit it.
+              </p>
+            </div>
           </div>
         ) : selectedTransition ? (
           /* TRANSITION INSPECTOR VIEW */
@@ -372,10 +416,10 @@ export function ClipInspectorPanel() {
             </div>
 
             {/* Transition Preset Type Picker */}
-            <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+            <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium text-foreground">Transition Style</span>
-                <span className="text-3xs text-muted-foreground font-mono">
+                <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-3xs font-semibold tracking-wide text-primary">
                   {selectedTransition.type}
                 </span>
               </div>
@@ -392,14 +436,20 @@ export function ClipInspectorPanel() {
                           type: preset.type as TransitionType,
                         })
                       }
-                      className={`p-2 text-2xs rounded-md border text-left transition-colors cursor-pointer ${
+                      className={`cursor-pointer rounded-lg border p-2 text-left transition-all duration-150 ${
                         isCurrent
-                          ? "border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary"
-                          : "border-border text-muted-foreground hover:bg-muted"
+                          ? "border-primary/60 bg-primary/10 ring-1 ring-primary/40"
+                          : "border-border/70 bg-card hover:border-primary/30 hover:bg-muted"
                       }`}
                     >
-                      <p className="font-semibold text-foreground text-3xs">{preset.label}</p>
-                      <p className="text-3xs text-muted-foreground line-clamp-1 mt-0.5">
+                      <p
+                        className={`text-3xs font-semibold ${
+                          isCurrent ? "text-primary" : "text-foreground"
+                        }`}
+                      >
+                        {preset.label}
+                      </p>
+                      <p className="mt-0.5 line-clamp-1 text-3xs text-muted-foreground">
                         {preset.description}
                       </p>
                     </button>
@@ -409,7 +459,7 @@ export function ClipInspectorPanel() {
             </div>
 
             {/* Transition Duration Slider */}
-            <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+            <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5 font-medium text-foreground">
                   <Clock className="size-3 text-muted-foreground" />
@@ -420,19 +470,19 @@ export function ClipInspectorPanel() {
                 </span>
               </div>
 
-              <input
-                type="range"
-                min="0.2"
-                max="1.5"
-                step="0.05"
+              <Slider
+                min={0.2}
+                max={1.5}
+                step={0.05}
                 value={selectedTransition.duration}
-                onChange={(e) =>
+                onValueChange={(val) => {
+                  const num = Array.isArray(val) ? val[0] : val;
                   updateTransition(selectedTransition.id, {
-                    duration: parseFloat(e.target.value),
-                  })
-                }
+                    duration: typeof num === "number" ? num : parseFloat(String(num)),
+                  });
+                }}
                 aria-label="Transition duration"
-                className="w-full accent-primary cursor-pointer"
+                className="w-full"
               />
 
               <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
@@ -445,10 +495,10 @@ export function ClipInspectorPanel() {
             <div className="space-y-1.5 pt-1">
               <Button
                 variant="outline"
-                size="sm"
+                size="default"
                 onClick={() => handleApplyToAll(selectedTransition.id)}
                 disabled={eligibleTransitionBoundaryCount === 0}
-                className="w-full gap-1.5 text-xs"
+                className="w-full"
                 title={
                   eligibleTransitionBoundaryCount === 0
                     ? "No eligible adjacent visual clip boundaries"
@@ -460,8 +510,8 @@ export function ClipInspectorPanel() {
               </Button>
 
               {applyFeedback && (
-                <div className="flex items-start gap-1.5 p-2 rounded-md bg-primary/10 border border-primary/20 text-3xs text-primary font-medium animate-in fade-in leading-relaxed">
-                  <CheckCircle2 className="size-3.5 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-1.5 rounded-lg border border-primary/20 bg-primary/10 p-2 text-3xs font-medium leading-relaxed text-primary animate-in fade-in">
+                  <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
                   <span>{applyFeedback}</span>
                 </div>
               )}
@@ -469,14 +519,14 @@ export function ClipInspectorPanel() {
 
             {/* Remove Transition Button */}
             <Button
-              variant="outline"
-              size="sm"
+              variant="destructive"
+              size="default"
               onClick={() => deleteTransition(selectedTransition.id)}
-              className="w-full gap-1 text-xs text-destructive hover:bg-destructive/10"
+              className="w-full"
               title="Delete this transition"
             >
               <Trash2 className="size-3" />
-              <span>Remove Transition</span>
+              <span>Remove transition</span>
             </Button>
           </div>
         ) : selectedClip ? (
@@ -505,7 +555,7 @@ export function ClipInspectorPanel() {
 
             {/* Visual Layer Dynamic Track Switcher */}
             {isVisualTrack(selectedClip.trackId, tracks) && visualTracksList.length > 1 && (
-              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+              <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     <Layers className="size-3 text-muted-foreground" />
@@ -560,7 +610,7 @@ export function ClipInspectorPanel() {
 
             {/* Audio Track Switcher */}
             {isAudioTrack(selectedClip.trackId, tracks) && audioTracksList.length > 1 && (
-              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+              <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     <Volume2 className="size-3 text-muted-foreground" />
@@ -608,26 +658,26 @@ export function ClipInspectorPanel() {
                 (transform.rotation || 0) === (DEFAULT_CLIP_TRANSFORM.rotation || 0);
 
               return (
-                <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+                <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="flex items-center gap-1.5 font-medium text-foreground">
                       <Move className="size-3 text-primary" />
                       <span>Canvas Transform</span>
                     </span>
                     {!isDefault && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="xs"
                         onClick={() =>
                           updateClip(selectedClip.id, {
                             transform: { ...DEFAULT_CLIP_TRANSFORM },
                           })
                         }
-                        className="text-3xs text-muted-foreground hover:text-primary flex items-center gap-1 cursor-pointer transition-colors"
                         title="Reset position, scale, and rotation to default"
                       >
                         <RotateCcw className="size-2.5" />
                         <span>Reset</span>
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -639,20 +689,20 @@ export function ClipInspectorPanel() {
                         {Math.round(transform.scale * 100)}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min="10"
-                      max="300"
-                      step="5"
+                    <Slider
+                      min={10}
+                      max={300}
+                      step={5}
                       value={Math.round(transform.scale * 100)}
                       onPointerDown={handleSliderPointerDown}
                       onPointerUp={handleSliderPointerUp}
                       onPointerCancel={handleSliderPointerUp}
                       onKeyDown={handleSliderPointerDown}
                       onKeyUp={handleSliderPointerUp}
-                      onChange={(e) => {
+                      onValueChange={(val) => {
                         const baseClips = getBaseClips();
-                        const scaleVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
+                        const num = Array.isArray(val) ? val[0] : val;
+                        const scaleVal = parseFloat((Number(num) / 100).toFixed(2));
                         setClipsTransient(
                           baseClips.map((c) =>
                             c.id === selectedClip.id
@@ -665,7 +715,7 @@ export function ClipInspectorPanel() {
                         );
                       }}
                       aria-label="Transform scale"
-                      className="w-full accent-primary cursor-pointer h-1"
+                      className="w-full"
                     />
                   </div>
 
@@ -678,20 +728,20 @@ export function ClipInspectorPanel() {
                           {Math.round(transform.x * 100)}%
                         </span>
                       </div>
-                      <input
-                        type="range"
-                        min="-100"
-                        max="100"
-                        step="2"
+                      <Slider
+                        min={-100}
+                        max={100}
+                        step={2}
                         value={Math.round(transform.x * 100)}
                         onPointerDown={handleSliderPointerDown}
                         onPointerUp={handleSliderPointerUp}
                         onPointerCancel={handleSliderPointerUp}
                         onKeyDown={handleSliderPointerDown}
                         onKeyUp={handleSliderPointerUp}
-                        onChange={(e) => {
+                        onValueChange={(val) => {
                           const baseClips = getBaseClips();
-                          const xVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
+                          const num = Array.isArray(val) ? val[0] : val;
+                          const xVal = parseFloat((Number(num) / 100).toFixed(2));
                           setClipsTransient(
                             baseClips.map((c) =>
                               c.id === selectedClip.id
@@ -701,7 +751,7 @@ export function ClipInspectorPanel() {
                           );
                         }}
                         aria-label="Transform position X"
-                        className="w-full accent-primary cursor-pointer h-1"
+                        className="w-full"
                       />
                     </div>
 
@@ -712,20 +762,20 @@ export function ClipInspectorPanel() {
                           {Math.round(transform.y * 100)}%
                         </span>
                       </div>
-                      <input
-                        type="range"
-                        min="-100"
-                        max="100"
-                        step="2"
+                      <Slider
+                        min={-100}
+                        max={100}
+                        step={2}
                         value={Math.round(transform.y * 100)}
                         onPointerDown={handleSliderPointerDown}
                         onPointerUp={handleSliderPointerUp}
                         onPointerCancel={handleSliderPointerUp}
                         onKeyDown={handleSliderPointerDown}
                         onKeyUp={handleSliderPointerUp}
-                        onChange={(e) => {
+                        onValueChange={(val) => {
                           const baseClips = getBaseClips();
-                          const yVal = parseFloat((Number(e.target.value) / 100).toFixed(2));
+                          const num = Array.isArray(val) ? val[0] : val;
+                          const yVal = parseFloat((Number(num) / 100).toFixed(2));
                           setClipsTransient(
                             baseClips.map((c) =>
                               c.id === selectedClip.id
@@ -735,7 +785,7 @@ export function ClipInspectorPanel() {
                           );
                         }}
                         aria-label="Transform position Y"
-                        className="w-full accent-primary cursor-pointer h-1"
+                        className="w-full"
                       />
                     </div>
                   </div>
@@ -749,20 +799,20 @@ export function ClipInspectorPanel() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min="-180"
-                        max="180"
-                        step="1"
+                      <Slider
+                        min={-180}
+                        max={180}
+                        step={1}
                         value={Math.round(transform.rotation || 0)}
                         onPointerDown={handleSliderPointerDown}
                         onPointerUp={handleSliderPointerUp}
                         onPointerCancel={handleSliderPointerUp}
                         onKeyDown={handleSliderPointerDown}
                         onKeyUp={handleSliderPointerUp}
-                        onChange={(e) => {
+                        onValueChange={(val) => {
                           const baseClips = getBaseClips();
-                          const rotVal = Number(e.target.value);
+                          const num = Array.isArray(val) ? val[0] : val;
+                          const rotVal = Number(num);
                           setClipsTransient(
                             baseClips.map((c) =>
                               c.id === selectedClip.id
@@ -772,10 +822,11 @@ export function ClipInspectorPanel() {
                           );
                         }}
                         aria-label="Transform rotation"
-                        className="w-full accent-primary cursor-pointer h-1"
+                        className="w-full"
                       />
-                      <button
-                        type="button"
+                      <Button
+                        variant="secondary"
+                        size="xs"
                         onClick={() => {
                           const currentRot = transform.rotation || 0;
                           const nextRot = (((currentRot + 90 + 180) % 360) - 180);
@@ -786,11 +837,11 @@ export function ClipInspectorPanel() {
                             }),
                           });
                         }}
-                        className="px-1.5 py-0.5 text-3xs rounded border border-border bg-secondary hover:bg-muted font-mono cursor-pointer transition-colors shrink-0"
+                        className="font-mono shrink-0"
                         title="Rotate 90 degrees clockwise"
                       >
                         +90°
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -841,24 +892,24 @@ export function ClipInspectorPanel() {
               };
 
               return (
-                <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+                <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="flex items-center gap-1.5 font-medium text-foreground">
                       <ZoomIn className="size-3 text-primary" />
                       <span>Scene Motion</span>
                     </span>
                     {effect && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="xs"
                         onClick={() =>
                           updateClip(selectedClip.id, { zoomEffect: undefined })
                         }
-                        className="text-3xs text-muted-foreground hover:text-destructive flex items-center gap-1 cursor-pointer transition-colors"
                         title="Remove motion effect from this scene"
                       >
                         <RotateCcw className="size-2.5" />
                         <span>Remove</span>
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -943,20 +994,19 @@ export function ClipInspectorPanel() {
                             {amountPct}%
                           </span>
                         </div>
-                        <input
-                          type="range"
+                        <Slider
                           min={MIN_ZOOM_EFFECT_AMOUNT * 100}
                           max={MAX_ZOOM_EFFECT_AMOUNT * 100}
-                          step="1"
+                          step={1}
                           value={amountPct}
                           onPointerDown={handleSliderPointerDown}
                           onPointerUp={handleSliderPointerUp}
                           onPointerCancel={handleSliderPointerUp}
                           onKeyDown={handleSliderPointerDown}
                           onKeyUp={handleSliderPointerUp}
-                          onChange={handleTransientZoomAmountChange}
+                          onValueChange={handleTransientZoomAmountChange}
                           aria-label="Scene motion strength"
-                          className="w-full accent-primary cursor-pointer h-1"
+                          className="w-full"
                         />
                         <p className="text-3xs text-muted-foreground">
                           {getMotionDescription()}
@@ -967,10 +1017,10 @@ export function ClipInspectorPanel() {
                       <div className="space-y-1.5 pt-1">
                         <Button
                           variant="outline"
-                          size="sm"
+                          size="default"
                           onClick={handleApplyMotionToAll}
                           disabled={imageClipsCount <= 1}
-                          className="w-full gap-1.5"
+                          className="w-full"
                           title={
                             imageClipsCount <= 1
                               ? "Only 1 image scene on timeline"
@@ -982,8 +1032,8 @@ export function ClipInspectorPanel() {
                         </Button>
 
                         {motionApplyFeedback && (
-                          <div className="flex items-start gap-1.5 p-2 rounded-md bg-primary/10 border border-primary/20 text-3xs text-primary font-medium animate-in fade-in leading-relaxed">
-                            <CheckCircle2 className="size-3.5 shrink-0 mt-0.5" />
+                          <div className="flex items-start gap-1.5 rounded-lg border border-primary/20 bg-primary/10 p-2 text-3xs font-medium leading-relaxed text-primary animate-in fade-in">
+                            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
                             <span>{motionApplyFeedback}</span>
                           </div>
                         )}
@@ -1003,20 +1053,43 @@ export function ClipInspectorPanel() {
             </div>
 
             {/* Duration Slider & Number Editor */}
-            <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+            <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5 font-medium text-foreground">
                   <Clock className="size-3 text-muted-foreground" />
                   <span>Duration</span>
                 </span>
-                <span className="font-mono text-xs font-semibold text-primary">
-                  {selectedClip.duration.toFixed(2)}s
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {selectedClip.type === "image" && (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant={Math.abs(selectedClip.duration - 4) < 0.05 ? "default" : "outline"}
+                        size="xs"
+                        disabled={isCurrentTrackLocked}
+                        onClick={() => handleSetImageDurationPreset(4)}
+                        title="Set duration to 4 seconds"
+                      >
+                        4s
+                      </Button>
+                      <Button
+                        variant={Math.abs(selectedClip.duration - 5) < 0.05 ? "default" : "outline"}
+                        size="xs"
+                        disabled={isCurrentTrackLocked}
+                        onClick={() => handleSetImageDurationPreset(5)}
+                        title="Set duration to 5 seconds"
+                      >
+                        5s
+                      </Button>
+                    </div>
+                  )}
+                  <span className="font-mono text-xs font-semibold text-primary">
+                    {selectedClip.duration.toFixed(2)}s
+                  </span>
+                </div>
               </div>
 
-              <input
-                type="range"
-                min="0.5"
+              <Slider
+                min={0.5}
                 max={
                   selectedClip.sourceDuration && selectedClip.sourceDuration > 0
                     ? Math.max(
@@ -1026,7 +1099,7 @@ export function ClipInspectorPanel() {
                       )
                     : 30
                 }
-                step="0.1"
+                step={0.1}
                 value={selectedClip.duration}
                 disabled={isCurrentTrackLocked}
                 onPointerDown={handleSliderPointerDown}
@@ -1034,9 +1107,9 @@ export function ClipInspectorPanel() {
                 onPointerCancel={handleSliderPointerUp}
                 onKeyDown={handleSliderPointerDown}
                 onKeyUp={handleSliderPointerUp}
-                onChange={handleTransientDurationChange}
+                onValueChange={handleTransientDurationChange}
                 aria-label="Clip duration"
-                className="w-full accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full"
               />
 
               <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
@@ -1055,23 +1128,23 @@ export function ClipInspectorPanel() {
 
             {/* Visual Transitions to Next Scene */}
             {transitionToNext && (
-              <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+              <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     <Sparkles className="size-3 text-primary" />
                     <span>Transition to Next Scene</span>
                   </span>
                   {transitionToNext.existing && (
-                    <Badge variant="secondary" className="text-3xs uppercase">
+                    <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-3xs font-semibold tracking-wide text-primary">
                       {transitionToNext.existing.type}
-                    </Badge>
+                    </span>
                   )}
                 </div>
 
                 {transitionToNext.existing ? (
                   /* Existing Transition Controls */
                   <div className="space-y-2 pt-1">
-                    <div className="grid grid-cols-2 gap-1">
+                    <div className="grid grid-cols-2 gap-1.5">
                       {TRANSITION_PRESETS.map((p) => {
                         const isCurrent = transitionToNext.existing?.type === p.type;
                         return (
@@ -1084,10 +1157,10 @@ export function ClipInspectorPanel() {
                                 type: p.type as TransitionType,
                               })
                             }
-                            className={`py-1 px-1.5 text-3xs rounded border text-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`cursor-pointer rounded-lg border px-2 py-1.5 text-center text-3xs font-semibold transition-all duration-150 disabled:pointer-events-none disabled:opacity-40 ${
                               isCurrent
-                                ? "border-primary bg-primary/10 text-primary font-bold"
-                                : "border-border text-muted-foreground hover:bg-muted"
+                                ? "border-primary/60 bg-primary/10 text-primary ring-1 ring-primary/40"
+                                : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:bg-muted hover:text-foreground"
                             }`}
                           >
                             {p.label}
@@ -1103,8 +1176,7 @@ export function ClipInspectorPanel() {
                       </span>
                     </div>
 
-                    <input
-                      type="range"
+                    <Slider
                       disabled={isCurrentTrackLocked}
                       min={MIN_TRANSITION_DURATION}
                       max={validateTransitionDuration(
@@ -1112,23 +1184,24 @@ export function ClipInspectorPanel() {
                         selectedClip,
                         transitionToNext.nextClip
                       )}
-                      step="0.05"
+                      step={0.05}
                       value={transitionToNext.existing.duration}
-                      onChange={(e) =>
+                      onValueChange={(val) => {
+                        const num = Array.isArray(val) ? val[0] : val;
                         updateTransition(transitionToNext.existing!.id, {
-                          duration: parseFloat(e.target.value),
-                        })
-                      }
-                      className="w-full accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          duration: typeof num === "number" ? num : parseFloat(String(num)),
+                        });
+                      }}
+                      className="w-full"
                     />
 
                     {/* Apply to All Transitions Action Button */}
                     <Button
                       variant="outline"
-                      size="sm"
+                      size="default"
                       onClick={() => handleApplyToAll(transitionToNext.existing!.id)}
                       disabled={isCurrentTrackLocked || eligibleTransitionBoundaryCount === 0}
-                      className="w-full gap-1 text-xs"
+                      className="w-full"
                       title={
                         eligibleTransitionBoundaryCount === 0
                           ? "No eligible adjacent visual clip boundaries"
@@ -1140,21 +1213,21 @@ export function ClipInspectorPanel() {
                     </Button>
 
                     {applyFeedback && (
-                      <div className="flex items-start gap-1 p-1.5 rounded-md bg-primary/10 border border-primary/20 text-3xs text-primary font-medium animate-in fade-in leading-relaxed">
-                        <CheckCircle2 className="size-3 shrink-0 mt-0.5" />
+                      <div className="flex items-start gap-1 rounded-lg border border-primary/20 bg-primary/10 p-1.5 text-3xs font-medium leading-relaxed text-primary animate-in fade-in">
+                        <CheckCircle2 className="mt-0.5 size-3 shrink-0" />
                         <span>{applyFeedback}</span>
                       </div>
                     )}
 
                     <Button
-                      variant="outline"
-                      size="sm"
+                      variant="destructive"
+                      size="default"
                       disabled={isCurrentTrackLocked}
                       onClick={() => deleteTransition(transitionToNext.existing!.id)}
-                      className="w-full gap-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full"
                     >
                       <Trash2 className="size-3" />
-                      <span>Remove Transition</span>
+                      <span>Remove transition</span>
                     </Button>
                   </div>
                 ) : (
@@ -1162,16 +1235,16 @@ export function ClipInspectorPanel() {
                   <div className="pt-1">
                     <Button
                       variant="outline"
-                      size="sm"
+                      size="default"
                       disabled={isCurrentTrackLocked}
                       onClick={() =>
                         addTransition(selectedClip.id, transitionToNext.nextClip.id, "cross-dissolve", 0.5)
                       }
-                      className="w-full gap-1 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full"
                       title="Add visual transition to next clip"
                     >
                       <Sparkles className="size-3" />
-                      <span>+ Add Transition to Next Scene</span>
+                      <span>Add transition to next scene</span>
                     </Button>
                   </div>
                 )}
@@ -1180,7 +1253,7 @@ export function ClipInspectorPanel() {
 
             {/* Audio & Video Scene Volume & Mute Controls */}
             {(isAudioTrack(selectedClip.trackId, tracks) || selectedClip.type === "video") && (
-              <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+              <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     {(selectedClip.volume ?? 1.0) === 0 ? (
@@ -1195,23 +1268,20 @@ export function ClipInspectorPanel() {
                       {(selectedClip.volume ?? 1.0) === 0 ? "Muted (0%)" : `${Math.round((selectedClip.volume ?? 1.0) * 100)}%`}
                     </span>
                     <Button
-                      type="button"
+                      variant={(selectedClip.volume ?? 1.0) === 0 ? "default" : "outline"}
                       size="sm"
                       disabled={isCurrentTrackLocked}
-                      variant={(selectedClip.volume ?? 1.0) === 0 ? "destructive" : "outline"}
                       onClick={handleToggleClipMute}
-                      className="h-6 px-2 text-3xs font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {(selectedClip.volume ?? 1.0) === 0 ? "Unmute" : "Mute"}
                     </Button>
                   </div>
                 </div>
 
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
+                <Slider
+                  min={0}
+                  max={1}
+                  step={0.05}
                   disabled={isCurrentTrackLocked}
                   value={selectedClip.volume ?? 1.0}
                   onPointerDown={handleSliderPointerDown}
@@ -1219,38 +1289,38 @@ export function ClipInspectorPanel() {
                   onPointerCancel={handleSliderPointerUp}
                   onKeyDown={handleSliderPointerDown}
                   onKeyUp={handleSliderPointerUp}
-                  onChange={handleTransientVolumeChange}
+                  onValueChange={handleTransientVolumeChange}
                   aria-label={selectedClip.type === "video" ? "Video volume" : "Audio clip volume"}
-                  className="w-full accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full"
                 />
 
                 <div className="flex items-center justify-between text-3xs text-muted-foreground font-mono">
                   <span>0% (Mute)</span>
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
+                    <Button
+                      variant="outline"
+                      size="xs"
                       disabled={isCurrentTrackLocked}
                       onClick={() => updateClip(selectedClip.id, { volume: 0 })}
-                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       0% (Mute)
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="xs"
                       disabled={isCurrentTrackLocked}
                       onClick={() => updateClip(selectedClip.id, { volume: 0.5 })}
-                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       50%
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="xs"
                       disabled={isCurrentTrackLocked}
                       onClick={() => updateClip(selectedClip.id, { volume: 1.0 })}
-                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       100%
-                    </button>
+                    </Button>
                   </div>
                   <span>100%</span>
                 </div>
@@ -1259,22 +1329,22 @@ export function ClipInspectorPanel() {
 
             {/* Audio Specific: Fade In & Fade Out Controls */}
             {isAudioTrack(selectedClip.trackId, tracks) && (
-              <div className="space-y-2 rounded-lg border border-border p-2.5 bg-card">
+              <div className="space-y-2 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     <SlidersHorizontal className="size-3 text-muted-foreground" />
                     <span>Audio Fades</span>
                   </span>
                   {(selectedClip.fadeInDuration || selectedClip.fadeOutDuration) ? (
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       disabled={isCurrentTrackLocked}
                       onClick={() => updateClip(selectedClip.id, { fadeInDuration: 0, fadeOutDuration: 0 })}
-                      className="text-3xs text-muted-foreground hover:text-destructive cursor-pointer font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                       title="Reset fades to 0s"
                     >
                       Reset Fades
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
 
@@ -1286,11 +1356,10 @@ export function ClipInspectorPanel() {
                       {(selectedClip.fadeInDuration || 0).toFixed(2)}s
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
+                  <Slider
+                    min={0}
                     max={Math.min(5.0, selectedClip.duration / 2)}
-                    step="0.05"
+                    step={0.05}
                     disabled={isCurrentTrackLocked}
                     value={selectedClip.fadeInDuration || 0}
                     onPointerDown={handleSliderPointerDown}
@@ -1298,9 +1367,9 @@ export function ClipInspectorPanel() {
                     onPointerCancel={handleSliderPointerUp}
                     onKeyDown={handleSliderPointerDown}
                     onKeyUp={handleSliderPointerUp}
-                    onChange={handleTransientFadeInChange}
+                    onValueChange={handleTransientFadeInChange}
                     aria-label="Audio fade-in duration"
-                    className="w-full accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full"
                   />
                 </div>
 
@@ -1312,11 +1381,10 @@ export function ClipInspectorPanel() {
                       {(selectedClip.fadeOutDuration || 0).toFixed(2)}s
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
+                  <Slider
+                    min={0}
                     max={Math.min(5.0, selectedClip.duration / 2)}
-                    step="0.05"
+                    step={0.05}
                     disabled={isCurrentTrackLocked}
                     value={selectedClip.fadeOutDuration || 0}
                     onPointerDown={handleSliderPointerDown}
@@ -1324,9 +1392,9 @@ export function ClipInspectorPanel() {
                     onPointerCancel={handleSliderPointerUp}
                     onKeyDown={handleSliderPointerDown}
                     onKeyUp={handleSliderPointerUp}
-                    onChange={handleTransientFadeOutChange}
+                    onValueChange={handleTransientFadeOutChange}
                     aria-label="Audio fade-out duration"
-                    className="w-full accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full"
                   />
                 </div>
               </div>
@@ -1334,7 +1402,7 @@ export function ClipInspectorPanel() {
 
             {/* Visual Specific: Speed Controls */}
             {isVisualTrack(selectedClip.trackId, tracks) && (
-              <div className="space-y-1.5 rounded-lg border border-border p-2.5 bg-card">
+              <div className="space-y-1.5 rounded-xl border border-border bg-surface-subtle/70 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     <Gauge className="size-3 text-muted-foreground" />
@@ -1345,39 +1413,21 @@ export function ClipInspectorPanel() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-1 text-center">
-                  {[0.5, 1.0, 1.5, 2.0].map((s) => {
+                <div className="grid grid-cols-4 gap-1.5 text-center">
+                  {CLIP_SPEED_PRESETS.map((s) => {
                     const isCurrent = (selectedClip.speed || 1.0) === s;
                     return (
                       <button
                         key={s}
                         type="button"
                         disabled={isCurrentTrackLocked || isCurrent}
-                        onClick={() => {
-                          const speedVal = s;
-                          const updates: Partial<TimelineClip> = { speed: speedVal };
-                          if (
-                            selectedClip.sourceDuration &&
-                            selectedClip.sourceDuration > 0 &&
-                            (selectedClip.type === "video" || selectedClip.type === "audio")
-                          ) {
-                            const maxDur =
-                              (selectedClip.sourceDuration - selectedClip.inPoint) / speedVal;
-                            if (selectedClip.duration > maxDur) {
-                              const clampedDur = Math.max(0.5, parseFloat(maxDur.toFixed(3)));
-                              updates.duration = clampedDur;
-                              updates.outPoint = selectedClip.inPoint + clampedDur * speedVal;
-                            } else {
-                              updates.outPoint =
-                                selectedClip.inPoint + selectedClip.duration * speedVal;
-                            }
-                          }
-                          updateClip(selectedClip.id, updates);
-                        }}
-                        className={`py-1 text-2xs font-mono rounded-md border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        onClick={() =>
+                          updateClip(selectedClip.id, buildClipSpeedUpdate(selectedClip, s))
+                        }
+                        className={`cursor-pointer rounded-lg border py-1 font-mono text-3xs font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
                           isCurrent
-                            ? "border-primary bg-primary/10 text-primary font-bold"
-                            : "border-border text-muted-foreground hover:bg-muted"
+                            ? "border-primary/60 bg-primary/10 text-primary ring-1 ring-primary/40"
+                            : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:bg-muted hover:text-foreground"
                         }`}
                       >
                         {s.toFixed(1)}x
@@ -1396,9 +1446,8 @@ export function ClipInspectorPanel() {
               <div className="grid grid-cols-2 gap-1.5">
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="default"
                   onClick={() => splitClipAtPlayhead(selectedClip.id)}
-                  className="gap-1 text-xs"
                   title="Split at playhead (Ctrl+B)"
                 >
                   <Scissors className="size-3" />
@@ -1407,9 +1456,8 @@ export function ClipInspectorPanel() {
 
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="default"
                   onClick={() => duplicateClip(selectedClip.id)}
-                  className="gap-1 text-xs"
                   title="Duplicate clip (Ctrl+D)"
                 >
                   <Copy className="size-3" />
@@ -1418,19 +1466,19 @@ export function ClipInspectorPanel() {
               </div>
 
               <Button
-                variant="outline"
-                size="sm"
+                variant="destructive"
+                size="default"
                 onClick={() => deleteClip(selectedClip.id)}
-                className="w-full gap-1 text-xs text-destructive hover:bg-destructive/10"
+                className="w-full"
                 title="Delete clip (Delete / Backspace)"
               >
                 <Trash2 className="size-3" />
-                <span>Delete Clip</span>
+                <span>Delete clip</span>
               </Button>
             </div>
           </div>
         ) : null}
-      </CardContent>
-    </Card>
+      </EditorPanelBody>
+    </EditorPanel>
   );
 }

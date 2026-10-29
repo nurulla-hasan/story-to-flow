@@ -30,15 +30,13 @@ import {
   Pencil,
   CopyCheck,
   Sparkles,
+  Gauge,
+  Check,
+  Move,
   MousePointerClick,
 } from "lucide-react";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -75,7 +73,13 @@ import {
   isTrackLocked,
   areClipsOnSameTrack,
 } from "@/types/timeline";
-import { findAdjacentClipPairs } from "@/lib/transition-helpers";
+import {
+  TRANSITION_PRESETS,
+  DEFAULT_TRANSITION_DURATION,
+  findAdjacentClipPairs,
+  getTransitionToNext,
+} from "@/lib/transition-helpers";
+import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
 import { calculateLeftTrimWithOverlap, calculateRightTrim, applyRippleExtend } from "@/lib/timeline-trim";
 import { reorderClipOnTrack } from "@/lib/timeline-reorder";
 import {
@@ -87,12 +91,28 @@ import {
 import { calculatePlayheadTimeFromPointer } from "@/lib/playhead-coordinates";
 import {
   DEFAULT_ZOOM_EFFECT_AMOUNT,
-  MAX_ZOOM_EFFECT_AMOUNT,
-  MIN_ZOOM_EFFECT_AMOUNT,
   sanitizeZoomEffect,
   type ZoomEffectType,
   type ClipZoomEffect,
 } from "@/lib/zoom-effect";
+import { getClipLod, isTightSeam } from "@/lib/timeline-lod";
+
+type MotionOption = {
+  type: "off" | ZoomEffectType;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+const MOTION_OPTIONS: MotionOption[] = [
+  { type: "off", label: "Off", icon: Sparkles },
+  { type: "zoom-in", label: "Zoom In", icon: ZoomIn },
+  { type: "zoom-out", label: "Zoom Out", icon: ZoomOut },
+  { type: "pan-left", label: "Pan Left", icon: ArrowLeft },
+  { type: "pan-right", label: "Pan Right", icon: ArrowRight },
+  { type: "pan-up", label: "Pan Up", icon: ArrowUp },
+  { type: "pan-down", label: "Pan Down", icon: ArrowDown },
+];
+
 
 export function TimelineDock() {
   const {
@@ -112,6 +132,7 @@ export function TimelineDock() {
     duplicateClip,
     addTransition,
     deleteTransition,
+    updateTransition,
     playhead,
     seek,
     commitPlayhead,
@@ -147,6 +168,16 @@ export function TimelineDock() {
   }, [clips, selectedClipId]);
 
   const selectedImageClip = selectedClip?.type === "image" ? selectedClip : null;
+
+  const isSelectedClipLocked = selectedClip
+    ? isTrackLocked(selectedClip.trackId, tracks)
+    : false;
+
+  // Adjacent clip that can hold a transition after the selected scene
+  const transitionToNext = React.useMemo(
+    () => getTransitionToNext(selectedClip, clips, transitions, tracks),
+    [selectedClip, clips, transitions, tracks]
+  );
   const imageClips = React.useMemo(
     () => clips.filter((c) => isVisualTrack(c.trackId, tracks) && c.type === "image"),
     [clips, tracks]
@@ -162,9 +193,11 @@ export function TimelineDock() {
   const activeMotionEffect = selectedImageClip
     ? sanitizeZoomEffect(selectedImageClip.zoomEffect)
     : unselectedPreset;
-  const motionAmountPct = Math.round(
-    (activeMotionEffect?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT) * 100
-  );
+
+  const motionLabel =
+    MOTION_OPTIONS.find(
+      (option) => option.type === (selectedImageClip?.zoomEffect?.type ?? "off")
+    )?.label ?? "Off";
 
   const handleTimelineSetMotion = (type: "off" | ZoomEffectType) => {
     if (type === "off") {
@@ -184,18 +217,6 @@ export function TimelineDock() {
       updateClip(selectedImageClip.id, { zoomEffect: newEffect });
     } else {
       setUnselectedPreset(newEffect);
-    }
-  };
-
-  const handleTimelineMotionAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value) / 100;
-    const safeAmount = Math.max(MIN_ZOOM_EFFECT_AMOUNT, Math.min(MAX_ZOOM_EFFECT_AMOUNT, val));
-
-    if (selectedImageClip && selectedImageClip.zoomEffect) {
-      const updated = sanitizeZoomEffect({ ...selectedImageClip.zoomEffect, amount: safeAmount });
-      updateClip(selectedImageClip.id, { zoomEffect: updated });
-    } else {
-      setUnselectedPreset((prev) => ({ ...prev, amount: safeAmount }));
     }
   };
 
@@ -759,22 +780,24 @@ export function TimelineDock() {
     const isFirst = isVisual ? isFirstVisual : isFirstAudio;
     const isLast = isVisual ? isLastVisual : isLastAudio;
 
+    const roleTone = isVisual
+      ? { rail: "border-l-track-video", tile: "bg-track-video-soft text-track-video" }
+      : track.role === "voiceover"
+        ? { rail: "border-l-track-voice", tile: "bg-track-voice-soft text-track-voice" }
+        : track.role === "music"
+          ? { rail: "border-l-track-music", tile: "bg-track-music-soft text-track-music" }
+          : { rail: "border-l-track-sfx", tile: "bg-track-sfx-soft text-track-sfx" };
+
     return (
       <div
         key={`sidebar_header_${track.id}`}
-        className={`h-11 border-b border-border p-2 flex items-center justify-between gap-1 transition-colors ${
-          track.locked ? "bg-muted/30" : "bg-muted/15 hover:bg-muted/25"
+        className={`group/trackhead flex h-11 items-center justify-between gap-1 border-b border-l-2 border-border px-2 transition-colors ${roleTone.rail} ${
+          track.locked ? "bg-muted/40" : "bg-card hover:bg-muted/30"
         }`}
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <div
-            className={`size-5 rounded flex items-center justify-center shrink-0 ${
-              isVisual
-                ? "bg-primary/15 text-primary"
-                : track.role === "voiceover"
-                ? "bg-secondary text-foreground"
-                : "bg-primary/10 text-primary"
-            }`}
+            className={`flex size-6 shrink-0 items-center justify-center rounded-md ${roleTone.tile}`}
           >
             {isVisual ? (
               <Layers className="size-3" />
@@ -807,7 +830,7 @@ export function TimelineDock() {
               <div className="flex items-center gap-1 group/name">
                 <p
                   onDoubleClick={() => startRename(track)}
-                  className="text-2xs font-semibold text-foreground leading-tight truncate max-w-20 cursor-pointer"
+                  className="max-w-32 cursor-pointer truncate text-2xs font-semibold leading-tight text-foreground"
                   title="Double-click to rename"
                 >
                   {track.name}
@@ -867,44 +890,46 @@ export function TimelineDock() {
             aria-label={track.locked ? "Unlock track" : "Lock track"}
           >
             {track.locked ? (
-              <Lock className="size-3 text-amber-500" />
+              <Lock className="size-3 text-warning" />
             ) : (
               <Unlock className="size-3 text-muted-foreground/40 hover:text-foreground" />
             )}
           </button>
 
-          <button
-            type="button"
-            disabled={isFirst}
-            onClick={() => reorderTrack(track.id, "up")}
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Move track up"
-            aria-label="Move track up"
-          >
-            <ChevronUp className="size-3" />
-          </button>
+          <div className="flex max-w-0 items-center gap-0.5 overflow-hidden opacity-0 transition-all duration-150 group-focus-within/trackhead:max-w-24 group-focus-within/trackhead:opacity-100 group-hover/trackhead:max-w-24 group-hover/trackhead:opacity-100">
+            <button
+              type="button"
+              disabled={isFirst}
+              onClick={() => reorderTrack(track.id, "up")}
+              className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20"
+              title="Move track up"
+              aria-label="Move track up"
+            >
+              <ChevronUp className="size-3" />
+            </button>
 
-          <button
-            type="button"
-            disabled={isLast}
-            onClick={() => reorderTrack(track.id, "down")}
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Move track down"
-            aria-label="Move track down"
-          >
-            <ChevronDown className="size-3" />
-          </button>
+            <button
+              type="button"
+              disabled={isLast}
+              onClick={() => reorderTrack(track.id, "down")}
+              className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20"
+              title="Move track down"
+              aria-label="Move track down"
+            >
+              <ChevronDown className="size-3" />
+            </button>
 
-          <button
-            type="button"
-            disabled={track.locked}
-            onClick={() => handleDeleteClick(track)}
-            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title={track.locked ? "Cannot delete locked track" : "Delete track"}
-            aria-label="Delete track"
-          >
-            <Trash2 className="size-3" />
-          </button>
+            <button
+              type="button"
+              disabled={track.locked}
+              onClick={() => handleDeleteClick(track)}
+              className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-20"
+              title={track.locked ? "Cannot delete locked track" : "Delete track"}
+              aria-label="Delete track"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -923,23 +948,23 @@ export function TimelineDock() {
         }}
         onDrop={(e) => handleTrackDrop(e, track.id)}
         style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-        className={`min-w-full relative h-full flex items-center px-1 overflow-visible ${
-          isLocked ? "bg-muted/15" : ""
-        } ${isHidden ? "opacity-60" : ""}`}
+        className={`relative flex h-full min-w-full items-center overflow-visible px-1 ${
+          isLocked ? "bg-muted/20" : ""
+        } ${isHidden ? "opacity-50" : ""}`}
       >
         {/* Full-width vertical grid lines across the track lane */}
         {rulerTicks.map((tick) => (
           <div
             key={`grid_${tick.time}`}
             style={{ left: `${tick.leftPx}px` }}
-            className="absolute top-0 bottom-0 w-px bg-border/20 pointer-events-none"
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/40"
           />
         ))}
 
         {!isHydrated || trackClips.length === 0 ? (
-          <div className="w-full border border-dashed border-border/60 rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/5 pointer-events-none">
+          <div className="pointer-events-none flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-muted/10 text-3xs text-muted-foreground">
             {isLocked ? (
-              <span className="flex items-center gap-1 text-amber-500/80">
+              <span className="flex items-center gap-1 text-warning">
                 <Lock className="size-3" />
                 <span>Track is locked.</span>
               </span>
@@ -959,6 +984,7 @@ export function TimelineDock() {
               const leftPos = clip.startTime * pxPerSec;
               const widthPx = Math.max(4, clip.duration * pxPerSec);
               const asset = assetMap.get(clip.assetId);
+              const lod = getClipLod(widthPx);
 
               return (
                 <div
@@ -973,40 +999,43 @@ export function TimelineDock() {
                     if (!isLocked) startMoveDrag(e, clip);
                     else selectClip(clip.id);
                   }}
-                  className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none ${
+                  className={`group absolute flex h-9 items-center justify-between overflow-hidden rounded-lg border px-2 shadow-xs transition-[box-shadow,background-color,border-color] select-none ${
                     isLocked ? "cursor-not-allowed opacity-90" : "cursor-grab active:cursor-grabbing"
                   } ${
                     isSelected
-                      ? "border-primary bg-primary/20 ring-2 ring-primary shadow-sm z-10"
-                      : "border-border bg-card hover:border-primary/50"
+                      ? "z-10 border-primary bg-primary/15 ring-2 ring-primary/60 shadow-md"
+                      : "border-track-video/40 bg-track-video-soft hover:border-track-video"
                   }`}
                 >
                   {/* Left-edge trim handle (in-point & anchored right edge) */}
                   {!isLocked && (
                     <div
                       onPointerDown={(e) => startLeftTrimDrag(e, clip)}
-                      className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
+                      className="group/leftHandle absolute top-0 bottom-0 left-0 z-20 flex w-2 items-center justify-center rounded-l-lg bg-primary/25 transition-all hover:w-3 hover:bg-primary cursor-ew-resize"
                       title="Drag to trim start (in-point)"
                     >
-                      <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                      <div className="pointer-events-none h-3 w-0.5 rounded-full bg-primary/70 group-hover/leftHandle:bg-primary-foreground" />
                     </div>
                   )}
 
                   {/* Clip info & thumbnail */}
-                  <div className="flex items-center gap-1 min-w-0 pointer-events-none px-1">
-                    {asset?.thumbnailUrl || asset?.url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={asset.thumbnailUrl || asset.url}
-                        alt={clip.name}
-                        className="size-5 rounded object-cover shrink-0"
-                      />
-                    ) : (
-                      <Video className="size-3 text-primary shrink-0" />
+                  <div className="pointer-events-none flex min-w-0 items-center gap-1.5 px-1">
+                    {lod.thumbnail &&
+                      (asset?.thumbnailUrl || asset?.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={asset.thumbnailUrl || asset.url}
+                          alt={clip.name}
+                          className="size-6 shrink-0 rounded object-cover ring-1 ring-border"
+                        />
+                      ) : (
+                        <Video className="size-3 shrink-0 text-track-video" />
+                      ))}
+                    {lod.name && (
+                      <span className="truncate text-3xs font-semibold text-foreground">
+                        {clip.name}
+                      </span>
                     )}
-                    <span className="text-3xs font-medium text-foreground truncate">
-                      {clip.name}
-                    </span>
                     {clip.volume === 0 && (
                       <span title="Scene audio muted" className="shrink-0">
                         <VolumeX className="size-2.5 text-destructive" />
@@ -1014,18 +1043,20 @@ export function TimelineDock() {
                     )}
                   </div>
 
-                  <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none pr-1">
-                    {clip.duration.toFixed(1)}s
-                  </span>
+                  {lod.duration && (
+                    <span className="pointer-events-none shrink-0 pl-1 pr-1 font-mono text-3xs tabular-nums text-muted-foreground">
+                      {clip.duration.toFixed(1)}s
+                    </span>
+                  )}
 
                   {/* Right-edge trim handle (duration & anchored start time) */}
                   {!isLocked && (
                     <div
                       onPointerDown={(e) => startRightTrimDrag(e, clip)}
-                      className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
+                      className="group/rightHandle absolute top-0 right-0 bottom-0 z-20 flex w-2 items-center justify-center rounded-r-lg bg-primary/25 transition-all hover:w-3 hover:bg-primary cursor-ew-resize"
                       title="Drag to trim end (duration)"
                     >
-                      <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                      <div className="pointer-events-none h-3 w-0.5 rounded-full bg-primary/70 group-hover/rightHandle:bg-primary-foreground" />
                     </div>
                   )}
                 </div>
@@ -1041,6 +1072,56 @@ export function TimelineDock() {
                   (t.fromClipId === toClip.id && t.toClipId === fromClip.id)
               );
               const isSelected = existingTrans && existingTrans.id === selectedTransitionId;
+              const isAdjacentSelected =
+                fromClip.id === selectedClipId || toClip.id === selectedClipId;
+              const tightSeam = isTightSeam(
+                fromClip.duration * pxPerSec,
+                toClip.duration * pxPerSec
+              );
+
+              // At low zoom a 20px badge covers several clips at once. Keep only a
+              // hairline marker for existing transitions, and hide "add" affordances
+              // unless one of the neighbouring clips is selected.
+              if (tightSeam) {
+                if (!existingTrans && !isAdjacentSelected) return null;
+                return (
+                  <div
+                    key={`seam_${fromClip.id}_${toClip.id}`}
+                    style={{
+                      left: `${cutPx}px`,
+                      top: "50%",
+                      transform: "translate(-50%, -50%)",
+                    }}
+                    className="absolute z-30 flex items-center justify-center"
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (existingTrans) selectTransition(existingTrans.id);
+                        else addTransition(fromClip.id, toClip.id);
+                      }}
+                      className={`flex cursor-pointer items-center justify-center rounded-full transition-all hover:scale-125 ${
+                        existingTrans
+                          ? "size-2.5 bg-primary shadow-xs ring-2 ring-background"
+                          : "size-3.5 border border-primary/50 bg-card text-primary shadow-xs"
+                      }`}
+                      title={
+                        existingTrans
+                          ? `Transition: ${existingTrans.type} (${existingTrans.duration.toFixed(2)}s) — Click to edit or remove`
+                          : `Add visual transition between "${fromClip.name}" and "${toClip.name}"`
+                      }
+                      aria-label={
+                        existingTrans
+                          ? `Transition: ${existingTrans.type}`
+                          : "Add transition"
+                      }
+                    >
+                      {!existingTrans && <Plus className="size-2" />}
+                    </button>
+                  </div>
+                );
+              }
 
               return (
                 <div
@@ -1102,11 +1183,18 @@ export function TimelineDock() {
     const isLocked = track.locked;
     const isMuted = track.muted;
 
+    const laneTone =
+      track.role === "music"
+        ? { border: "border-track-music/40", bg: "bg-track-music-soft", text: "text-track-music" }
+        : track.role === "voiceover"
+          ? { border: "border-track-voice/40", bg: "bg-track-voice-soft", text: "text-track-voice" }
+          : { border: "border-track-sfx/40", bg: "bg-track-sfx-soft", text: "text-track-sfx" };
+
     const getAudioRoleIcon = (role?: AudioTrackRole) => {
-      if (role === "voiceover") return <Mic className="size-3 text-primary shrink-0" />;
-      if (role === "music") return <Music className="size-3 text-primary shrink-0" />;
-      if (role === "ambient") return <Radio className="size-3 text-primary shrink-0" />;
-      return <Volume2 className="size-3 text-primary shrink-0" />;
+      if (role === "voiceover") return <Mic className={`size-3 shrink-0 ${laneTone.text}`} />;
+      if (role === "music") return <Music className={`size-3 shrink-0 ${laneTone.text}`} />;
+      if (role === "ambient") return <Radio className={`size-3 shrink-0 ${laneTone.text}`} />;
+      return <Volume2 className={`size-3 shrink-0 ${laneTone.text}`} />;
     };
 
     const getAudioRolePlaceholder = (role?: AudioTrackRole) => {
@@ -1124,23 +1212,23 @@ export function TimelineDock() {
         }}
         onDrop={(e) => handleTrackDrop(e, track.id)}
         style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-        className={`min-w-full relative h-full flex items-center px-1 overflow-visible ${
-          isLocked ? "bg-muted/15" : ""
-        } ${isMuted ? "opacity-75" : ""}`}
+        className={`relative flex h-full min-w-full items-center overflow-visible px-1 ${
+          isLocked ? "bg-muted/20" : ""
+        } ${isMuted ? "opacity-70" : ""}`}
       >
         {/* Full-width vertical grid lines across audio lane */}
         {rulerTicks.map((tick) => (
           <div
             key={`audio_grid_${tick.time}`}
             style={{ left: `${tick.leftPx}px` }}
-            className="absolute top-0 bottom-0 w-px bg-border/20 pointer-events-none"
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/40"
           />
         ))}
 
         {!isHydrated || trackClips.length === 0 ? (
-          <div className="w-full border border-dashed border-border rounded h-7 flex items-center justify-center text-3xs text-muted-foreground gap-1.5 bg-muted/10 pointer-events-none">
+          <div className="pointer-events-none flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-muted/10 text-3xs text-muted-foreground">
             {isLocked ? (
-              <span className="flex items-center gap-1 text-amber-500/80">
+              <span className="flex items-center gap-1 text-warning">
                 <Lock className="size-3" />
                 <span>Track is locked.</span>
               </span>
@@ -1157,6 +1245,7 @@ export function TimelineDock() {
             const leftPos = clip.startTime * pxPerSec;
             const widthPx = Math.max(4, clip.duration * pxPerSec);
             const asset = assetMap.get(clip.assetId);
+            const lod = getClipLod(widthPx);
 
             return (
               <div
@@ -1171,27 +1260,27 @@ export function TimelineDock() {
                   if (!isLocked) startMoveDrag(e, clip);
                   else selectClip(clip.id);
                 }}
-                className={`group absolute h-8 rounded-md border flex items-center justify-between px-2 overflow-hidden transition-shadow select-none ${
+                className={`group absolute flex h-9 items-center justify-between overflow-hidden rounded-lg border px-2 shadow-xs transition-[box-shadow,background-color,border-color] select-none ${
                   isLocked ? "cursor-not-allowed opacity-90" : "cursor-grab active:cursor-grabbing"
                 } ${
                   isSelected
-                    ? "border-primary bg-primary/25 ring-2 ring-primary shadow-sm z-10"
-                    : "border-border bg-card hover:border-primary/50"
+                    ? "z-10 border-primary bg-primary/20 ring-2 ring-primary/60 shadow-md"
+                    : `${laneTone.border} ${laneTone.bg} hover:border-primary/60`
                 }`}
               >
                 {/* Left-edge trim handle */}
                 {!isLocked && (
                   <div
                     onPointerDown={(e) => startLeftTrimDrag(e, clip)}
-                    className="absolute left-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-l z-20 flex items-center justify-center group/leftHandle"
+                    className="group/leftHandle absolute top-0 bottom-0 left-0 z-20 flex w-2 items-center justify-center rounded-l-lg bg-primary/25 transition-all hover:w-3 hover:bg-primary cursor-ew-resize"
                     title="Drag to trim start (in-point)"
                   >
-                    <div className="w-0.5 h-3 bg-primary/70 group-hover/leftHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                    <div className="pointer-events-none h-3 w-0.5 rounded-full bg-primary/70 group-hover/leftHandle:bg-primary-foreground" />
                   </div>
                 )}
 
                 {/* Audio Waveform Visualization with Fade-In / Fade-Out Ramps */}
-                <div className="absolute inset-0 flex items-center justify-center px-1 overflow-hidden pointer-events-none opacity-40">
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden px-1 opacity-50">
                   <AudioWaveformView
                     blob={asset?.blob || null}
                     clipDuration={clip.duration}
@@ -1200,11 +1289,13 @@ export function TimelineDock() {
                   />
                 </div>
 
-                <div className="flex items-center gap-1.5 min-w-0 pointer-events-none z-10 px-1">
+                <div className="pointer-events-none z-10 flex min-w-0 items-center gap-1.5 px-1">
                   {getAudioRoleIcon(track.role)}
-                  <span className="text-3xs font-medium text-foreground truncate">
-                    {clip.name}
-                  </span>
+                  {lod.name && (
+                    <span className="truncate text-3xs font-semibold text-foreground">
+                      {clip.name}
+                    </span>
+                  )}
                   {(clip.volume === 0 || isMuted) && (
                     <span title={isMuted ? "Track is muted" : "Clip audio muted"} className="shrink-0">
                       <VolumeX className="size-2.5 text-destructive" />
@@ -1212,18 +1303,20 @@ export function TimelineDock() {
                   )}
                 </div>
 
-                <span className="text-3xs font-mono text-muted-foreground shrink-0 pl-1 pointer-events-none z-10 pr-1">
-                  {clip.duration.toFixed(1)}s
-                </span>
+                {lod.duration && (
+                  <span className="pointer-events-none z-10 shrink-0 pl-1 pr-1 font-mono text-3xs tabular-nums text-muted-foreground">
+                    {clip.duration.toFixed(1)}s
+                  </span>
+                )}
 
                 {/* Right-edge trim handle */}
                 {!isLocked && (
                   <div
                     onPointerDown={(e) => startRightTrimDrag(e, clip)}
-                    className="absolute right-0 top-0 bottom-0 w-2.5 hover:w-3.5 bg-primary/25 hover:bg-primary cursor-ew-resize transition-all rounded-r z-20 flex items-center justify-center group/rightHandle"
+                    className="group/rightHandle absolute top-0 right-0 bottom-0 z-20 flex w-2 items-center justify-center rounded-r-lg bg-primary/25 transition-all hover:w-3 hover:bg-primary cursor-ew-resize"
                     title="Drag to trim duration"
                   >
-                    <div className="w-0.5 h-3 bg-primary/70 group-hover/rightHandle:bg-primary-foreground rounded-full pointer-events-none" />
+                    <div className="pointer-events-none h-3 w-0.5 rounded-full bg-primary/70 group-hover/rightHandle:bg-primary-foreground" />
                   </div>
                 )}
               </div>
@@ -1235,30 +1328,28 @@ export function TimelineDock() {
   };
 
   return (
-    <Card size="sm" className="flex flex-col w-full shrink-0">
-      {/* Timeline Controls Header — 100% Icon-Only Ghost Buttons with Tooltips */}
-      <CardHeader className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center justify-between gap-2 w-full min-w-0">
-          {/* Left: Icon-Only Ghost Action Buttons + Playhead/Zoom/Snap */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="mr-1 flex items-center gap-2">
-              <CardTitle className="flex items-center gap-1">
-                Timeline
-              </CardTitle>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="h-6 px-1.5 gap-1 text-2xs font-medium text-foreground hover:bg-muted cursor-pointer"
-                      title="Create a new timeline track"
-                    >
-                      <Plus className="size-3 text-primary" />
-                      <span className="hidden sm:inline">Add Track</span>
-                    </Button>
-                  }
-                />
+    <div className="flex w-full flex-col">
+      {/* Timeline toolbar — tools on the left, contextual scene controls on the right */}
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2">
+        {/* Left: Icon-Only Ghost Action Buttons + Playhead/Zoom/Snap */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="mr-1 flex items-center gap-2">
+            <span className="text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Timeline
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    title="Create a new timeline track"
+                  >
+                    <Plus className="size-3 text-primary" />
+                    <span className="hidden sm:inline">Add track</span>
+                  </Button>
+                }
+              />
                 <DropdownMenuContent align="start" className="w-48">
                   <DropdownMenuGroup>
                     <DropdownMenuLabel className="text-3xs text-muted-foreground uppercase font-semibold">
@@ -1299,7 +1390,7 @@ export function TimelineDock() {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-sm"
                     disabled={!selectedClipId}
                     onClick={() => splitClipAtPlayhead()}
                     aria-label="Split clip at playhead (Ctrl+B)"
@@ -1318,7 +1409,7 @@ export function TimelineDock() {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-sm"
                     disabled={!selectedClipId && !selectedTransitionId}
                     onClick={() => {
                       if (selectedClipId) deleteClip(selectedClipId);
@@ -1341,7 +1432,7 @@ export function TimelineDock() {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-sm"
                     disabled={!selectedClipId}
                     onClick={() => selectedClipId && duplicateClip(selectedClipId)}
                     aria-label="Duplicate clip (Ctrl+D)"
@@ -1360,7 +1451,7 @@ export function TimelineDock() {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-sm"
                     disabled={!hasAudio || !hasVisual}
                     onClick={() => fitVisualsToVoiceover()}
                     aria-label="Fit visual scenes to voiceover"
@@ -1377,7 +1468,8 @@ export function TimelineDock() {
             <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
 
             {/* Playhead Time Display */}
-            <div className="font-mono text-2xs bg-muted text-foreground font-semibold px-1.5 py-0.5 rounded shrink-0">
+            <div className="flex shrink-0 items-baseline gap-1 rounded-md bg-muted px-2 py-1 font-mono text-2xs font-semibold tabular-nums text-foreground">
+              <span className="size-1.5 shrink-0 rounded-full bg-primary" />
               {isHydrated ? playhead.toFixed(2) : "0.00"}s
             </div>
 
@@ -1387,7 +1479,7 @@ export function TimelineDock() {
                 render={
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-sm"
                     onClick={() => setSnapEnabled(!snapEnabled)}
                     aria-label="Toggle magnetic snapping"
                   >
@@ -1413,7 +1505,7 @@ export function TimelineDock() {
                   render={
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="icon-sm"
                       onClick={() => handleZoomChange(zoom - 25)}
                       disabled={zoom <= MIN_TIMELINE_ZOOM}
                       aria-label="Zoom out timeline"
@@ -1427,16 +1519,17 @@ export function TimelineDock() {
                 </TooltipContent>
               </Tooltip>
 
-              <input
-                type="range"
+              <Slider
                 min={MIN_TIMELINE_ZOOM}
                 max={MAX_TIMELINE_ZOOM}
-                step="5"
+                step={5}
                 value={zoom}
-                onInput={(e) => handleZoomChange(Number((e.target as HTMLInputElement).value))}
-                onChange={(e) => handleZoomChange(Number(e.target.value))}
+                onValueChange={(val) => {
+                  const num = Array.isArray(val) ? val[0] : val;
+                  handleZoomChange(num);
+                }}
                 aria-label="Timeline zoom scale"
-                className="w-16 sm:w-20 accent-primary cursor-pointer h-1"
+                className="w-20"
               />
 
               <Tooltip>
@@ -1444,7 +1537,7 @@ export function TimelineDock() {
                   render={
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="icon-sm"
                       onClick={() => handleZoomChange(zoom + 25)}
                       disabled={zoom >= MAX_TIMELINE_ZOOM}
                       aria-label="Zoom in timeline"
@@ -1465,9 +1558,186 @@ export function TimelineDock() {
           </div>
 
           {/* Right: THE MARKED AREA — Contextual Selected Clip & Scene Controls */}
-          <div className="flex items-center gap-1 min-w-0 justify-end flex-1 overflow-x-auto py-0.5">
+          <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto py-0.5">
             {selectedClip ? (
-              <div className="flex items-center gap-1 shrink-0 min-w-0">
+              <div className="ml-auto flex items-center gap-1 shrink-0 min-w-0">
+                {/* Quick clip settings, surfaced from the inspector */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {isVisualTrack(selectedClip.trackId, tracks) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isSelectedClipLocked}
+                            title="Playback speed"
+                          >
+                            <Gauge className="size-3.5 text-primary" />
+                            <span className="font-mono tabular-nums">
+                              {(selectedClip.speed || 1).toFixed(1)}×
+                            </span>
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuGroup>
+                          <DropdownMenuLabel>Playback speed</DropdownMenuLabel>
+                          {CLIP_SPEED_PRESETS.map((speed) => {
+                            const isCurrent = (selectedClip.speed || 1) === speed;
+                            return (
+                              <DropdownMenuItem
+                                key={speed}
+                                disabled={isCurrent}
+                                onClick={() =>
+                                  updateClip(selectedClip.id, buildClipSpeedUpdate(selectedClip, speed))
+                                }
+                              >
+                                <Check
+                                  className={`size-3.5 ${isCurrent ? "text-primary" : "opacity-0"}`}
+                                />
+                                <span className="font-mono">{speed.toFixed(1)}×</span>
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
+                  {transitionToNext && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant={transitionToNext.existing ? "outline" : "ghost"}
+                            size="sm"
+                            disabled={isSelectedClipLocked}
+                            title="Transition to next scene"
+                          >
+                            <Sparkles className="size-3.5 text-primary" />
+                            <span className="max-w-24 truncate">
+                              {transitionToNext.existing
+                                ? TRANSITION_PRESETS.find(
+                                    (preset) => preset.type === transitionToNext.existing?.type
+                                  )?.label
+                                : "Transition"}
+                            </span>
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="w-60">
+                        <DropdownMenuGroup>
+                          <DropdownMenuLabel>Transition to next scene</DropdownMenuLabel>
+                          {TRANSITION_PRESETS.map((preset) => {
+                            const isCurrent = transitionToNext.existing?.type === preset.type;
+                            return (
+                              <DropdownMenuItem
+                                key={preset.type}
+                                disabled={isCurrent}
+                                onClick={() => {
+                                  if (transitionToNext.existing) {
+                                    updateTransition(transitionToNext.existing.id, {
+                                      type: preset.type,
+                                    });
+                                  } else {
+                                    addTransition(
+                                      selectedClip.id,
+                                      transitionToNext.nextClip.id,
+                                      preset.type,
+                                      DEFAULT_TRANSITION_DURATION
+                                    );
+                                  }
+                                }}
+                              >
+                                <Check
+                                  className={`size-3.5 ${isCurrent ? "text-primary" : "opacity-0"}`}
+                                />
+                                <div className="flex min-w-0 flex-col">
+                                  <span>{preset.label}</span>
+                                  <span className="truncate text-3xs text-muted-foreground">
+                                    {preset.description}
+                                  </span>
+                                </div>
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuGroup>
+                        {transitionToNext.existing && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => deleteTransition(transitionToNext.existing!.id)}
+                            >
+                              <Trash2 className="size-3.5" />
+                              <span>Remove transition</span>
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
+                  {selectedClip.type === "image" && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant={selectedClip.zoomEffect ? "outline" : "ghost"}
+                            size="sm"
+                            disabled={isSelectedClipLocked}
+                            title="Scene motion"
+                          >
+                            <Move className="size-3.5 text-primary" />
+                            <span>{motionLabel}</span>
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuGroup>
+                          <DropdownMenuLabel>Scene motion</DropdownMenuLabel>
+                          {MOTION_OPTIONS.map((option) => {
+                            const isCurrent = (selectedClip.zoomEffect?.type ?? "off") === option.type;
+                            const Icon = option.icon;
+                            return (
+                              <DropdownMenuItem
+                                key={option.type}
+                                disabled={isCurrent}
+                                onClick={() => handleTimelineSetMotion(option.type)}
+                              >
+                                <Check
+                                  className={`size-3.5 ${isCurrent ? "text-primary" : "opacity-0"}`}
+                                />
+                                <Icon className="size-3.5 text-muted-foreground" />
+                                <span>{option.label}</span>
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={imageClipsCount <= 1 || !selectedClip.zoomEffect}
+                          onClick={handleTimelineApplyMotionToAll}
+                        >
+                          <CopyCheck className="size-3.5" />
+                          <span>
+                            {selectedClip.zoomEffect
+                              ? `Apply to all ${imageClipsCount} scenes`
+                              : "Apply motion to all scenes"}
+                          </span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
+                  {motionFeedback && (
+                    <span className="animate-in fade-in shrink-0 font-mono text-2xs font-semibold text-primary">
+                      {motionFeedback}
+                    </span>
+                  )}
+                </div>
+
                 <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
 
                 {/* Dynamic Visual Track Layer Switcher */}
@@ -1536,197 +1806,6 @@ export function TimelineDock() {
                   </div>
                 )}
 
-                {/* Scene Motion (Images only) */}
-                {selectedClip.type === "image" && (
-                  <>
-                    {/* Motion Off */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={!selectedClip.zoomEffect ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("off")}
-                            aria-label="Scene Motion: Off"
-                          >
-                            <Sparkles className={`size-4 ${!selectedClip.zoomEffect ? "text-muted-foreground" : "opacity-40"}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Scene Motion: Off</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Zoom In */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect?.type === "zoom-in" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("zoom-in")}
-                            aria-label="Motion: Zoom In"
-                          >
-                            <ZoomIn className={`size-4 ${selectedClip.zoomEffect?.type === "zoom-in" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Motion: Zoom In</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Zoom Out */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect?.type === "zoom-out" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("zoom-out")}
-                            aria-label="Motion: Zoom Out"
-                          >
-                            <ZoomOut className={`size-4 ${selectedClip.zoomEffect?.type === "zoom-out" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Motion: Zoom Out</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Pan Left */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect?.type === "pan-left" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("pan-left")}
-                            aria-label="Motion: Pan Left"
-                          >
-                            <ArrowLeft className={`size-4 ${selectedClip.zoomEffect?.type === "pan-left" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Motion: Pan Left</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Pan Right */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect?.type === "pan-right" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("pan-right")}
-                            aria-label="Motion: Pan Right"
-                          >
-                            <ArrowRight className={`size-4 ${selectedClip.zoomEffect?.type === "pan-right" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Motion: Pan Right</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Pan Up */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect?.type === "pan-up" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("pan-up")}
-                            aria-label="Motion: Pan Up"
-                          >
-                            <ArrowUp className={`size-4 ${selectedClip.zoomEffect?.type === "pan-up" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Motion: Pan Up</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Pan Down */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect?.type === "pan-down" ? "secondary" : "ghost"}
-                            size="icon"
-                            onClick={() => handleTimelineSetMotion("pan-down")}
-                            aria-label="Motion: Pan Down"
-                          >
-                            <ArrowDown className={`size-4 ${selectedClip.zoomEffect?.type === "pan-down" ? "text-primary" : ""}`} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>Motion: Pan Down</span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Strength Slider */}
-                    {selectedClip.zoomEffect && (
-                      <div className="flex items-center gap-1.5 p-0.5 shrink-0">
-                        <input
-                          type="range"
-                          min={MIN_ZOOM_EFFECT_AMOUNT * 100}
-                          max={MAX_ZOOM_EFFECT_AMOUNT * 100}
-                          step="1"
-                          value={motionAmountPct}
-                          onChange={handleTimelineMotionAmountChange}
-                          aria-label="Scene motion strength"
-                          className="w-16 sm:w-20 accent-primary cursor-pointer h-1"
-                        />
-                        <span className="font-mono text-2xs text-muted-foreground tabular-nums w-8 shrink-0">
-                          {motionAmountPct}%
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Apply to All Scenes Button */}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={imageClipsCount <= 1 || !selectedClip.zoomEffect}
-                            onClick={handleTimelineApplyMotionToAll}
-                            aria-label="Apply motion to all scenes"
-                          >
-                            <CopyCheck className="size-4" />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>
-                        <span>
-                          {!selectedClip.zoomEffect
-                            ? "Select a motion to apply to all scenes"
-                            : imageClipsCount <= 1
-                            ? "Only 1 image scene on timeline"
-                            : `Apply ${selectedClip.zoomEffect.type} (${motionAmountPct}%) to all ${imageClipsCount} scenes`}
-                        </span>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {motionFeedback && (
-                      <span className="font-mono text-2xs text-primary font-semibold animate-in fade-in pl-1">
-                        {motionFeedback}
-                      </span>
-                    )}
-
-                    <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
-                  </>
-                )}
-
                 {/* Volume & Mute for Audio & Video clips */}
                 {(isAudioTrack(selectedClip.trackId, tracks) || selectedClip.type === "video") && (
                   <Tooltip>
@@ -1734,7 +1813,7 @@ export function TimelineDock() {
                       render={
                         <Button
                           variant={(selectedClip.volume ?? 1.0) === 0 ? "secondary" : "ghost"}
-                          size="icon"
+                          size="icon-sm"
                           onClick={() => {
                             const isMuted = (selectedClip.volume ?? 1.0) === 0;
                             updateClip(selectedClip.id, { volume: isMuted ? 1.0 : 0 });
@@ -1758,25 +1837,24 @@ export function TimelineDock() {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-2xs text-muted-foreground select-none pr-1">
+              <div className="ml-auto flex items-center gap-1.5 text-2xs text-muted-foreground select-none pr-1">
                 <MousePointerClick className="size-3.5 text-muted-foreground/70" />
                 <span>Select a scene to edit motion &amp; layers</span>
               </div>
             )}
           </div>
         </div>
-      </CardHeader>
 
-      {/* Main Timeline Card Content: Pinned Left Track Sidebar + Horizontally Scrolling Canvas */}
-      <CardContent className="p-0 flex flex-row overflow-hidden border-t border-border max-h-96 md:max-h-120">
+      {/* Main timeline body: pinned track sidebar + horizontally scrolling canvas */}
+      <div className="flex max-h-72 flex-row overflow-hidden border-t border-border md:max-h-80">
         {/* PINNED LEFT TRACK SIDEBAR (Immune to Horizontal Scrolling, Always Visible) */}
         <div
           ref={sidebarScrollRef}
           onWheel={handleSidebarWheel}
-          className="w-52 shrink-0 border-r border-border bg-card z-30 flex flex-col select-none overflow-y-auto no-scrollbar"
+          className="no-scrollbar z-30 flex w-60 shrink-0 select-none flex-col overflow-y-auto border-r border-border bg-surface-subtle/60"
         >
           {/* Header Row (Sticky on top of sidebar) */}
-          <div className="h-6 border-b border-border bg-muted/40 px-2 flex items-center justify-between text-3xs text-muted-foreground uppercase font-medium sticky top-0 z-40">
+          <div className="sticky top-0 z-40 flex h-7 items-center justify-between border-b border-border bg-card px-2.5 text-3xs font-medium uppercase tracking-wider text-muted-foreground">
             <span>Tracks ({orderedTracks.length})</span>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -1784,7 +1862,6 @@ export function TimelineDock() {
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="h-4 px-1 gap-0.5 text-3xs hover:text-foreground cursor-pointer"
                     title="Add track"
                   >
                     <Plus className="size-3 text-primary" />
@@ -1846,7 +1923,7 @@ export function TimelineDock() {
               ref={rulerRef}
               onPointerDown={startPlayheadDrag}
               style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-              className="min-w-full sticky top-0 z-30 h-6 border-b border-border bg-muted/90 backdrop-blur-xs cursor-pointer hover:bg-muted select-none"
+              className="sticky top-0 z-30 h-7 min-w-full cursor-pointer border-b border-border bg-card/95 backdrop-blur-xs select-none hover:bg-muted/60"
             >
               {rulerTicks.map((tick) => (
                 <div
@@ -1855,13 +1932,13 @@ export function TimelineDock() {
                   className="absolute bottom-0 flex flex-col items-start pointer-events-none"
                 >
                   <span
-                    className={`text-3xs font-mono pl-1 ${
-                      tick.isFrame ? "text-primary/80 font-semibold" : "text-muted-foreground"
+                    className={`pl-1 font-mono text-3xs tabular-nums ${
+                      tick.isFrame ? "font-semibold text-primary" : "text-muted-foreground"
                     }`}
                   >
                     {tick.label}
                   </span>
-                  <div className="w-px h-1.5 bg-border" />
+                  <div className="h-1.5 w-px bg-border" />
                 </div>
               ))}
             </div>
@@ -1894,7 +1971,7 @@ export function TimelineDock() {
                   <div
                     key={track.id}
                     data-testid={`track-lane-${track.id}`}
-                    className="flex h-11 bg-card hover:bg-muted/10 transition-colors min-w-full"
+                    className="flex h-11 min-w-full bg-card transition-colors hover:bg-muted/10"
                   >
                     {track.type === "visual"
                       ? renderVisualTrackLane(track, trackClips)
@@ -1945,7 +2022,7 @@ export function TimelineDock() {
             </div>
           </div>
         </div>
-      </CardContent>
+      </div>
 
       {/* Track Deletion Safe Confirmation Dialog */}
       {trackToDelete && (
@@ -1979,6 +2056,6 @@ export function TimelineDock() {
           </AlertDialogContent>
         </AlertDialog>
       )}
-    </Card>
+    </div>
   );
 }

@@ -54,6 +54,41 @@ export function areClipsAdjacentForTransition(
   return gap <= 0.2;
 }
 
+export interface TransitionToNext {
+  nextClip: TimelineClip;
+  existing: TimelineTransition | undefined;
+}
+
+/**
+ * Resolve the neighbouring clip that can hold a transition after `selectedClip`
+ * on its own visual track, together with any transition already defined there.
+ */
+export function getTransitionToNext(
+  selectedClip: TimelineClip | null | undefined,
+  clips: readonly TimelineClip[],
+  transitions: readonly TimelineTransition[],
+  tracks: readonly TimelineTrack[]
+): TransitionToNext | null {
+  if (!selectedClip || !isVisualTrack(selectedClip.trackId, tracks)) return null;
+
+  const trackClips = clips
+    .filter((clip) => clip.trackId === selectedClip.trackId)
+    .sort((a, b) => a.startTime - b.startTime);
+
+  const index = trackClips.findIndex((clip) => clip.id === selectedClip.id);
+  if (index === -1 || index >= trackClips.length - 1) return null;
+
+  const nextClip = trackClips[index + 1];
+  if (!areClipsAdjacentForTransition(selectedClip, nextClip, tracks)) return null;
+
+  const existing = transitions.find(
+    (transition) =>
+      transition.fromClipId === selectedClip.id && transition.toClipId === nextClip.id
+  );
+
+  return { nextClip, existing };
+}
+
 export interface TransitionWindow {
   startTime: number;
   endTime: number;

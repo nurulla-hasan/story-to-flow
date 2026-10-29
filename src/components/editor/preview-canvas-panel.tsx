@@ -19,13 +19,12 @@ import {
   Film,
 } from "lucide-react";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
+  EditorPanel,
+  EditorPanelBody,
+  EditorPanelHeader,
+} from "@/components/editor/editor-panel";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
@@ -532,77 +531,73 @@ export function PreviewCanvasPanel() {
   };
 
   return (
-    <Card size="sm" className="flex flex-col h-full">
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        {/* Left: Panel identity + active output resolution */}
-        <div className="flex min-w-0 items-center gap-2">
-          <Eye className="size-4 shrink-0 text-primary" />
-          <CardTitle>Preview</CardTitle>
-          <span className="truncate font-mono text-2xs text-muted-foreground tabular-nums">
-            {aspectRatio === "16:9" ? "16:9 · 1920 × 1080" : "9:16 · 1080 × 1920"}
-          </span>
-        </div>
+    <EditorPanel>
+      <EditorPanelHeader
+        icon={<Eye className="size-4" />}
+        title="Preview"
+        meta={aspectRatio === "16:9" ? "16:9 · 1920 × 1080" : "9:16 · 1080 × 1920"}
+        actions={
+          <div className="flex shrink-0 items-center gap-1.5">
+            <div
+              className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
+              title="Ctrl + scroll to zoom · Ctrl / Space + drag to pan"
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleZoomOut}
+                disabled={viewportZoom <= 25}
+                title="Zoom out"
+                aria-label="Zoom out preview canvas"
+              >
+                <ZoomOut className="size-3.5" />
+              </Button>
 
-        {/* Right: Compact viewport zoom + contextual status badge */}
-        <div className="flex shrink-0 items-center gap-1.5">
-          <div
-            className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
-            title="Ctrl + scroll to zoom · Ctrl / Space + drag to pan"
-          >
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              onClick={handleZoomOut}
-              disabled={viewportZoom <= 25}
-              title="Zoom out"
-              aria-label="Zoom out preview canvas"
-            >
-              <ZoomOut />
-            </Button>
-            <button
-              type="button"
-              onClick={handleResetView}
-              title="Reset canvas view to 100%"
-              className="min-w-9 cursor-pointer px-1 font-mono text-2xs font-semibold text-foreground tabular-nums transition-colors hover:text-primary"
-            >
-              {viewportZoom}%
-            </button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              onClick={handleZoomIn}
-              disabled={viewportZoom >= 400}
-              title="Zoom in"
-              aria-label="Zoom in preview canvas"
-            >
-              <ZoomIn />
-            </Button>
-          </div>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={handleResetView}
+                title="Reset canvas view to 100%"
+                className="min-w-9"
+              >
+                {viewportZoom}%
+              </Button>
 
-          {activeTransitionsByTrack.size > 0 ? (
-            <Badge variant="outline">
-              <span className="flex items-center gap-1">
-                <Sparkles className="size-3 shrink-0 text-primary" />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleZoomIn}
+                disabled={viewportZoom >= 400}
+                title="Zoom in"
+                aria-label="Zoom in preview canvas"
+              >
+                <ZoomIn className="size-3.5" />
+              </Button>
+            </div>
+
+            {activeTransitionsByTrack.size > 0 ? (
+              <span className="flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-3xs font-medium text-primary">
+                <Sparkles className="size-3 shrink-0" />
                 <span>
                   {activeTransitionsByTrack.values().next().value?.transition.type} ·{" "}
                   {Math.round((activeTransitionsByTrack.values().next().value?.progress ?? 0) * 100)}%
                 </span>
               </span>
-            </Badge>
-          ) : isHydrated && topActiveClip ? (
-            <Badge variant="outline">
-              <span className="flex max-w-40 items-center gap-1">
+            ) : isHydrated && topActiveClip ? (
+              <span className="flex max-w-40 items-center gap-1 rounded-full border border-border bg-surface-subtle px-2 py-1 text-3xs font-medium text-foreground">
                 <span className="truncate">{topActiveClip.name}</span>
                 {activeVisuals.length > 1 && (
-                  <span className="shrink-0 text-muted-foreground">{activeVisuals.length} layers</span>
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {activeVisuals.length} layers
+                  </span>
                 )}
               </span>
-            </Badge>
-          ) : null}
-        </div>
-      </CardHeader>
+            ) : null}
+          </div>
+        }
+      />
 
-      <CardContent className="flex flex-col flex-1 min-h-0 justify-between gap-3">
+      <EditorPanelBody className="justify-between gap-2.5 p-3">
         {/* Stage Container with dark backdrop, dot-grid pattern, and viewport pan & zoom navigation */}
         <div
           ref={canvasOuterStageRef}
@@ -616,13 +611,16 @@ export function PreviewCanvasPanel() {
             setIsSpacePressed(false);
           }}
           style={{
-            backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.08) 1px, transparent 0)",
-            backgroundSize: "20px 20px",
+            backgroundImage:
+              "radial-gradient(circle at 1px 1px, var(--editor-line) 1px, transparent 0)",
+            backgroundSize: "18px 18px",
           }}
-          className={`flex items-center justify-center bg-editor-stage rounded-2xl p-4 flex-1 min-h-0 overflow-hidden relative select-none border border-border shadow-inner ${
+          className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-editor-line bg-editor-stage p-4 shadow-inner select-none ${
             isPanning ? "cursor-grabbing" : isCtrlPressed || isSpacePressed ? "cursor-grab" : ""
           }`}
         >
+          {/* Ambient studio glow behind the canvas */}
+          <div className="pointer-events-none absolute inset-0 bg-radial from-primary/20 via-transparent to-transparent" />
           {/* CapCut-style 2X fast forward indicator while Space is held */}
           {playbackSpeed === 2.0 && (
             <div
@@ -645,10 +643,10 @@ export function PreviewCanvasPanel() {
             {/* Canvas Mockup matching active aspect ratio with premium hardware framing */}
             <div
               style={{ aspectRatio: aspectRatio === "16:9" ? "16/9" : "9/16" }}
-              className={`relative bg-editor-screen flex flex-col items-center justify-between overflow-visible transition-all duration-200 select-none ${
+              className={`relative flex flex-col items-center justify-between overflow-visible bg-editor-screen ring-1 ring-editor-line transition-all duration-200 select-none ${
                 aspectRatio === "16:9"
-                  ? "w-full max-w-3xl h-auto aspect-video max-h-96 sm:max-h-100 md:max-h-125 rounded-2xl border-2 border-border shadow-2xl p-2"
-                  : "h-full max-h-96 sm:max-h-100 md:max-h-125 rounded-3xl border-2 border-border shadow-2xl p-2"
+                  ? "aspect-video h-auto max-h-96 w-full max-w-3xl rounded-2xl border border-editor-line p-2 shadow-2xl sm:max-h-100 md:max-h-125"
+                  : "h-full max-h-96 rounded-3xl border border-editor-line p-2 shadow-2xl sm:max-h-100 md:max-h-125"
               }`}
             >
               {/* Dynamic Island Phone Camera Pill (Vertical 9:16 only) */}
@@ -788,29 +786,29 @@ export function PreviewCanvasPanel() {
                   })()
                 ) : (
                   /* High-End Studio Cinema Empty State */
-                  <div className="flex flex-col items-center justify-center text-center space-y-3 p-4 h-full bg-radial from-card/30 to-editor-screen">
-                    <div className="size-12 rounded-2xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shadow-inner">
+                  <div className="flex h-full flex-col items-center justify-center gap-3 bg-radial from-primary/15 to-editor-screen p-4 text-center">
+                    <div className="flex size-12 items-center justify-center rounded-2xl border border-primary/30 bg-primary/15 text-primary shadow-inner">
                       <Film className="size-6 stroke-[1.75]" />
                     </div>
 
                     <div className="space-y-1">
-                      <p className="font-semibold text-foreground tracking-wide">
+                      <p className="font-semibold tracking-wide text-editor-on-dark">
                         {aspectRatio === "16:9" ? "16:9 Cinema Canvas" : "9:16 Reel Canvas"}
                       </p>
-                      <p className="text-muted-foreground/80 max-w-56 leading-relaxed">
+                      <p className="mx-auto max-w-56 leading-relaxed text-editor-on-dark-muted">
                         {!isHydrated || clips.length === 0
                           ? "Add clips to timeline or media library to begin preview."
                           : "Move playhead over an active clip to preview."}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
-                      <Badge variant="outline" className="font-mono py-0 px-2">
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="rounded-full border border-editor-line px-2 py-0.5 font-mono text-3xs font-medium text-editor-on-dark">
                         {aspectRatio === "16:9" ? "1920 × 1080" : "1080 × 1920"}
-                      </Badge>
-                      <Badge variant="secondary" className="font-mono py-0 px-2">
+                      </span>
+                      <span className="rounded-full bg-editor-line px-2 py-0.5 font-mono text-3xs font-medium text-editor-on-dark">
                         30 FPS
-                      </Badge>
+                      </span>
                     </div>
                   </div>
                 )}
@@ -849,12 +847,12 @@ export function PreviewCanvasPanel() {
         </div>
 
         {/* Transport Controls Bar */}
-        <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-xl border border-border bg-surface-subtle px-1.5 py-1.5">
           {/* Playback action buttons */}
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1">
             <Button
-              size="icon"
               variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 seek(0);
                 commitPlayhead(0);
@@ -866,21 +864,22 @@ export function PreviewCanvasPanel() {
             </Button>
 
             <Button
-              size="icon"
+              variant="default"
+              size="icon-lg"
               onClick={togglePlay}
               title={isPlaying ? "Pause timeline (Space)" : "Play timeline (Space)"}
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? (
-                <Pause className="size-3.5 fill-current" />
+                <Pause className="size-4 fill-current" />
               ) : (
-                <Play className="size-3.5 fill-current" />
+                <Play className="size-4 fill-current" />
               )}
             </Button>
 
             <Button
-              size="icon"
               variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 seek(totalDuration);
                 commitPlayhead(totalDuration);
@@ -892,24 +891,29 @@ export function PreviewCanvasPanel() {
             </Button>
 
             {/* Timecode Counter */}
-            <div className="ml-1 font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-              {formatTimecode(isHydrated ? playhead : 0)} / {formatTimecode(isHydrated ? totalDuration : 0)}
+            <div className="ml-1 flex min-w-0 items-baseline gap-1 rounded-md bg-card px-2 py-1 font-mono text-3xs tabular-nums ring-1 ring-border">
+              <span className="font-semibold text-foreground">
+                {formatTimecode(isHydrated ? playhead : 0)}
+              </span>
+              <span className="text-muted-foreground/60">/</span>
+              <span className="truncate text-muted-foreground">
+                {formatTimecode(isHydrated ? totalDuration : 0)}
+              </span>
             </div>
           </div>
 
           {/* Secondary Controls: Dynamic Volume, Grid & Fullscreen */}
-          <div className="flex items-center gap-1 relative">
+          <div className="relative flex items-center gap-1">
             {/* Master Volume: click-to-open dropdown with slider + mute */}
             <div ref={volumeDropdownRef} className="relative flex items-center">
               <Button
-                size="icon"
                 variant={isMuted ? "destructive" : "ghost"}
+                size="icon-sm"
                 onClick={() => setShowVolumeSlider((prev) => !prev)}
                 aria-haspopup="true"
                 aria-expanded={showVolumeSlider}
                 title={isMuted ? "Master volume: muted (M)" : `Master volume: ${Math.round(masterVolume * 100)}% (M)`}
                 aria-label="Master volume"
-                className="cursor-pointer transition-colors"
               >
                 {isMuted || masterVolume === 0 ? (
                   <VolumeX className="size-3.5" />
@@ -924,7 +928,7 @@ export function PreviewCanvasPanel() {
                 <div
                   role="dialog"
                   aria-label="Master volume controls"
-                  className="absolute bottom-full right-0 z-50 mb-2 flex w-48 flex-col gap-2 rounded-xl border border-border bg-popover/95 p-3 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150"
+                  className="absolute bottom-full right-0 z-50 mb-2 flex w-48 animate-in flex-col gap-2 rounded-xl border border-border bg-popover/95 p-3 shadow-xl backdrop-blur-md fade-in slide-in-from-bottom-2 duration-150"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-2xs font-medium text-foreground">Master volume</span>
@@ -933,27 +937,26 @@ export function PreviewCanvasPanel() {
                     </span>
                   </div>
 
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
+                  <Slider
+                    min={0}
+                    max={1}
+                    step={0.05}
                     value={isMuted ? 0 : masterVolume}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setMasterVolume(v);
-                      if (isMuted && v > 0) setIsMuted(false);
-                      if (v === 0) setIsMuted(true);
+                    onValueChange={(value) => {
+                      const num = Array.isArray(value) ? value[0] : value;
+                      setMasterVolume(num);
+                      if (isMuted && num > 0) setIsMuted(false);
+                      if (num === 0) setIsMuted(true);
                     }}
                     aria-label="Master preview volume slider"
-                    className="h-1.5 w-full cursor-pointer rounded-full bg-muted accent-primary"
+                    className="w-full"
                   />
 
                   <Button
-                    size="xs"
                     variant="ghost"
+                    size="sm"
                     onClick={handleToggleMute}
-                    className="w-full justify-start gap-1.5"
+                    className="w-full justify-start"
                     aria-label={isMuted ? "Unmute master audio" : "Mute master audio"}
                   >
                     {isMuted ? <VolumeX /> : <Volume2 />}
@@ -965,36 +968,32 @@ export function PreviewCanvasPanel() {
 
             {/* Rule-of-Thirds Composition Grid Toggle Button */}
             <Button
-              size="icon"
               variant={showGrid ? "secondary" : "ghost"}
+              size="icon-sm"
               onClick={() => setShowGrid((prev) => !prev)}
               title={showGrid ? "Hide rule-of-thirds composition grid" : "Show rule-of-thirds composition grid"}
               aria-label={showGrid ? "Hide composition grid" : "Show composition grid"}
-              className={`size-8 cursor-pointer transition-colors ${
-                showGrid ? "text-primary border border-primary/30 bg-primary/10" : ""
-              }`}
             >
               <Grid3X3 className="size-3.5" />
             </Button>
 
             {/* Fullscreen Preview Toggle Button */}
             <Button
-              size="icon"
               variant={isFullscreen ? "secondary" : "ghost"}
+              size="icon-sm"
               onClick={handleToggleFullscreen}
               title={isFullscreen ? "Exit fullscreen preview (Esc or F)" : "Fullscreen preview (F)"}
               aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen preview"}
-              className="size-8 cursor-pointer transition-colors"
             >
               {isFullscreen ? (
-                <Minimize2 className="size-3.5 text-primary" />
+                <Minimize2 className="size-3.5" />
               ) : (
                 <Maximize2 className="size-3.5" />
               )}
             </Button>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </EditorPanelBody>
+    </EditorPanel>
   );
 }

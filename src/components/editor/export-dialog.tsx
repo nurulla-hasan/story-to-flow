@@ -23,7 +23,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import {
@@ -192,14 +191,14 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-brand-subtle text-primary ring-1 ring-brand-border">
               <Film className="size-4" />
             </div>
-            <div>
-              <DialogTitle>Export MP4 Video</DialogTitle>
+            <div className="min-w-0">
+              <DialogTitle>Export MP4 video</DialogTitle>
               <DialogDescription>
-                Client-side {isLandscape ? "16:9 landscape" : "9:16 vertical"} video composition
+                Client-side render · {isLandscape ? "16:9 landscape" : "9:16 vertical"} · 30 fps
               </DialogDescription>
             </div>
           </div>
@@ -245,46 +244,42 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
               <AlertCircle className="size-4 shrink-0 mt-0.5" />
               <p className="leading-tight">{error}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              className="text-destructive/70 hover:text-destructive cursor-pointer"
-            >
+            <Button variant="ghost" size="icon-xs" onClick={() => setError(null)} aria-label="Dismiss error">
               <X className="size-3.5" />
-            </button>
+            </Button>
           </div>
         )}
 
         {/* Active Export Progress State */}
         {isExporting && progress ? (
-          <div className="space-y-4 py-2">
+          <div className="space-y-3 rounded-xl border border-border bg-surface-subtle/70 p-3">
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs font-medium">
-                <span className="flex items-center gap-1.5 text-foreground">
-                  <Loader2 className="size-3.5 animate-spin text-primary" />
-                  <span>{progress.message}</span>
+              <div className="flex items-center justify-between gap-2 text-xs font-medium">
+                <span className="flex min-w-0 items-center gap-1.5 text-foreground">
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+                  <span className="truncate">{progress.message}</span>
                 </span>
-                <span className="font-mono text-primary font-bold">{progress.percent}%</span>
+                <span className="shrink-0 font-mono text-primary">{progress.percent}%</span>
               </div>
 
               {/* Progress Bar Container */}
-              <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                 <div
                   style={{ width: `${progress.percent}%` }}
-                  className="h-full bg-primary transition-all duration-150 rounded-full"
+                  className="h-full rounded-full bg-primary transition-all duration-150"
                 />
               </div>
 
-              <div className="flex items-center justify-between text-3xs font-mono text-muted-foreground pt-1">
+              <div className="flex items-center justify-between pt-0.5 font-mono text-3xs text-muted-foreground">
                 <span>
                   Frame {progress.currentFrame} / {progress.totalFrames}
                 </span>
-                <span>30 FPS • Bounded Queue</span>
+                <span>30 fps · bounded queue</span>
               </div>
             </div>
 
             <div className="flex items-start gap-1.5 rounded-lg bg-muted/40 p-2 text-3xs text-muted-foreground">
-              <ShieldCheck className="size-3.5 shrink-0 text-primary mt-0.5" />
+              <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" />
               <p className="leading-tight">
                 Hardware encoding with bounded memory backpressure active. Do not close this browser tab while export is running.
               </p>
@@ -292,133 +287,142 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
           </div>
         ) : exportedBlob ? (
           /* Export Complete Success State */
-          <div className="flex flex-col items-center justify-center text-center space-y-3 py-4 bg-muted/20 rounded-xl border border-border p-4">
-            <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-              <CheckCircle2 className="size-6" />
+          <div className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-border bg-surface-subtle/70 p-5 text-center">
+            <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/20">
+              <CheckCircle2 className="size-5" />
             </div>
 
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">Export Succeeded!</p>
-              <p className="font-mono text-2xs text-muted-foreground truncate max-w-72">
+              <p className="text-sm font-semibold text-foreground">Export ready</p>
+              <p className="max-w-72 truncate font-mono text-2xs text-muted-foreground">
                 {exportedFilename}
               </p>
-              <Badge variant="secondary" className="gap-1 mt-1">
+              <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-3xs text-muted-foreground">
                 <HardDrive className="size-3" />
                 <span>{formatBytes(exportedBlob.size)}</span>
-              </Badge>
+              </span>
             </div>
 
             <Button
               onClick={() => triggerDownload(exportedBlob, exportedFilename)}
-              className="gap-1.5 mt-2"
+              className="mt-1 gap-1.5"
             >
               <Download className="size-4" />
-              <span>Download MP4 Again</span>
+              <span>Download again</span>
             </Button>
           </div>
         ) : (
           /* Normal Configuration View */
-          <div className="space-y-4 py-1">
+          <div className="space-y-3">
             {/* Resolution Selector */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-foreground">
-                  Output Resolution ({isLandscape ? "16:9 Landscape" : "9:16 Vertical"})
-                </label>
-                <span className="text-3xs text-muted-foreground">30 FPS Standard</span>
+                <span className="font-mono text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Output resolution
+                </span>
+                <span className="font-mono text-3xs text-muted-foreground">
+                  {isLandscape ? "16:9" : "9:16"} · 30 fps
+                </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                {/* 720p: Recommended Default */}
-                <button
-                  type="button"
-                  onClick={() => setPreset("720p")}
-                  className={`flex flex-col items-start p-3 rounded-lg border text-left transition-colors cursor-pointer ${
-                    preset === "720p"
-                      ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
-                      : "border-border bg-card hover:bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-semibold text-foreground">
-                      {isLandscape ? "1280 × 720" : "720 × 1280"}
-                    </span>
-                    <Badge variant="secondary">Recommended</Badge>
-                  </div>
-                  <span className="text-3xs text-muted-foreground mt-1">
-                    Fast &amp; Memory-Safe for Laptops
-                  </span>
-                </button>
-
-                {/* 1080p: Optional Explicit Choice */}
-                <button
-                  type="button"
-                  onClick={() => setPreset("1080p")}
-                  className={`flex flex-col items-start p-3 rounded-lg border text-left transition-colors cursor-pointer ${
-                    preset === "1080p"
-                      ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
-                      : "border-border bg-card hover:bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-semibold text-foreground">
-                      {isLandscape ? "1920 × 1080" : "1080 × 1920"}
-                    </span>
-                    <Badge variant="outline">Full HD</Badge>
-                  </div>
-                  <span className="text-3xs text-muted-foreground mt-1">
-                    Higher RAM &amp; GPU Usage
-                  </span>
-                </button>
+                {(
+                  [
+                    {
+                      id: "720p" as const,
+                      label: isLandscape ? "1280 × 720" : "720 × 1280",
+                      note: "Fast & memory-safe",
+                      badge: "Recommended",
+                    },
+                    {
+                      id: "1080p" as const,
+                      label: isLandscape ? "1920 × 1080" : "1080 × 1920",
+                      note: "Higher RAM & GPU usage",
+                      badge: "Full HD",
+                    },
+                  ]
+                ).map((option) => {
+                  const isActive = preset === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setPreset(option.id)}
+                      aria-pressed={isActive}
+                      className={`flex cursor-pointer flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all duration-150 ${
+                        isActive
+                          ? "border-primary/60 bg-primary/10 ring-1 ring-primary/40"
+                          : "border-border bg-card hover:border-primary/30 hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="flex w-full items-center justify-between gap-1">
+                        <span className="font-mono text-xs font-semibold text-foreground">
+                          {option.label}
+                        </span>
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 font-mono text-3xs uppercase tracking-wide ${
+                            isActive
+                              ? "bg-primary/15 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {option.badge}
+                        </span>
+                      </div>
+                      <span className="text-3xs text-muted-foreground">{option.note}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* 1080p Caution Warning */}
               {preset === "1080p" && (
-                <div className="flex items-start gap-1.5 rounded-lg bg-muted/50 p-2 text-3xs text-muted-foreground border border-border">
-                  <AlertCircle className="size-3.5 shrink-0 text-muted-foreground mt-0.5" />
+                <div className="flex items-start gap-1.5 rounded-lg bg-muted/50 p-2 text-3xs text-muted-foreground">
+                  <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                   <p className="leading-tight">
-                    1080p renders 2.07 million pixels per frame. If your laptop has limited RAM or shared graphics, 720p is recommended to prevent system slowdowns.
+                    1080p renders 2.07 million pixels per frame. On limited RAM or shared
+                    graphics, 720p avoids system slowdowns.
                   </p>
                 </div>
               )}
             </div>
 
             {/* Timeline Summary Specs */}
-            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-              <div className="flex items-center justify-between text-2xs">
+            <div className="rounded-xl border border-border bg-surface-subtle/70">
+              <div className="flex items-center justify-between px-3 py-2 text-2xs">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Clock className="size-3" />
-                  <span>Total Duration</span>
+                  <span>Total duration</span>
                 </span>
-                <span className="font-mono text-foreground font-semibold">
-                  {formatDuration(plan.totalDuration)} ({plan.totalDuration.toFixed(1)}s)
+                <span className="font-mono font-semibold tabular-nums text-foreground">
+                  {formatDuration(plan.totalDuration)} · {plan.totalDuration.toFixed(1)}s
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-2xs">
+              <div className="flex items-center justify-between border-t border-border px-3 py-2 text-2xs">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Film className="size-3" />
-                  <span>Visual Scenes</span>
+                  <span>Visual scenes</span>
                 </span>
-                <span className="font-mono text-foreground">
-                  {plan.visualClipsCount} {plan.visualClipsCount === 1 ? "clip" : "clips"}
+                <span className="font-mono tabular-nums text-foreground">
+                  {plan.visualClipsCount}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-2xs">
+              <div className="flex items-center justify-between border-t border-border px-3 py-2 text-2xs">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Sparkles className="size-3" />
-                  <span>Audio Tracks</span>
+                  <span>Audio tracks</span>
                 </span>
-                <span className="font-mono text-foreground">
-                  {plan.audioClipsCount} {plan.audioClipsCount === 1 ? "track" : "tracks"}
+                <span className="font-mono tabular-nums text-foreground">
+                  {plan.audioClipsCount}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-2xs border-t border-border pt-1.5">
-                <span className="text-muted-foreground">Encoding Engine</span>
-                <span className="font-mono text-foreground font-medium">
-                  WebCodecs + Bounded Queue MP4
+              <div className="flex items-center justify-between border-t border-border px-3 py-2 text-2xs">
+                <span className="text-muted-foreground">Encoding</span>
+                <span className="font-mono text-3xs text-foreground">
+                  WebCodecs · bounded queue MP4
                 </span>
               </div>
             </div>

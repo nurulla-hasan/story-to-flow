@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   type ResizeHandleCorner,
   calculateTransformBounds,
@@ -220,18 +221,18 @@ export function PreviewTransformGizmo({
       <div className="absolute -top-7 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-card/90 backdrop-blur border border-border px-1.5 py-0.5 rounded text-3xs font-mono text-muted-foreground whitespace-nowrap shadow-xs pointer-events-auto">
         <span>{Math.round(transform.scale * 100)}%</span>
         {!isDefault && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={(e) => {
               e.stopPropagation();
               onReset();
             }}
             title="Reset position and scale to default (100%)"
             aria-label="Reset transform"
-            className="text-primary hover:text-primary/80 transition-colors cursor-pointer ml-0.5"
           >
-            <RotateCcw className="size-2.5" />
-          </button>
+            <RotateCcw />
+          </Button>
         )}
       </div>
 

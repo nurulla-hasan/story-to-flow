@@ -6,19 +6,19 @@ import {
   Film,
   RotateCcw,
   RotateCw,
-  Smartphone,
   Wand2,
   Download,
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
   X,
+  Monitor,
+  Smartphone,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTimeline } from "@/lib/timeline-context";
 import { isAudioTrack, isVisualTrack } from "@/types/timeline";
 import { ExportDialog } from "@/components/editor/export-dialog";
@@ -42,7 +42,10 @@ export function EditorHeader() {
     fitVisualsToVoiceover,
   } = useTimeline();
 
-  const [feedback, setFeedback] = React.useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [feedback, setFeedback] = React.useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
   const [isExportDialogOpen, setIsExportDialogOpen] = React.useState(false);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -64,172 +67,182 @@ export function EditorHeader() {
   const hasVisual = isHydrated && clips.some((c) => isVisualTrack(c.trackId, tracks));
   const canExport = isHydrated && clips.length > 0;
 
+  const statusTone = saveError
+    ? "bg-destructive"
+    : !isHydrated
+      ? "bg-muted-foreground"
+      : isDirty
+        ? "bg-warning"
+        : "bg-success";
+
+  const statusText = saveError
+    ? "Save failed"
+    : !isHydrated
+      ? "Loading project…"
+      : isDirty
+        ? "Unsaved changes"
+        : "Saved to browser";
+
   return (
     <>
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-3 shrink-0">
-        {/* Left: Navigation back to Studio + Project title & History actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href="/studio">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5"
-              title="Return to Story Studio"
-            >
-              <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">Story Studio</span>
-            </Button>
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        {/* Identity: navigation, project mark, editable title, live save status */}
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <Link
+            href="/studio"
+            title="Return to Story Studio"
+            aria-label="Return to Story Studio"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
           </Link>
 
-          <Separator orientation="vertical" className="h-5 hidden sm:block" />
+          <span className="hidden size-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-xs sm:flex">
+            <Film className="size-4" />
+          </span>
 
-          <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary">
-              <Film className="size-4" />
-            </div>
-            <input
+          <div className="min-w-0">
+            <Input
               type="text"
               value={isHydrated ? projectTitle : "Untitled Story Video"}
               onChange={handleTitleChange}
               aria-label="Project Title"
-              className="font-semibold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-hidden px-1 py-0.5 max-w-44 sm:max-w-64 truncate text-sm"
             />
+            <div className="flex items-center gap-1.5 px-1.5">
+              <span className={`size-1.5 shrink-0 rounded-full ${statusTone}`} />
+              <span className="truncate text-3xs text-muted-foreground">
+                {statusText}
+              </span>
+            </div>
           </div>
 
-          <Badge variant="outline">
-            {isHydrated && clips.length > 0 ? `${clips.length} ${clips.length === 1 ? "Clip" : "Clips"}` : "Draft"}
-          </Badge>
-
-          <Separator orientation="vertical" className="h-4 hidden md:block" />
-
-          {/* Undo / Redo controls with shadcn Tooltips */}
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={undo}
-                    disabled={!canUndo}
-                    aria-label="Undo"
-                  >
-                    <RotateCcw className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>{canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}</span>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={redo}
-                    disabled={!canRedo}
-                    aria-label="Redo"
-                  >
-                    <RotateCw className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                <span>{canRedo ? "Redo (Ctrl+Y)" : "Nothing to redo"}</span>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          <span className="hidden items-center gap-1.5 rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-3xs font-medium text-muted-foreground md:flex">
+            <Layers className="size-3" />
+            {isHydrated && clips.length > 0
+              ? `${clips.length} ${clips.length === 1 ? "clip" : "clips"}`
+              : "Draft"}
+          </span>
         </div>
 
-        {/* Right: Aspect ratio, Smart Auto-fit, Export & Theme Toggle */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Persistence feedback: failed writes are persistent and dismissible */}
+        {/* Controls */}
+        <div className="flex flex-wrap items-center gap-1.5">
           {saveError ? (
             <div
               role="status"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-2xs font-medium bg-destructive/10 text-destructive border border-destructive/20"
+              className="flex items-center gap-1.5 rounded-lg border border-destructive/25 bg-destructive/10 px-2 py-1 text-3xs font-medium text-destructive"
             >
               <AlertCircle className="size-3.5 shrink-0" />
-              <span className="max-w-72 leading-tight">{saveError}</span>
-              <button
-                type="button"
+              <span className="max-w-64 leading-tight">{saveError}</span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={dismissSaveError}
-                className="text-destructive/70 hover:text-destructive cursor-pointer"
                 aria-label="Dismiss save error"
               >
                 <X className="size-3.5" />
-              </button>
+              </Button>
             </div>
-          ) : isDirty ? (
-            <Badge variant="destructive" title="Changes are not saved to browser storage">
-              Unsaved changes
-            </Badge>
           ) : feedback ? (
             <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-2xs font-medium animate-in fade-in duration-200 ${
+              className={`flex animate-in items-center gap-1.5 rounded-lg border px-2 py-1 text-3xs font-medium fade-in duration-200 ${
                 feedback.type === "success"
-                  ? "bg-primary/10 text-primary border border-primary/20"
-                  : "bg-destructive/10 text-destructive border border-destructive/20"
+                  ? "border-success/25 bg-success-subtle text-foreground"
+                  : "border-destructive/25 bg-destructive/10 text-destructive"
               }`}
             >
               {feedback.type === "success" ? (
-                <CheckCircle2 className="size-3.5 shrink-0" />
+                <CheckCircle2 className="size-3.5 shrink-0 text-success" />
               ) : (
                 <AlertCircle className="size-3.5 shrink-0" />
               )}
-              <span className="truncate max-w-56">{feedback.message}</span>
+              <span className="max-w-56 truncate">{feedback.message}</span>
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => setAspectRatio(aspectRatio === "16:9" ? "9:16" : "16:9")}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-border bg-secondary hover:bg-muted text-xs font-medium cursor-pointer transition-colors"
-            title={`Click to switch canvas aspect ratio (currently ${aspectRatio})`}
+          <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={undo}
+              disabled={!canUndo}
+              title={canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}
+              aria-label="Undo"
+            >
+              <RotateCcw className="size-3.5" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={redo}
+              disabled={!canRedo}
+              title={canRedo ? "Redo (Ctrl+Y)" : "Nothing to redo"}
+              aria-label="Redo"
+            >
+              <RotateCw className="size-3.5" />
+            </Button>
+          </div>
+
+          <div
+            role="group"
+            aria-label="Canvas aspect ratio"
+            className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
           >
-            <Smartphone className={`size-3 ${aspectRatio === "16:9" ? "rotate-90" : ""} transition-transform`} />
-            <span>{aspectRatio === "16:9" ? "16:9 Landscape" : "9:16 Vertical"}</span>
-          </button>
+            <Button
+              variant={aspectRatio === "16:9" ? "secondary" : "ghost"}
+              size="xs"
+              onClick={() => setAspectRatio("16:9")}
+              aria-pressed={aspectRatio === "16:9"}
+              title="16:9 landscape canvas"
+            >
+              <Monitor className="size-3.5" />
+              <span className="hidden sm:inline">16:9</span>
+            </Button>
+
+            <Button
+              variant={aspectRatio === "9:16" ? "secondary" : "ghost"}
+              size="xs"
+              onClick={() => setAspectRatio("9:16")}
+              aria-pressed={aspectRatio === "9:16"}
+              title="9:16 vertical canvas"
+            >
+              <Smartphone className="size-3.5" />
+              <span className="hidden sm:inline">9:16</span>
+            </Button>
+          </div>
 
           <Button
             variant="outline"
             size="sm"
             onClick={handleFit}
             disabled={!hasAudio || !hasVisual}
-            className="gap-1.5"
             title={
               !hasAudio
                 ? "Add an audio clip to fit visual scenes"
                 : !hasVisual
-                ? "Add visual scenes to fit"
-                : "Auto-fit visual scenes to match voiceover duration"
+                  ? "Add visual scenes to fit"
+                  : "Auto-fit visual scenes to match voiceover duration"
             }
           >
-            <Wand2 className="size-3.5" />
-            <span className="hidden md:inline">Fit to Voiceover</span>
+            <Wand2 className="size-3.5 text-primary" />
+            <span className="hidden md:inline">Fit to voiceover</span>
           </Button>
 
           <Button
+            variant="default"
             size="sm"
             onClick={() => setIsExportDialogOpen(true)}
             disabled={!canExport}
-            className="gap-1.5"
-            title={!canExport ? "Add clips to timeline before exporting" : "Export MP4 Video"}
+            title={!canExport ? "Add clips to timeline before exporting" : "Export MP4 video"}
           >
             <Download className="size-3.5" />
             <span>Export MP4</span>
           </Button>
 
-          <Separator orientation="vertical" className="h-5 hidden sm:block" />
-
           <ThemeToggle />
         </div>
       </header>
 
-      {/* Export MP4 Dialog Modal */}
       <ExportDialog
         open={isExportDialogOpen}
         onOpenChange={setIsExportDialogOpen}

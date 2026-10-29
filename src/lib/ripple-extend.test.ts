@@ -268,4 +268,27 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     // Voiceover at t=0 never moves across all cycles
     expect(state.find((c) => c.id === "voice-1")?.startTime).toBe(0);
   });
+
+  it("applies 4s and 5s presets to an image clip with accurate ripple adjustment", () => {
+    // Initial: clipA (0-5s), clipB (5-13s, duration 8s), clipC (13-18s)
+    // Applying 4s preset to clipA
+    let state = applyRippleExtend("clip-A", 4.0, initialClips);
+    let a = state.find((c) => c.id === "clip-A")!;
+    let b = state.find((c) => c.id === "clip-B")!;
+    let c = state.find((c) => c.id === "clip-C")!;
+
+    expect(a.duration).toBe(4.0);
+    expect(b.startTime).toBe(4.0); // Shifted left by 1s
+    expect(c.startTime).toBe(12.0); // Shifted left by 1s
+
+    // Applying 5s preset to clipA
+    state = applyRippleExtend("clip-A", 5.0, initialClips);
+    a = state.find((c) => c.id === "clip-A")!;
+    b = state.find((c) => c.id === "clip-B")!;
+    c = state.find((c) => c.id === "clip-C")!;
+
+    expect(a.duration).toBe(5.0);
+    expect(b.startTime).toBe(5.0);
+    expect(c.startTime).toBe(13.0);
+  });
 });

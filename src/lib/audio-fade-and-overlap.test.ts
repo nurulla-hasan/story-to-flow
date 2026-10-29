@@ -10,6 +10,7 @@ import {
   clampLeftTrimToPreventOverlap,
   clampRightTrimToPreventOverlap,
   findNextNonOverlappingStartTime,
+  findTrackEndTime,
 } from "./timeline-overlap";
 import {
   getPixelsPerSecond,
@@ -139,6 +140,11 @@ describe("Visual Track Same-Layer Overlap Prevention", () => {
     // If right trim requests duration = 9.0s:
     const clampedDuration = clampRightTrimToPreventOverlap(clip1, 9.0, allClips);
     expect(clampedDuration).toBe(6.0); // clamped at 6.0s!
+  });
+
+  it("finds the end of the track rather than an earlier gap for append actions", () => {
+    expect(findTrackEndTime("visual-1", allClips)).toBe(12);
+    expect(findTrackEndTime("audio", allClips)).toBe(0);
   });
 
   it("finds next valid non-overlapping placement for added or duplicated clips", () => {

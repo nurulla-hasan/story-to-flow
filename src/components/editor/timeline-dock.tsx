@@ -75,6 +75,7 @@ import {
 } from "@/lib/transition-helpers";
 import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
 import { useTimelineCanvasViewport } from "@/lib/use-timeline-canvas-viewport";
+import { MIN_TIMELINE_ZOOM, MAX_TIMELINE_ZOOM } from "@/lib/ruler-scale";
 import { useTimelineClipGestures } from "@/lib/use-timeline-clip-gestures";
 import { groupTimelineClipsByTrack } from "@/lib/timeline-derived-state";
 import {

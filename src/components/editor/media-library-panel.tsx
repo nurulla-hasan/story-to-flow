@@ -407,10 +407,10 @@ export function MediaLibraryPanel() {
                         size="icon-xs"
                         onClick={(e) => {
                           e.stopPropagation();
-                          addAssetToTimeline(asset, undefined, playhead);
+                          addAssetToTimeline(asset);
                         }}
-                        title="Add to timeline at playhead"
-                        aria-label={`Add ${asset.name} to timeline`}
+                        title="Append to end of timeline"
+                        aria-label={`Append ${asset.name} to timeline`}
                       >
                         <Plus className="size-3.5" />
                       </Button>

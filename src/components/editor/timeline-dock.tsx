@@ -74,13 +74,7 @@ import {
   getTransitionToNext,
 } from "@/lib/transition-helpers";
 import { CLIP_SPEED_PRESETS, buildClipSpeedUpdate } from "@/lib/clip-speed";
-import {
-  getPixelsPerSecond,
-  generateAdaptiveRulerTicks,
-  MIN_TIMELINE_ZOOM,
-  MAX_TIMELINE_ZOOM,
-} from "@/lib/ruler-scale";
-import { useTimelinePlayheadScrub } from "@/lib/use-timeline-playhead-scrub";
+import { useTimelineCanvasViewport } from "@/lib/use-timeline-canvas-viewport";
 import { useTimelineClipGestures } from "@/lib/use-timeline-clip-gestures";
 import { groupTimelineClipsByTrack } from "@/lib/timeline-derived-state";
 import {
@@ -224,85 +218,19 @@ export function TimelineDock() {
     setTimeout(() => setMotionFeedback(null), 4000);
   };
 
-  // Pixels per second scaled by wide zoom range (10% to 1000%)
-  const pxPerSec = getPixelsPerSecond(zoom);
-
-  // Minimum 1200px or duration-based width so ruler & tracks span full viewport
-  const tracksContentWidth = Math.max(1200, (Math.max(10, totalDuration) + 10) * pxPerSec);
-
-  const rulerRef = React.useRef<HTMLDivElement>(null);
-  const tracksScrollRef = React.useRef<HTMLDivElement>(null);
-
-  // CapCut-style horizontal mouse wheel and trackpad panning over timeline container
-  React.useEffect(() => {
-    const scrollEl = tracksScrollRef.current;
-    if (!scrollEl) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      // Do not hijack browser zoom or pinch-to-zoom (Ctrl/Cmd)
-      if (e.ctrlKey || e.metaKey) return;
-
-      // Detect horizontal delta (trackpad / Shift+wheel) or convert standard mouse-wheel deltaY to horizontal pan
-      let delta = 0;
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        delta = e.deltaX;
-      } else {
-        delta = e.deltaY;
-      }
-
-      if (delta === 0) return;
-
-      const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth;
-      if (maxScrollLeft <= 0) return;
-
-      const currentScroll = scrollEl.scrollLeft;
-      const canScrollLeft = delta < 0 && currentScroll > 0;
-      const canScrollRight = delta > 0 && currentScroll < maxScrollLeft;
-
-      if (canScrollLeft || canScrollRight) {
-        e.preventDefault();
-        scrollEl.scrollLeft += delta;
-      }
-    };
-
-    scrollEl.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      scrollEl.removeEventListener("wheel", handleWheel);
-    };
-  }, []);
-
-  // Adaptive ruler ticks: frame notation at deep zoom (>=500%), seconds at medium zoom, wider at low zoom
-  const rulerTicks = React.useMemo(() => {
-    const span = Math.max(Math.max(10, totalDuration) + 10, tracksContentWidth / pxPerSec);
-    return generateAdaptiveRulerTicks(zoom, span, 30);
-  }, [zoom, totalDuration, tracksContentWidth, pxPerSec]);
-
-  // Center-anchored zoom update so clips and playhead remain in view when zooming
-  const handleZoomChange = (newZoom: number) => {
-    const clamped = Math.min(MAX_TIMELINE_ZOOM, Math.max(MIN_TIMELINE_ZOOM, newZoom));
-    const scrollEl = tracksScrollRef.current;
-    if (!scrollEl) {
-      setZoom(clamped);
-      return;
-    }
-
-    const viewportWidth = scrollEl.clientWidth;
-    const oldPxPerSec = getPixelsPerSecond(zoom);
-    const centerTime = (scrollEl.scrollLeft + viewportWidth / 2) / oldPxPerSec;
-
-    setZoom(clamped);
-
-    requestAnimationFrame(() => {
-      const newPxPerSec = getPixelsPerSecond(clamped);
-      const targetScrollLeft = centerTime * newPxPerSec - viewportWidth / 2;
-      scrollEl.scrollLeft = Math.max(0, targetScrollLeft);
-    });
-  };
-
-  const { getTimeFromClientX, startPlayheadDrag } = useTimelinePlayheadScrub({
-    containerRef: tracksScrollRef,
-    pixelsPerSecond: pxPerSec,
+  const {
+    pxPerSec,
+    tracksContentWidth,
+    rulerRef,
+    tracksScrollRef,
+    rulerTicks,
+    handleZoomChange,
+    getTimeFromClientX,
+    startPlayheadDrag,
+  } = useTimelineCanvasViewport({
+    zoom,
     totalDuration,
+    setZoom,
     pause,
     seek,
     commitPlayhead,

@@ -10,6 +10,7 @@ import {
   Trash2,
   Film,
   Mic,
+  Image as ImageIcon,
   Volume2,
   Layers,
   Sparkles,

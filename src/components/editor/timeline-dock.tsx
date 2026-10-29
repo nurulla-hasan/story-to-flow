@@ -17,11 +17,6 @@ import {
   Wand2,
   Layers,
   Plus,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  ArrowDown,
-  CopyCheck,
   Sparkles,
   Gauge,
   Check,
@@ -57,6 +52,7 @@ import { TimelineAudioTrackLane } from "@/components/editor/timeline-audio-track
 import { TimelineRuler } from "@/components/editor/timeline-ruler";
 import { TimelinePlayhead } from "@/components/editor/timeline-playhead";
 import { TimelineTrackSidebarHeader } from "@/components/editor/timeline-track-sidebar-header";
+import { TimelineMotionToolbar } from "@/components/editor/timeline-motion-toolbar";
 import {
   type TimelineClip,
   type TimelineTrack,
@@ -78,28 +74,6 @@ import { useTimelineCanvasViewport } from "@/lib/use-timeline-canvas-viewport";
 import { MIN_TIMELINE_ZOOM, MAX_TIMELINE_ZOOM } from "@/lib/ruler-scale";
 import { useTimelineClipGestures } from "@/lib/use-timeline-clip-gestures";
 import { groupTimelineClipsByTrack } from "@/lib/timeline-derived-state";
-import {
-  DEFAULT_ZOOM_EFFECT_AMOUNT,
-  sanitizeZoomEffect,
-  type ZoomEffectType,
-  type ClipZoomEffect,
-} from "@/lib/zoom-effect";
-
-type MotionOption = {
-  type: "off" | ZoomEffectType;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-};
-
-const MOTION_OPTIONS: MotionOption[] = [
-  { type: "off", label: "Off", icon: Sparkles },
-  { type: "zoom-in", label: "Zoom In", icon: ZoomIn },
-  { type: "zoom-out", label: "Zoom Out", icon: ZoomOut },
-  { type: "pan-left", label: "Pan Left", icon: ArrowLeft },
-  { type: "pan-right", label: "Pan Right", icon: ArrowRight },
-  { type: "pan-up", label: "Pan Up", icon: ArrowUp },
-  { type: "pan-down", label: "Pan Down", icon: ArrowDown },
-];
 
 
 export function TimelineDock() {
@@ -155,8 +129,6 @@ export function TimelineDock() {
     return clips.find((c) => c.id === selectedClipId) || null;
   }, [clips, selectedClipId]);
 
-  const selectedImageClip = selectedClip?.type === "image" ? selectedClip : null;
-
   const isSelectedClipLocked = selectedClip
     ? isTrackLocked(selectedClip.trackId, tracks)
     : false;
@@ -171,53 +143,6 @@ export function TimelineDock() {
     [clips, tracks]
   );
   const imageClipsCount = imageClips.length;
-
-  const [motionFeedback, setMotionFeedback] = React.useState<string | null>(null);
-  const [unselectedPreset, setUnselectedPreset] = React.useState<ClipZoomEffect>({
-    type: "zoom-in",
-    amount: DEFAULT_ZOOM_EFFECT_AMOUNT,
-  });
-
-  const activeMotionEffect = selectedImageClip
-    ? sanitizeZoomEffect(selectedImageClip.zoomEffect)
-    : unselectedPreset;
-
-  const motionLabel =
-    MOTION_OPTIONS.find(
-      (option) => option.type === (selectedImageClip?.zoomEffect?.type ?? "off")
-    )?.label ?? "Off";
-
-  const handleTimelineSetMotion = (type: "off" | ZoomEffectType) => {
-    if (type === "off") {
-      if (selectedImageClip) {
-        updateClip(selectedImageClip.id, { zoomEffect: undefined });
-      }
-      return;
-    }
-
-    const currentAmount = activeMotionEffect?.amount ?? DEFAULT_ZOOM_EFFECT_AMOUNT;
-    const newEffect: ClipZoomEffect = {
-      type,
-      amount: currentAmount,
-    };
-
-    if (selectedImageClip) {
-      updateClip(selectedImageClip.id, { zoomEffect: newEffect });
-    } else {
-      setUnselectedPreset(newEffect);
-    }
-  };
-
-  const handleTimelineApplyMotionToAll = () => {
-    const effectToApply = selectedImageClip
-      ? sanitizeZoomEffect(selectedImageClip.zoomEffect)
-      : unselectedPreset;
-
-    if (!effectToApply) return;
-    const res = applyMotionToAllClips(effectToApply);
-    setMotionFeedback(res.message);
-    setTimeout(() => setMotionFeedback(null), 4000);
-  };
 
   const {
     pxPerSec,
@@ -731,61 +656,13 @@ export function TimelineDock() {
                   )}
 
                   {selectedClip.type === "image" && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant={selectedClip.zoomEffect ? "outline" : "ghost"}
-                            size="sm"
-                            disabled={isSelectedClipLocked}
-                            title="Scene motion"
-                          >
-                            <Move className="size-3.5 text-primary" />
-                            <span>{motionLabel}</span>
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuGroup>
-                          <DropdownMenuLabel>Scene motion</DropdownMenuLabel>
-                          {MOTION_OPTIONS.map((option) => {
-                            const isCurrent = (selectedClip.zoomEffect?.type ?? "off") === option.type;
-                            const Icon = option.icon;
-                            return (
-                              <DropdownMenuItem
-                                key={option.type}
-                                disabled={isCurrent}
-                                onClick={() => handleTimelineSetMotion(option.type)}
-                              >
-                                <Check
-                                  className={`size-3.5 ${isCurrent ? "text-primary" : "opacity-0"}`}
-                                />
-                                <Icon className="size-3.5 text-muted-foreground" />
-                                <span>{option.label}</span>
-                              </DropdownMenuItem>
-                            );
-                          })}
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          disabled={imageClipsCount <= 1 || !selectedClip.zoomEffect}
-                          onClick={handleTimelineApplyMotionToAll}
-                        >
-                          <CopyCheck className="size-3.5" />
-                          <span>
-                            {selectedClip.zoomEffect
-                              ? `Apply to all ${imageClipsCount} scenes`
-                              : "Apply motion to all scenes"}
-                          </span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-
-                  {motionFeedback && (
-                    <span className="animate-in fade-in shrink-0 font-mono text-2xs font-semibold text-primary">
-                      {motionFeedback}
-                    </span>
+                    <TimelineMotionToolbar
+                      clip={selectedClip}
+                      imageClipsCount={imageClipsCount}
+                      isLocked={isSelectedClipLocked}
+                      updateClip={updateClip}
+                      applyMotionToAllClips={applyMotionToAllClips}
+                    />
                   )}
                 </div>
 

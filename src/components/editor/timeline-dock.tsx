@@ -54,6 +54,8 @@ import { useTimeline } from "@/lib/timeline-context";
 import { useMediaLibrary } from "@/lib/use-media-library";
 import { TimelineVisualTrackLane } from "@/components/editor/timeline-visual-track-lane";
 import { TimelineAudioTrackLane } from "@/components/editor/timeline-audio-track-lane";
+import { TimelineRuler } from "@/components/editor/timeline-ruler";
+import { TimelinePlayhead } from "@/components/editor/timeline-playhead";
 import { TimelineTrackSidebarHeader } from "@/components/editor/timeline-track-sidebar-header";
 import {
   type TimelineClip,
@@ -1038,30 +1040,12 @@ export function TimelineDock() {
             style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
             className="min-w-full flex flex-col relative"
           >
-            {/* Time Ruler Section (Sticky on top of vertical scroll) */}
-            <div
-              ref={rulerRef}
+            <TimelineRuler
+              rulerRef={rulerRef}
+              rulerTicks={rulerTicks}
+              tracksContentWidth={tracksContentWidth}
               onPointerDown={startPlayheadDrag}
-              style={{ minWidth: "100%", width: `${tracksContentWidth}px` }}
-              className="sticky top-0 z-30 h-7 min-w-full cursor-pointer border-b border-border bg-card/95 backdrop-blur-xs select-none hover:bg-muted/60"
-            >
-              {rulerTicks.map((tick) => (
-                <div
-                  key={`ruler_${tick.time}_${tick.label}`}
-                  style={{ left: `${tick.leftPx}px` }}
-                  className="absolute bottom-0 flex flex-col items-start pointer-events-none"
-                >
-                  <span
-                    className={`pl-1 font-mono text-3xs tabular-nums ${
-                      tick.isFrame ? "font-semibold text-primary" : "text-muted-foreground"
-                    }`}
-                  >
-                    {tick.label}
-                  </span>
-                  <div className="h-1.5 w-px bg-border" />
-                </div>
-              ))}
-            </div>
+            />
 
             {/* Tracks Container */}
             <div className="relative flex flex-col divide-y divide-border min-w-full">
@@ -1135,45 +1119,12 @@ export function TimelineDock() {
               })}
             </div>
 
-            {/* Dynamic Playhead Scrubber Line & Grabber Handle (Spans full height of ruler + tracks) */}
-            <div
-              style={{ left: `${playhead * pxPerSec}px` }}
-              className="absolute top-0 bottom-0 z-40 flex flex-col items-center pointer-events-none -translate-x-1/2 select-none"
-            >
-              {/* Ruler-level Scrubber Grabber Handle */}
-              <div
-                onPointerDown={startPlayheadDrag}
-                className="h-6 w-5 flex flex-col items-center justify-start cursor-ew-resize pointer-events-auto group/playhead select-none"
-                title={`Playhead: ${playhead.toFixed(2)}s (Click or drag to scrub)`}
-                role="slider"
-                aria-label="Timeline playhead"
-                aria-valuenow={playhead}
-                aria-valuemin={0}
-                aria-valuemax={totalDuration}
-              >
-                {/* CapCut-style top badge & downward pointer arrow */}
-                <div className="w-3.5 h-3 bg-primary rounded-t-xs shadow-sm flex items-center justify-center group-hover/playhead:brightness-110 group-active/playhead:scale-110 transition-transform">
-                  <div className="w-1.5 h-0.5 bg-primary-foreground rounded-full" />
-                </div>
-                <svg
-                  width="14"
-                  height="6"
-                  viewBox="0 0 14 6"
-                  className="fill-primary -mt-px group-hover/playhead:brightness-110 drop-shadow-xs"
-                >
-                  <polygon points="0,0 14,0 7,6" />
-                </svg>
-              </div>
-
-              {/* Vertical Playhead Needle across all tracks */}
-              <div
-                onPointerDown={startPlayheadDrag}
-                className="w-2 flex-1 flex items-center justify-center cursor-ew-resize pointer-events-auto group/playheadLine"
-                title={`Playhead: ${playhead.toFixed(2)}s (Click or drag to scrub)`}
-              >
-                <div className="w-0.5 h-full bg-primary shadow-xs group-hover/playheadLine:w-1 transition-all" />
-              </div>
-            </div>
+            <TimelinePlayhead
+              playhead={playhead}
+              pixelsPerSecond={pxPerSec}
+              totalDuration={totalDuration}
+              onPointerDown={startPlayheadDrag}
+            />
           </div>
         </div>
       </div>

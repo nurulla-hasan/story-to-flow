@@ -155,6 +155,8 @@ export function useExportJob({
     setExportedBlob(null);
   }, []);
 
+  const dismissError = React.useCallback(() => setError(null), []);
+
   return {
     isExporting,
     progress,
@@ -167,5 +169,7 @@ export function useExportJob({
     handleStartExport,
     handleCancelExport,
     resetExportState,
+    dismissError,
+    triggerDownload,
   };
 }

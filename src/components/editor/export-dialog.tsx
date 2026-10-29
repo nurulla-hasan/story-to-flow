@@ -64,6 +64,8 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     handleStartExport,
     handleCancelExport,
     resetExportState,
+    dismissError,
+    triggerDownload,
   } = useExportJob({
     clips,
     transitions,
@@ -137,7 +139,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
               <AlertCircle className="size-4 shrink-0 mt-0.5" />
               <p className="leading-tight">{error}</p>
             </div>
-            <Button variant="ghost" size="icon-xs" onClick={() => setError(null)} aria-label="Dismiss error">
+            <Button variant="ghost" size="icon-xs" onClick={dismissError} aria-label="Dismiss error">
               <X className="size-3.5" />
             </Button>
           </div>

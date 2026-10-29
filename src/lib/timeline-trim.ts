@@ -209,6 +209,7 @@ export function applyRippleExtend(
   allClips: TimelineClip[],
   tracks?: readonly TimelineTrack[]
 ): TimelineClip[] {
+  if (!Number.isFinite(newDuration) || newDuration <= 0) return allClips;
   const target = allClips.find((c) => c.id === editedClipId);
   if (!target) return allClips;
   if (isTrackLocked(target.trackId, tracks)) return allClips;

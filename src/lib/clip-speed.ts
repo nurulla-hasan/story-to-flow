@@ -14,6 +14,8 @@ export function buildClipSpeedUpdate(
   clip: TimelineClip,
   speed: number
 ): Partial<TimelineClip> {
+  if (!Number.isFinite(speed) || speed <= 0) return {};
+
   const updates: Partial<TimelineClip> = { speed };
 
   if (

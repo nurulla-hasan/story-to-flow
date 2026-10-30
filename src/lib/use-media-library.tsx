@@ -7,6 +7,7 @@ import {
   saveMediaAssetToDb,
   loadAllMediaAssetsFromDb,
   deleteMediaAssetFromDb,
+  clearAllMediaAssetsFromDb,
 } from "@/lib/media-storage";
 import {
   classifyMediaFile,
@@ -43,6 +44,7 @@ export interface MediaLibraryState {
   };
   importFiles: (files: FileList | File[]) => Promise<{ importedCount: number; errors: string[] }>;
   removeAsset: (id: string) => Promise<RemoveMediaAssetResult>;
+  clearAllAssets: () => Promise<void>;
   acquireAssetLease: (assetIds: Iterable<string>) => () => void;
   clearError: () => void;
 }
@@ -142,11 +144,20 @@ export function MediaLibraryProvider({ children }: { children: React.ReactNode }
   }, [leaseTracker]);
 
   const counts = React.useMemo(() => {
+    let video = 0;
+    let image = 0;
+    let audio = 0;
+    for (let i = 0; i < assets.length; i++) {
+      const cat = assets[i].category;
+      if (cat === "video") video++;
+      else if (cat === "image") image++;
+      else if (cat === "audio") audio++;
+    }
     return {
       all: assets.length,
-      video: assets.filter((a) => a.category === "video").length,
-      image: assets.filter((a) => a.category === "image").length,
-      audio: assets.filter((a) => a.category === "audio").length,
+      video,
+      image,
+      audio,
     };
   }, [assets]);
 
@@ -206,6 +217,27 @@ export function MediaLibraryProvider({ children }: { children: React.ReactNode }
     },
     [leaseTracker]
   );
+
+  const clearAllAssets = React.useCallback(async () => {
+    if (isImporting) {
+      throw new Error("Wait for media import to finish before resetting the editor.");
+    }
+
+    const previousAssets = assetsRef.current;
+    try {
+      await clearAllMediaAssetsFromDb();
+      assetsRef.current = [];
+      setAssets([]);
+      for (const asset of previousAssets) {
+        leaseTracker.revokeWhenReleased(asset.id, () => revokeAssetUrls(asset));
+      }
+      setError(null);
+    } catch (err) {
+      const error = toError(err, "Failed to clear the Media Library.");
+      setError(error.message);
+      throw error;
+    }
+  }, [isImporting, leaseTracker]);
 
   const importFiles = React.useCallback(
     async (fileInput: FileList | File[]) => {
@@ -290,20 +322,35 @@ export function MediaLibraryProvider({ children }: { children: React.ReactNode }
     []
   );
 
+  const value = React.useMemo(
+    () => ({
+      assets,
+      isLoading,
+      isImporting,
+      error,
+      counts,
+      importFiles,
+      removeAsset,
+      clearAllAssets,
+      acquireAssetLease,
+      clearError,
+    }),
+    [
+      assets,
+      isLoading,
+      isImporting,
+      error,
+      counts,
+      importFiles,
+      removeAsset,
+      clearAllAssets,
+      acquireAssetLease,
+      clearError,
+    ]
+  );
+
   return (
-    <MediaLibraryContext.Provider
-      value={{
-        assets,
-        isLoading,
-        isImporting,
-        error,
-        counts,
-        importFiles,
-        removeAsset,
-        acquireAssetLease,
-        clearError,
-      }}
-    >
+    <MediaLibraryContext.Provider value={value}>
       {children}
     </MediaLibraryContext.Provider>
   );

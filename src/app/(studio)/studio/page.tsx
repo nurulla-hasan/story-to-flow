@@ -44,7 +44,6 @@ import {
   FileText,
   Mic,
   Check,
-  Copy,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -128,7 +127,6 @@ export default function StudioPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
 
@@ -614,17 +612,6 @@ export default function StudioPage() {
     }, 3500);
   };
 
-  const handleCopyAll = async () => {
-    if (!result?.response) return;
-    try {
-      await navigator.clipboard.writeText(result.response);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  };
-
   // --- Focus wizard derived state -------------------------------------------
   const hasStory = !!story.trim();
   const hasVoiceover = !!voiceoverScript.trim();
@@ -1020,20 +1007,6 @@ export default function StudioPage() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    onClick={handleCopyAll}
-                    disabled={!result?.response || copied}
-                    className="gap-1.5"
-                  >
-                    {copied ? (
-                      <Check className="size-4" />
-                    ) : (
-                      <Copy className="size-4" />
-                    )}
-                    <span>
-                      {copied ? "Copied package" : "Copy full package"}
-                    </span>
-                  </Button>
-                  <Button
                     variant="outline"
                     nativeButton={false}
                     className="gap-1.5"
@@ -1045,8 +1018,7 @@ export default function StudioPage() {
                 </div>
 
                 <p className="text-2xs text-muted-foreground">
-                  The full package — voiceover plus scene prompts — is shown
-                  below this workspace.
+                  Scene prompts and timeline-plan JSON are shown below in separate copyable sections.
                 </p>
               </div>
             )}
@@ -1097,15 +1069,13 @@ export default function StudioPage() {
                 Generated output
               </h2>
               <p className="text-xs text-muted-foreground">
-                Full production package — voiceover and scene prompts.
+                Scene prompts and timeline-plan JSON, separated for copying.
               </p>
             </div>
 
             <OutputCard
               result={result}
               error={error}
-              copied={copied}
-              onCopyAll={handleCopyAll}
             />
           </section>
         )}

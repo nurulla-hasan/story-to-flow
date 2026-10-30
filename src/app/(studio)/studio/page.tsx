@@ -19,8 +19,6 @@ import { VoiceoverScriptCard } from "@/components/studio/voiceover-script-card";
 import { CartesiaDurationCard } from "@/components/studio/cartesia-duration-card";
 import { StudioSettingsBar } from "@/components/studio/studio-settings-bar";
 import { OutputCard } from "@/components/studio/output-card";
-import { HowItWorksCard } from "@/components/studio/how-it-works-card";
-import { OutputFormatCard } from "@/components/studio/output-format-card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -44,8 +42,6 @@ import {
   FileText,
   Mic,
   Check,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
   Film,
   Trash2,
@@ -627,20 +623,6 @@ export default function StudioPage() {
     return currentStage;
   }, [currentStage, hasVoiceover, hasDuration, hasScenes, isDirectMode]);
 
-  const canGoBack = activeStage > 1 && !(isDirectMode && activeStage === 2);
-  const canGoForward =
-    (activeStage === 1 && hasStory) ||
-    (activeStage === 2 && hasVoiceover) ||
-    (activeStage === 3 && hasScenes);
-
-  const goToPreviousStage = () => {
-    if (canGoBack) setLocalStage(activeStage - 1);
-  };
-
-  const goToNextStage = () => {
-    if (canGoForward) setLocalStage(activeStage + 1);
-  };
-
   const sceneCount = useMemo(
     () => parseProductionPackage(result?.response).scenes.length,
     [result?.response],
@@ -664,8 +646,8 @@ export default function StudioPage() {
 
       <div className="w-full space-y-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          {/* Left rail: stage navigator + reference material */}
-          <aside className="w-full space-y-3 lg:w-72 lg:shrink-0">
+          {/* Left rail: stage navigator */}
+          <aside className="w-full lg:w-72 lg:shrink-0">
             <StudioStepper
               currentStage={activeStage}
               hasStory={hasStory}
@@ -675,26 +657,6 @@ export default function StudioPage() {
               onStageClick={handleStageClick}
               inputMode={inputMode}
             />
-
-            <details className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
-                <span>How it works</span>
-                <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-              </summary>
-              <div className="pt-2">
-                <HowItWorksCard />
-              </div>
-            </details>
-
-            <details className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
-                <span>Output format</span>
-                <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-              </summary>
-              <div className="pt-2">
-                <OutputFormatCard />
-              </div>
-            </details>
           </aside>
 
           {/* Right: the single active stage */}
@@ -764,7 +726,7 @@ export default function StudioPage() {
                 />
 
                 {!hasVoiceover && (
-                  <div className="space-y-3">
+                  <div className="sticky bottom-0 z-10 space-y-3 bg-linear-to-t from-background via-background to-transparent pt-3 pb-1">
                     {isVoiceoverBusy ? (
                       <div className="flex items-center gap-2">
                         <Button
@@ -960,52 +922,30 @@ export default function StudioPage() {
 
             {/* STAGE 4 — Handoff */}
             {activeStage === 4 && (
-              <div className="space-y-4 rounded-xl border border-border bg-card p-5">
-                <div className="flex items-start gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-success/30 bg-success-subtle text-success">
-                    <Check className="size-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">
-                      Production package ready
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Copy the prompts into Google Flow, then assemble the final
-                      cut in the editor.
-                    </p>
+              <div className="rounded-xl border border-border bg-card p-5">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-success/30 bg-success-subtle text-success">
+                      <Check className="size-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        Production package ready
+                      </p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                        <span>{sceneCount} scenes</span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          {actualVoiceoverDuration
+                            ? `${formatSeconds(Math.round(actualVoiceoverDuration))} voiceover`
+                            : "No voiceover yet"}
+                        </span>
+                        <span aria-hidden>·</span>
+                        <span>{result?.metadata.promptVersion ?? "—"}</span>
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border border-border bg-muted p-3">
-                    <p className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Scenes
-                    </p>
-                    <p className="mt-1 text-lg font-semibold text-foreground">
-                      {sceneCount}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted p-3">
-                    <p className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Voiceover
-                    </p>
-                    <p className="mt-1 text-lg font-semibold text-foreground">
-                      {actualVoiceoverDuration
-                        ? formatSeconds(Math.round(actualVoiceoverDuration))
-                        : "—"}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted p-3">
-                    <p className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Prompt version
-                    </p>
-                    <p className="mt-1 truncate text-lg font-semibold text-foreground">
-                      {result?.metadata.promptVersion ?? "—"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     nativeButton={false}
@@ -1016,10 +956,6 @@ export default function StudioPage() {
                     <span>Open video editor</span>
                   </Button>
                 </div>
-
-                <p className="text-2xs text-muted-foreground">
-                  Scene prompts and timeline-plan JSON are shown below in separate copyable sections.
-                </p>
               </div>
             )}
 
@@ -1031,33 +967,6 @@ export default function StudioPage() {
               </div>
             )}
 
-            {/* Wizard footer navigation */}
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <Button
-                variant="outline"
-                onClick={goToPreviousStage}
-                disabled={!canGoBack}
-                className="gap-1.5"
-              >
-                <ChevronLeft className="size-4" />
-                <span>Back</span>
-              </Button>
-
-              {activeStage < 4 ? (
-                <Button
-                  onClick={goToNextStage}
-                  disabled={!canGoForward}
-                  className="gap-1.5"
-                >
-                  <span>Continue</span>
-                  <ChevronRight className="size-4" />
-                </Button>
-              ) : (
-                <span className="text-2xs font-medium text-muted-foreground">
-                  Workflow complete
-                </span>
-              )}
-            </div>
           </section>
         </div>
 
@@ -1069,7 +978,7 @@ export default function StudioPage() {
                 Generated output
               </h2>
               <p className="text-xs text-muted-foreground">
-                Scene prompts and timeline-plan JSON, separated for copying.
+                Copy the scene prompts for Flow, and the timeline JSON for the editor.
               </p>
             </div>
 

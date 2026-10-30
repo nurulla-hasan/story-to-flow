@@ -159,6 +159,27 @@ export function ImportPlanDialog({
                 )}
               </div>
 
+              {/* Auto-repair notes for AI-authored plans */}
+              {parseResult.warnings && parseResult.warnings.length > 0 && (
+                <div className="rounded-lg border border-warning/40 bg-warning-subtle p-2 text-2xs text-warning-subtle-foreground">
+                  <p className="flex items-center gap-1.5 font-semibold text-warning">
+                    <AlertTriangle className="size-3.5 shrink-0" />
+                    <span>
+                      Imported with {parseResult.warnings.length} automatic{" "}
+                      {parseResult.warnings.length === 1 ? "fix" : "fixes"}
+                    </span>
+                  </p>
+                  <ul className="mt-1 space-y-0.5 leading-relaxed opacity-90">
+                    {parseResult.warnings.slice(0, 3).map((warning) => (
+                      <li key={warning}>• {warning}</li>
+                    ))}
+                    {parseResult.warnings.length > 3 && (
+                      <li>• +{parseResult.warnings.length - 3} more</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+
               {/* Scrollable Shot Plan Preview List */}
               <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto rounded-lg border border-border bg-card p-2">
                 {shots.map((shot) => (

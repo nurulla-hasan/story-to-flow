@@ -9,7 +9,6 @@ import {
   ArrowRight,
   AlertCircle,
   AlertTriangle,
-  Info,
   Loader2,
   Square,
 } from "lucide-react";
@@ -137,12 +136,12 @@ export function CartesiaDurationCard({
 
   const isValidDuration = totalSeconds > 0;
 
-  // Format time display as MM:SS.ms
+  // Format time display as M:SS
   const formattedDisplay = useMemo(() => {
     if (totalSeconds <= 0) return "0:00";
     const mins = Math.floor(totalSeconds / 60);
-    const secs = (totalSeconds % 60).toFixed(2);
-    return `${mins}:${secs.padStart(5, "0")}`;
+    const secs = Math.floor(totalSeconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   }, [totalSeconds]);
 
   const videoDurationSec: VideoAssetDuration =
@@ -160,33 +159,18 @@ export function CartesiaDurationCard({
             <Clock className="size-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <CardTitle>Cartesia Audio Duration &amp; Visual Settings</CardTitle>
-              <Badge variant="outline" className="text-3xs font-mono">
-                Stage 3
-              </Badge>
-            </div>
+            <CardTitle>Audio Duration &amp; Visual Settings</CardTitle>
             <CardDescription className="mt-0.5">
-              Enter the exact duration of your synthesized Cartesia audio to calibrate visual scenes and shot pacing.
+              Synthesize the script in Cartesia, then enter the measured audio
+              duration here to calibrate scene and shot pacing.
             </CardDescription>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-5">
-        {/* Cartesia External Handoff Guidance Banner */}
-        <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-relaxed text-muted-foreground">
-          <Info className="size-4 shrink-0 text-primary mt-0.5" />
-          <div>
-            <span className="font-semibold text-foreground">External Cartesia Audio Workflow:</span>
-            <p className="mt-0.5">
-              Copy the voiceover script from Stage 2 into Cartesia to synthesize your speech. Once exported, enter the audio duration below so the AI engineers visual scene shots that align with your narration.
-            </p>
-          </div>
-        </div>
-
+      <CardContent className="space-y-6">
         {/* 1. Actual Measured Audio Duration Input */}
-        <div className="space-y-2 p-3.5 rounded-xl border border-border bg-muted/20">
+        <div className="space-y-2">
           <div className="flex items-center justify-between">
             <FieldLabel className="text-xs font-semibold text-foreground flex items-center gap-1.5">
               <Clock className="size-3.5 text-primary" />
@@ -195,7 +179,7 @@ export function CartesiaDurationCard({
 
             {isValidDuration ? (
               <Badge variant="secondary" className="font-mono text-xs font-bold text-primary">
-                {totalSeconds.toFixed(2)}s ({formattedDisplay})
+                {formattedDisplay}
               </Badge>
             ) : (
               <span className="text-3xs text-destructive flex items-center gap-1">
@@ -421,7 +405,7 @@ export function CartesiaDurationCard({
         </div>
 
         {/* 3. Generate Scenes & Shot Prompts Action Button */}
-        <div className="pt-2 border-t border-border/60">
+        <div>
           {isGenerating ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -467,33 +451,12 @@ export function CartesiaDurationCard({
             >
               <Film className="size-4" />
               <span>
-                Generate Scene &amp; Shot Prompts (
-                {totalSeconds > 0 ? `${totalSeconds}s` : "Set duration"})
+                {totalSeconds > 0
+                  ? `Generate Scene & Shot Prompts (${formattedDisplay})`
+                  : "Enter a duration to continue"}
               </span>
               <ArrowRight className="size-4" />
             </Button>
-          )}
-
-          {/* Settings Summary Below Button */}
-          {isValidDuration && (
-            <div className="flex flex-wrap items-center justify-center gap-2 text-3xs font-mono text-muted-foreground mt-2 pt-1">
-              <span>Voiceover: {totalSeconds.toFixed(2)}s</span>
-              <span>•</span>
-              <span>Style: {settings.visualStyle || "Auto"}</span>
-              <span>•</span>
-              <span>Ratio: {settings.aspectRatio}</span>
-              <span>•</span>
-              <span>Asset: {settings.visualAssetMode || "Hybrid"}</span>
-              <span>•</span>
-              <span>
-                Static Pacing:{" "}
-                {settings.staticFramePacing === "Auto"
-                  ? "Auto"
-                  : `${settings.staticFramePacing ?? 4.0}s`}
-              </span>
-              <span>•</span>
-              <span>Video Asset: {videoDurationSec}.0s</span>
-            </div>
           )}
         </div>
       </CardContent>

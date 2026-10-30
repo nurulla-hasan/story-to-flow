@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   stripMarkdownCodeFence,
   countVoiceoverWords,
@@ -67,14 +66,9 @@ export function VoiceoverScriptCard({
             <Mic className="size-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <CardTitle>
-                {isDirectVoiceover ? "Direct Voiceover Script" : "Master Voiceover Script"}
-              </CardTitle>
-              <Badge variant="outline" className="text-3xs font-mono">
-                {isDirectVoiceover ? "Direct Voiceover" : "Stage 2"}
-              </Badge>
-            </div>
+            <CardTitle>
+              {isDirectVoiceover ? "Direct Voiceover Script" : "Master Voiceover Script"}
+            </CardTitle>
             <CardDescription className="font-bangla mt-0.5">
               {isDirectVoiceover
                 ? "Enter or edit your narration script, copy it for Cartesia speech synthesis, then enter duration."
@@ -90,21 +84,18 @@ export function VoiceoverScriptCard({
             onClick={handleCopy}
             disabled={!script.trim() || disabled}
             title="Copy script text to clipboard for Cartesia TTS"
+            className="gap-1.5"
           >
-            {copied ? (
-              <>
-                <Check className="text-primary" />
-              </>
-            ) : (
-              <>
-                <Copy />
-              </>
-            )}
+            {copied ? <Check className="text-primary" /> : <Copy />}
+            <span className="hidden sm:inline">
+              {copied ? "Copied" : "Copy for Cartesia"}
+            </span>
           </Button>
 
           {onClear && (
             <Button
-              variant="destructive"
+              variant="ghost"
+              size="icon"
               onClick={onClear}
               disabled={!script.trim() || disabled}
               title="Clear voiceover script"

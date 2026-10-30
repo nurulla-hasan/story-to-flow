@@ -420,7 +420,7 @@ Here is the plan:
     }
   });
 
-  it("returns clear validation error when JSON block has schema errors and does not falsely pass", () => {
+  it("drops unsupported motion from an AI plan but keeps the shots importable", () => {
     const invalidSchemaJson = `
 \`\`\`json
 {
@@ -451,9 +451,10 @@ Here is the plan:
     `;
 
     const res = extractScenePlanFromText(invalidSchemaJson);
-    expect(res.success).toBe(false);
-    if (!res.success) {
-      expect(res.error).toContain("Validation error");
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.plan.scenes[0].shots[0].motion).toBeNull();
+      expect(res.warnings?.join(" ")).toContain("unsupported-gyro-twist");
     }
   });
 
@@ -472,6 +473,259 @@ Here is the plan:
 
       const nonExistent = getShotFromPlan(parsed.plan, "invalid-id");
       expect(nonExistent).toBeUndefined();
+    }
+  });
+});
+
+describe("Tolerant import of AI-authored scene plans", () => {
+  it("repairs a plan that omits schemaVersion, sceneId and shotId", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        scenes: [
+          {
+            sceneNumber: 1,
+            title: "Small story",
+            shots: [
+              {
+                shotNumber: 1,
+                startTime: 0,
+                duration: 4,
+                mediaKind: "image",
+                prompt: "A quiet village road at dawn.",
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.plan.schemaVersion).toBe(1);
+      expect(res.plan.scenes[0].sceneId).toBe("scene-01");
+      expect(res.plan.scenes[0].shots[0].shotId).toBe("scene-01-shot-01");
+      expect(res.warnings?.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("renumbers 0-based scene and shot numbers into the sequential contract", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        schemaVersion: 1,
+        scenes: [
+          {
+            sceneId: "scene-01",
+            sceneNumber: 0,
+            shots: [
+              {
+                shotId: "a",
+                shotNumber: 0,
+                startTime: 0,
+                duration: 4,
+                mediaKind: "image",
+                prompt: "p1",
+              },
+              {
+                shotId: "b",
+                shotNumber: 1,
+                startTime: 4,
+                duration: 4,
+                mediaKind: "image",
+                prompt: "p2",
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.plan.scenes[0].sceneNumber).toBe(1);
+      expect(res.plan.scenes[0].shots.map((s) => s.shotNumber)).toEqual([1, 2]);
+    }
+  });
+
+  it("coerces string durations, timecode startTimes and capitalized mediaKind", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        schemaVersion: "1",
+        scenes: [
+          {
+            sceneId: "scene-01",
+            sceneNumber: 1,
+            shots: [
+              {
+                shotId: "s1",
+                shotNumber: 1,
+                startTime: "0:04",
+                duration: "6.0s",
+                mediaKind: "STATIC IMAGE",
+                prompt: "p1",
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      const shot = res.plan.scenes[0].shots[0];
+      expect(shot.startTime).toBe(4);
+      expect(shot.duration).toBe(6);
+      expect(shot.mediaKind).toBe("image");
+    }
+  });
+
+  it("accepts motion and transition given as plain strings, including 'static'", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        schemaVersion: 1,
+        scenes: [
+          {
+            sceneId: "scene-01",
+            sceneNumber: 1,
+            shots: [
+              {
+                shotId: "s1",
+                shotNumber: 1,
+                startTime: 0,
+                duration: 4,
+                mediaKind: "image",
+                prompt: "p1",
+                motion: "zoom in",
+                transitionToNext: "crossfade",
+              },
+              {
+                shotId: "s2",
+                shotNumber: 2,
+                startTime: 4,
+                duration: 4,
+                mediaKind: "video",
+                prompt: "p2",
+                motion: "static",
+                transitionToNext: null,
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.plan.scenes[0].shots[0].motion).toEqual({ type: "zoom-in", amount: 0.15 });
+      expect(res.plan.scenes[0].shots[0].transitionToNext).toEqual({
+        type: "cross-dissolve",
+        duration: 0.5,
+      });
+      expect(res.plan.scenes[0].shots[1].motion).toBeNull();
+    }
+  });
+
+  it("estimates missing startTime and duration instead of rejecting the plan", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        schemaVersion: 1,
+        scenes: [
+          {
+            sceneId: "scene-01",
+            sceneNumber: 1,
+            shots: [
+              { shotId: "s1", shotNumber: 1, mediaKind: "image", prompt: "p1" },
+              { shotId: "s2", shotNumber: 2, mediaKind: "image", prompt: "p2" },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.plan.scenes[0].shots[0].startTime).toBe(0);
+      expect(res.plan.scenes[0].shots[1].startTime).toBe(4);
+      expect(res.plan.totalDuration).toBe(8);
+    }
+  });
+
+  it("unwraps plans nested under a wrapper key", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        plan: {
+          schemaVersion: 1,
+          scenes: [
+            {
+              sceneId: "scene-01",
+              sceneNumber: 1,
+              shots: [
+                {
+                  shotId: "s1",
+                  shotNumber: 1,
+                  startTime: 0,
+                  duration: 4,
+                  mediaKind: "image",
+                  prompt: "p1",
+                },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    expect(res.success).toBe(true);
+  });
+
+  it("accepts a bare JSON object pasted without markdown fences", () => {
+    const res = extractScenePlanFromText(
+      JSON.stringify({
+        scenes: [
+          {
+            sceneNumber: 1,
+            shots: [
+              {
+                shotNumber: 1,
+                startTime: 0,
+                duration: 4,
+                mediaKind: "image",
+                prompt: "p1",
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(true);
+  });
+
+  it("reports a clear error when a shot has no prompt text", () => {
+    const res = parseScenePlanJson(
+      JSON.stringify({
+        schemaVersion: 1,
+        scenes: [
+          {
+            sceneId: "scene-01",
+            sceneNumber: 1,
+            shots: [
+              {
+                shotId: "s1",
+                shotNumber: 1,
+                startTime: 0,
+                duration: 4,
+                mediaKind: "image",
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error).toContain('Shot "s1"');
+      expect(res.error).toContain("prompt");
     }
   });
 });

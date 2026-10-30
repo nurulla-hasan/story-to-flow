@@ -1,16 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  AlertCircle,
-  Check,
-  Clock,
-  Cpu,
-  Copy,
-  FileText,
-  Film,
-  Layers,
-} from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AlertCircle, Check, Copy, FileText, Film } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -27,6 +18,68 @@ interface OutputCardProps {
   error: string | null;
 }
 
+function formatSize(text: string): string {
+  const bytes = new TextEncoder().encode(text).length;
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+interface CopyPanelProps {
+  icon: ReactNode;
+  title: string;
+  meta: string;
+  preview: string | null;
+  copyLabel: string;
+  emptyLabel: string;
+  copied: boolean;
+  onCopy: () => void;
+}
+
+function CopyPanel({
+  icon,
+  title,
+  meta,
+  preview,
+  copyLabel,
+  emptyLabel,
+  copied,
+  onCopy,
+}: CopyPanelProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {icon}
+          {title}
+        </CardTitle>
+        <CardDescription>{meta}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        {preview ? (
+          <pre className="max-h-40 flex-1 overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg border border-border bg-muted/40 p-3 font-mono text-2xs leading-relaxed text-muted-foreground">
+            {preview}
+          </pre>
+        ) : (
+          <p className="flex-1 text-sm text-muted-foreground">{emptyLabel}</p>
+        )}
+
+        <Button
+          variant="outline"
+          className="w-full gap-2"
+          onClick={onCopy}
+          disabled={!preview || copied}
+        >
+          {copied ? (
+            <Check className="size-4 text-success" />
+          ) : (
+            <Copy className="size-4" />
+          )}
+          {copied ? "Copied" : copyLabel}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OutputCard({ result, error }: OutputCardProps) {
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null);
   const parsed = useMemo(
@@ -39,7 +92,11 @@ export function OutputCard({ result, error }: OutputCardProps) {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedTarget(target);
-      setTimeout(() => setCopiedTarget((current) => current === target ? null : current), 2000);
+      setTimeout(
+        () =>
+          setCopiedTarget((current) => (current === target ? null : current)),
+        2000,
+      );
     } catch {
       // Ignore clipboard write errors.
     }
@@ -51,7 +108,8 @@ export function OutputCard({ result, error }: OutputCardProps) {
         <CardHeader>
           <CardTitle>Generated Output</CardTitle>
           <CardDescription>
-            Scene and shot prompts, with the timeline plan JSON in a separate copyable section.
+            Scene prompts and the timeline plan appear here once generation
+            finishes.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -84,153 +142,48 @@ export function OutputCard({ result, error }: OutputCardProps) {
 
   if (!result) return null;
 
+  const scenesMeta = parsed.scenesText
+    ? `${parsed.scenes.length} scene${parsed.scenes.length === 1 ? "" : "s"} · ${formatSize(parsed.scenesText)}`
+    : "Not found in response";
+  const planMeta = parsed.planJson
+    ? formatSize(parsed.planJson)
+    : "Not found in response";
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 text-xs">
-        <span className="flex items-center gap-1.5 font-medium text-success">
-          <span className="size-2 rounded-full bg-success" />
-          Production ready
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+        <span className="font-mono text-foreground">
+          {result.metadata.modelUsed}
         </span>
-        <span className="text-muted-foreground">•</span>
-        <span className="flex items-center gap-1 text-muted-foreground">
-          <Cpu className="size-3 text-primary" />
-          <span className="font-mono text-foreground">{result.metadata.modelUsed}</span>
-        </span>
-        <span className="text-muted-foreground">•</span>
-        <span className="flex items-center gap-1 text-muted-foreground">
-          <Layers className="size-3" />
-          <span>{result.metadata.promptVersion}</span>
-        </span>
-        <span className="text-muted-foreground">•</span>
-        <span className="flex items-center gap-1 text-muted-foreground">
-          <Clock className="size-3" />
-          <span>{(result.metadata.processingTimeMs / 1000).toFixed(1)}s</span>
-        </span>
+        <span aria-hidden>·</span>
+        <span>{result.metadata.promptVersion}</span>
+        <span aria-hidden>·</span>
+        <span>{(result.metadata.processingTimeMs / 1000).toFixed(1)}s</span>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Film className="size-5 text-primary" />
-              <div>
-                <CardTitle>Scene &amp; Image Prompts</CardTitle>
-                <CardDescription>
-                  Voiceover lines are omitted. Copy all prompts together or copy a scene individually.
-                </CardDescription>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copyText("all-scenes", parsed.scenesText)}
-              disabled={!parsed.scenesText || copiedTarget === "all-scenes"}
-              className="gap-1.5"
-            >
-              {copiedTarget === "all-scenes" ? (
-                <>
-                  <Check className="size-3.5 text-success" />
-                  <span>Copied prompts</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="size-3.5" />
-                  <span>Copy all prompts</span>
-                </>
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {parsed.scenes.length > 0 ? (
-            <div className="space-y-3">
-              {parsed.scenes.map((scene, index) => {
-                const target = "scene-" + index;
-                return (
-                  <div key={target} className="rounded-xl border border-border bg-card p-4">
-                    <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-2">
-                      <span className="font-mono text-xs font-semibold text-foreground">
-                        {scene.header}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => copyText(target, scene.fullBlock)}
-                        className="gap-1"
-                      >
-                        {copiedTarget === target ? (
-                          <>
-                            <Check className="size-3 text-success" />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="size-3" />
-                            <span>Copy scene</span>
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                    <pre className="mt-3 whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed text-foreground/90">
-                      {scene.fullBlock}
-                    </pre>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Scene prompts could not be isolated from the generated response.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        <CopyPanel
+          icon={<Film className="size-4 text-primary" />}
+          title="Scene prompts"
+          meta={scenesMeta}
+          preview={parsed.scenesText}
+          copyLabel="Copy all scenes"
+          emptyLabel="Scene prompts could not be isolated from the generated response."
+          copied={copiedTarget === "all-scenes"}
+          onCopy={() => copyText("all-scenes", parsed.scenesText)}
+        />
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <FileText className="size-5 text-primary" />
-              <div>
-                <CardTitle>Timeline Plan JSON</CardTitle>
-                <CardDescription>
-                  Structured scene, shot, duration, motion, and transition data. Copy as valid JSON without Markdown fences.
-                </CardDescription>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copyText("plan-json", parsed.planJson)}
-              disabled={!parsed.planJson || copiedTarget === "plan-json"}
-              className="gap-1.5"
-            >
-              {copiedTarget === "plan-json" ? (
-                <>
-                  <Check className="size-3.5 text-success" />
-                  <span>Copied JSON</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="size-3.5" />
-                  <span>Copy JSON</span>
-                </>
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {parsed.planJson ? (
-            <pre className="max-h-140 overflow-auto whitespace-pre-wrap wrap-break-word rounded-xl border border-border bg-muted/20 p-4 font-mono text-xs leading-relaxed text-foreground">
-              {parsed.planJson}
-            </pre>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              A valid machine-readable JSON block was not found in the generated response.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        <CopyPanel
+          icon={<FileText className="size-4 text-primary" />}
+          title="Timeline JSON"
+          meta={planMeta}
+          preview={parsed.planJson}
+          copyLabel="Copy JSON"
+          emptyLabel="A valid machine-readable JSON block was not found in the generated response."
+          copied={copiedTarget === "plan-json"}
+          onCopy={() => copyText("plan-json", parsed.planJson)}
+        />
+      </div>
     </div>
   );
 }

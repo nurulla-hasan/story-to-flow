@@ -120,7 +120,7 @@ Speak naturally in Bangladeshi Bengali as a warm, intimate, emotionally attuned 
 - The narration is the single source of truth for later scene prompts and captions.
 
 OUTPUT FORMAT:
-Output ONLY the final spoken Bengali narration in one clean copyable code block. Include no title, headings, scene or shot blocks, image/video prompts, acting notes, English text, music cues, or explanation.
+Output ONLY the clean spoken Bengali narration prose directly as plain text. Do NOT wrap the output in Markdown code fences (do NOT use \`\`\` or \`\`\`text or \`\`\`markdown). Include no title, headings, labels, scene or shot blocks, image/video prompts, acting notes, English text, music cues, or explanation. Provide ONLY the raw Bengali narration paragraphs.
 ==================================================
 `.trim();
 

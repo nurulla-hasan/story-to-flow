@@ -12,6 +12,7 @@ import {
   saveStoredStudioData,
   clearStoredStudioState,
 } from "@/lib/studio-storage";
+import { stripMarkdownCodeFence } from "@/lib/voiceover-cleaner";
 import { StoryInputCard } from "@/components/studio/story-input-card";
 import { StudioStepper } from "@/components/studio/studio-stepper";
 import { VoiceoverScriptCard } from "@/components/studio/voiceover-script-card";
@@ -42,7 +43,6 @@ import {
   FileText,
   Mic,
   Check,
-  Copy,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -55,15 +55,20 @@ function formatSeconds(sec: number): string {
   return `${mins}:${remaining.toString().padStart(2, "0")}`;
 }
 
-function getProgressPhase(sec: number, phase: "voiceover" | "scenes" | null): string {
+function getProgressPhase(
+  sec: number,
+  phase: "voiceover" | "scenes" | null,
+): string {
   if (phase === "voiceover") {
     if (sec < 6) return "Analyzing story tone & emotional arc...";
     if (sec < 18) return "Crafting natural Bangladeshi Bengali narration...";
     return "Polishing voiceover cadence for Cartesia speech...";
   }
-  if (sec < 6) return "Aligning visual beats with measured voiceover duration...";
+  if (sec < 6)
+    return "Aligning visual beats with measured voiceover duration...";
   if (sec < 18) return "Engineering visual scene compositions & shot modes...";
-  if (sec < 45) return "Generating cinematic prompts & lighting instructions...";
+  if (sec < 45)
+    return "Generating cinematic prompts & lighting instructions...";
   return "Finalizing complete scene & shot package...";
 }
 
@@ -73,18 +78,27 @@ export default function StudioPage() {
   const storedStudio = useStudioStorage();
 
   // Local state with fallback to persistent storage
-  const [localInputMode, setLocalInputMode] = useState<"story" | "direct-voiceover" | null>(null);
+  const [localInputMode, setLocalInputMode] = useState<
+    "story" | "direct-voiceover" | null
+  >(null);
   const [localStory, setLocalStory] = useState<string | null>(null);
-  const [localVoiceoverScript, setLocalVoiceoverScript] = useState<string | null>(null);
+  const [localVoiceoverScript, setLocalVoiceoverScript] = useState<
+    string | null
+  >(null);
   const [localMinutes, setLocalMinutes] = useState<string | null>(null);
   const [localSeconds, setLocalSeconds] = useState<string | null>(null);
   const [localStage, setLocalStage] = useState<number | null>(null);
-  const [localResult, setLocalResult] = useState<StoryProcessResponse | null | undefined>(undefined);
+  const [localResult, setLocalResult] = useState<
+    StoryProcessResponse | null | undefined
+  >(undefined);
 
   const inputMode: "story" | "direct-voiceover" =
     localInputMode !== null
       ? localInputMode
-      : storedStudio.inputMode || (storedStudio.voiceoverScript && !storedStudio.story ? "direct-voiceover" : "story");
+      : storedStudio.inputMode ||
+        (storedStudio.voiceoverScript && !storedStudio.story
+          ? "direct-voiceover"
+          : "story");
 
   const story = localStory !== null ? localStory : storedStudio.story;
   const voiceoverScript =
@@ -105,11 +119,12 @@ export default function StudioPage() {
     localResult !== undefined ? localResult : storedStudio.lastResult;
 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generationPhase, setGenerationPhase] = useState<"voiceover" | "scenes" | null>(null);
+  const [generationPhase, setGenerationPhase] = useState<
+    "voiceover" | "scenes" | null
+  >(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
 
@@ -131,9 +146,12 @@ export default function StudioPage() {
   // Cleanup timers & abort controller on unmount
   useEffect(() => {
     return () => {
-      if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
-      if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
-      if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+      if (storySaveTimeoutRef.current)
+        clearTimeout(storySaveTimeoutRef.current);
+      if (voiceoverSaveTimeoutRef.current)
+        clearTimeout(voiceoverSaveTimeoutRef.current);
+      if (durationSaveTimeoutRef.current)
+        clearTimeout(durationSaveTimeoutRef.current);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -166,7 +184,8 @@ export default function StudioPage() {
 
     saveStoredStudioData({
       inputMode: mode,
-      currentStage: mode === "direct-voiceover" && currentStage === 1 ? 2 : currentStage,
+      currentStage:
+        mode === "direct-voiceover" && currentStage === 1 ? 2 : currentStage,
     });
   };
 
@@ -187,8 +206,10 @@ export default function StudioPage() {
 
     // Cancel all pending auto-save timers to prevent race conditions
     if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
-    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current)
+      clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
 
     if (inputMode === "story") {
       // Invalidate downstream voiceover script, measured duration, and scenes
@@ -222,8 +243,10 @@ export default function StudioPage() {
 
   const handleClear = () => {
     if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
-    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current)
+      clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
 
     setLocalStory("");
     if (inputMode === "story") {
@@ -254,8 +277,10 @@ export default function StudioPage() {
   };
 
   const handleClearVoiceover = () => {
-    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current)
+      clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
 
     setLocalVoiceoverScript("");
     setLocalMinutes("");
@@ -285,8 +310,10 @@ export default function StudioPage() {
     setLocalResult(null);
     setLocalStage(2);
 
-    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current)
+      clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
 
     voiceoverSaveTimeoutRef.current = setTimeout(() => {
       saveStoredStudioData({
@@ -312,11 +339,13 @@ export default function StudioPage() {
     setLocalResult(null);
     setLocalStage(3);
 
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
     durationSaveTimeoutRef.current = setTimeout(() => {
       saveStoredStudioData({
         voiceoverDurationMinutes: val,
-        actualVoiceoverDuration: total > 0 ? parseFloat(total.toFixed(2)) : null,
+        actualVoiceoverDuration:
+          total > 0 ? parseFloat(total.toFixed(2)) : null,
         lastResult: null,
         currentStage: 3,
       });
@@ -333,11 +362,13 @@ export default function StudioPage() {
     setLocalResult(null);
     setLocalStage(3);
 
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
     durationSaveTimeoutRef.current = setTimeout(() => {
       saveStoredStudioData({
         voiceoverDurationSeconds: val,
-        actualVoiceoverDuration: total > 0 ? parseFloat(total.toFixed(2)) : null,
+        actualVoiceoverDuration:
+          total > 0 ? parseFloat(total.toFixed(2)) : null,
         lastResult: null,
         currentStage: 3,
       });
@@ -347,7 +378,9 @@ export default function StudioPage() {
   // STAGE 1 ACTION: Generate Master Voiceover Script Only
   const handleGenerateVoiceover = async () => {
     if (!story.trim()) {
-      setValidationError("Please enter your story first to generate the voiceover script.");
+      setValidationError(
+        "Please enter your story first to generate the voiceover script.",
+      );
       return;
     }
 
@@ -398,8 +431,8 @@ export default function StudioPage() {
         return;
       }
 
-      // Extract raw voiceover script
-      const scriptText = (data.response || "").trim();
+      // Extract raw voiceover script and defensively strip any Markdown code fences
+      const scriptText = stripMarkdownCodeFence(data.response || "");
       setLocalVoiceoverScript(scriptText);
       setLocalMinutes("");
       setLocalSeconds("");
@@ -419,7 +452,9 @@ export default function StudioPage() {
         setCancelNotice("Generation was stopped.");
         return;
       }
-      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      setError(
+        err instanceof Error ? err.message : "An unexpected error occurred.",
+      );
     } finally {
       if (requestIdRef.current === currentRequestId) {
         setIsGenerating(false);
@@ -432,15 +467,21 @@ export default function StudioPage() {
   // STAGE 4 ACTION: Generate Scene & Shot Prompts with Measured Duration
   const handleGenerateScenes = async () => {
     if (inputMode === "story" && !story.trim() && !voiceoverScript.trim()) {
-      setValidationError("Please enter your story first to generate the voiceover script.");
+      setValidationError(
+        "Please enter your story first to generate the voiceover script.",
+      );
       return;
     }
     if (!voiceoverScript.trim()) {
-      setError("Please enter or generate a voiceover script before generating scenes.");
+      setError(
+        "Please enter or generate a voiceover script before generating scenes.",
+      );
       return;
     }
     if (!actualVoiceoverDuration || actualVoiceoverDuration <= 0) {
-      setError("Please enter the actual voiceover duration measured from Cartesia.");
+      setError(
+        "Please enter the actual voiceover duration measured from Cartesia.",
+      );
       return;
     }
 
@@ -504,7 +545,9 @@ export default function StudioPage() {
         setCancelNotice("Generation was stopped.");
         return;
       }
-      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      setError(
+        err instanceof Error ? err.message : "An unexpected error occurred.",
+      );
     } finally {
       if (requestIdRef.current === currentRequestId) {
         setIsGenerating(false);
@@ -524,7 +567,9 @@ export default function StudioPage() {
     setElapsedSeconds(0);
     setCancelNotice("Generation was stopped.");
     setTimeout(() => {
-      setCancelNotice((prev) => (prev === "Generation was stopped." ? null : prev));
+      setCancelNotice((prev) =>
+        prev === "Generation was stopped." ? null : prev,
+      );
     }, 4000);
   };
 
@@ -535,8 +580,10 @@ export default function StudioPage() {
     }
 
     if (storySaveTimeoutRef.current) clearTimeout(storySaveTimeoutRef.current);
-    if (voiceoverSaveTimeoutRef.current) clearTimeout(voiceoverSaveTimeoutRef.current);
-    if (durationSaveTimeoutRef.current) clearTimeout(durationSaveTimeoutRef.current);
+    if (voiceoverSaveTimeoutRef.current)
+      clearTimeout(voiceoverSaveTimeoutRef.current);
+    if (durationSaveTimeoutRef.current)
+      clearTimeout(durationSaveTimeoutRef.current);
 
     requestIdRef.current++;
     clearStoredStudioState();
@@ -557,19 +604,10 @@ export default function StudioPage() {
 
     setCancelNotice("Story workspace reset. Settings preserved.");
     setTimeout(() => {
-      setCancelNotice((prev) => (prev === "Story workspace reset. Settings preserved." ? null : prev));
+      setCancelNotice((prev) =>
+        prev === "Story workspace reset. Settings preserved." ? null : prev,
+      );
     }, 3500);
-  };
-
-  const handleCopyAll = async () => {
-    if (!result?.response) return;
-    try {
-      await navigator.clipboard.writeText(result.response);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
   };
 
   // --- Focus wizard derived state -------------------------------------------
@@ -603,7 +641,7 @@ export default function StudioPage() {
 
   const sceneCount = useMemo(
     () => parseProductionPackage(result?.response).scenes.length,
-    [result?.response]
+    [result?.response],
   );
 
   const isVoiceoverBusy = isGenerating && generationPhase === "voiceover";
@@ -618,7 +656,7 @@ export default function StudioPage() {
           : "Copy the prompts into Google Flow and assemble the cut in the editor.";
 
   return (
-    <>
+    <section className="max-w-7xl mx-auto">
       {/* Subtle page wash */}
       <div className="pointer-events-none fixed inset-0 -z-10 bg-linear-to-b from-surface-subtle to-background" />
 
@@ -733,7 +771,9 @@ export default function StudioPage() {
                           tabIndex={-1}
                         >
                           <Loader2 className="size-4 shrink-0 animate-spin" />
-                          <span className="truncate">Writing voiceover script</span>
+                          <span className="truncate">
+                            Writing voiceover script
+                          </span>
                           <span className="font-mono text-xs">
                             {formatSeconds(elapsedSeconds)}
                           </span>
@@ -766,7 +806,9 @@ export default function StudioPage() {
                       <div className="flex items-center justify-between gap-2 px-1 text-2xs text-muted-foreground">
                         <span className="flex items-center gap-2 font-medium text-foreground">
                           <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                          <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
+                          <span>
+                            {getProgressPhase(elapsedSeconds, "voiceover")}
+                          </span>
                         </span>
                         <span className="font-mono">{elapsedSeconds}s</span>
                       </div>
@@ -797,7 +839,9 @@ export default function StudioPage() {
                   onChange={handleVoiceoverChange}
                   onClear={handleClearVoiceover}
                   onRegenerate={
-                    !isDirectMode && story.trim() ? handleGenerateVoiceover : undefined
+                    !isDirectMode && story.trim()
+                      ? handleGenerateVoiceover
+                      : undefined
                   }
                   onProceedToDuration={() => setLocalStage(3)}
                   isGenerating={isVoiceoverBusy}
@@ -809,7 +853,9 @@ export default function StudioPage() {
                   <div className="flex items-center justify-between gap-2 px-1 text-2xs text-muted-foreground">
                     <span className="flex items-center gap-2 font-medium text-foreground">
                       <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                      <span>{getProgressPhase(elapsedSeconds, "voiceover")}</span>
+                      <span>
+                        {getProgressPhase(elapsedSeconds, "voiceover")}
+                      </span>
                     </span>
                     <Button
                       size="sm"
@@ -828,7 +874,9 @@ export default function StudioPage() {
                     <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
                       <span className="flex items-center gap-2">
                         <FileText className="size-3.5" />
-                        <span>Optional: story background or character notes</span>
+                        <span>
+                          Optional: story background or character notes
+                        </span>
                       </span>
                       <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
                     </summary>
@@ -864,24 +912,28 @@ export default function StudioPage() {
             )}
 
             {/* Fallback stop control if the user navigates away while scenes are generating */}
-            {isGenerating && generationPhase === "scenes" && activeStage !== 3 && (
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-2xs text-muted-foreground">
-                <span className="flex items-center gap-2 font-medium text-foreground">
-                  <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                  <span>Engineering scenes &amp; shots</span>
-                  <span className="font-mono">{formatSeconds(elapsedSeconds)}</span>
-                </span>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={handleStop}
-                  className="gap-1.5"
-                >
-                  <Square className="size-3" />
-                  <span>Stop</span>
-                </Button>
-              </div>
-            )}
+            {isGenerating &&
+              generationPhase === "scenes" &&
+              activeStage !== 3 && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-2xs text-muted-foreground">
+                  <span className="flex items-center gap-2 font-medium text-foreground">
+                    <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                    <span>Engineering scenes &amp; shots</span>
+                    <span className="font-mono">
+                      {formatSeconds(elapsedSeconds)}
+                    </span>
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleStop}
+                    className="gap-1.5"
+                  >
+                    <Square className="size-3" />
+                    <span>Stop</span>
+                  </Button>
+                </div>
+              )}
 
             {/* STAGE 4 — Handoff */}
             {activeStage === 4 && (
@@ -895,8 +947,8 @@ export default function StudioPage() {
                       Production package ready
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Copy the prompts into Google Flow, then assemble the final cut in
-                      the editor.
+                      Copy the prompts into Google Flow, then assemble the final
+                      cut in the editor.
                     </p>
                   </div>
                 </div>
@@ -932,14 +984,6 @@ export default function StudioPage() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    onClick={handleCopyAll}
-                    disabled={!result?.response || copied}
-                    className="gap-1.5"
-                  >
-                    {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                    <span>{copied ? "Copied package" : "Copy full package"}</span>
-                  </Button>
-                  <Button
                     variant="outline"
                     nativeButton={false}
                     className="gap-1.5"
@@ -951,8 +995,7 @@ export default function StudioPage() {
                 </div>
 
                 <p className="text-2xs text-muted-foreground">
-                  The full package — voiceover plus scene prompts — is shown below this
-                  workspace.
+                  Scene prompts and timeline-plan JSON are shown below in separate copyable sections.
                 </p>
               </div>
             )}
@@ -1003,15 +1046,13 @@ export default function StudioPage() {
                 Generated output
               </h2>
               <p className="text-xs text-muted-foreground">
-                Full production package — voiceover and scene prompts.
+                Scene prompts and timeline-plan JSON, separated for copying.
               </p>
             </div>
 
             <OutputCard
               result={result}
               error={error}
-              copied={copied}
-              onCopyAll={handleCopyAll}
             />
           </section>
         )}
@@ -1026,9 +1067,9 @@ export default function StudioPage() {
             </AlertDialogMedia>
             <AlertDialogTitle>Reset Studio Workspace?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently clear your current story text, voiceover script,
-              entered duration, and generated production package. Your production
-              settings and AI model preference will remain unchanged.
+              This will permanently clear your current story text, voiceover
+              script, entered duration, and generated production package. Your
+              production settings and AI model preference will remain unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -1045,6 +1086,6 @@ export default function StudioPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </section>
   );
 }

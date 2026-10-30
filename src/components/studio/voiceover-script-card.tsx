@@ -12,6 +12,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  stripMarkdownCodeFence,
+  countVoiceoverWords,
+  estimateVoiceoverDurationSeconds,
+} from "@/lib/voiceover-cleaner";
 
 interface VoiceoverScriptCardProps {
   script: string;
@@ -36,10 +41,13 @@ export function VoiceoverScriptCard({
 }: VoiceoverScriptCardProps) {
   const [copied, setCopied] = useState(false);
 
+  // Clean script to ensure any legacy stored fences or pasted fences are stripped
+  const cleanScript = stripMarkdownCodeFence(script);
+
   const handleCopy = async () => {
-    if (!script.trim()) return;
+    if (!cleanScript.trim()) return;
     try {
-      await navigator.clipboard.writeText(script.trim());
+      await navigator.clipboard.writeText(cleanScript.trim());
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -47,9 +55,9 @@ export function VoiceoverScriptCard({
     }
   };
 
-  // Estimate speaking duration at ~2.4 Bengali words per second
-  const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
-  const estimatedSeconds = Math.round(wordCount / 2.4);
+  // Estimate speaking duration at ~2.4 Bengali words per second (ignoring any markdown fences)
+  const wordCount = countVoiceoverWords(cleanScript);
+  const estimatedSeconds = estimateVoiceoverDurationSeconds(cleanScript);
 
   return (
     <Card className="border-primary/20 bg-card shadow-sm">
@@ -125,8 +133,8 @@ export function VoiceoverScriptCard({
         <div className="relative">
           <Textarea
             id="voiceover-script-input"
-            value={script}
-            onChange={(e) => onChange(e.target.value)}
+            value={cleanScript}
+            onChange={(e) => onChange(stripMarkdownCodeFence(e.target.value))}
             disabled={disabled}
             placeholder={
               isDirectVoiceover

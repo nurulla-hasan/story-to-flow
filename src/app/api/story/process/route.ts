@@ -16,6 +16,7 @@ import {
   assembleSceneSystemMessage,
 } from "@/lib/prompt-assembly";
 import { MASTER_PROMPT_VERSION } from "@/prompts/loader";
+import { stripMarkdownCodeFence } from "@/lib/voiceover-cleaner";
 import type { StoryProcessResponse } from "@/lib/validation";
 
 // Set maximum execution duration for long story production on supported Node/Vercel runtimes (300 seconds)
@@ -136,7 +137,7 @@ export async function POST(request: NextRequest) {
       userMessageContent = `Story to convert into master voiceover:
 ${story}
 
-Write the complete, continuous Bangladeshi Bengali master voiceover script based strictly on the story. Output ONLY the voiceover script.`;
+Write the complete, continuous Bangladeshi Bengali master voiceover script based strictly on the story. Output ONLY clean Bengali narration text directly without any Markdown code fences, labels, or formatting.`;
     } else if (stage === "scenes") {
       systemMessage = assembleSceneSystemMessage(resolvedSettings, actualVoiceoverDuration!);
       const storySection = story && story.trim()
@@ -191,9 +192,12 @@ The user has submitted this story using the configured settings above. Phase 1 i
 
     const processingTimeMs = Date.now() - startTime;
 
+    const rawContent = result.content;
+    const finalContent = stage === "voiceover" ? stripMarkdownCodeFence(rawContent) : rawContent;
+
     // Return raw production package
     const response: StoryProcessResponse = {
-      response: result.content,
+      response: finalContent,
       metadata: {
         modelUsed: result.model,
         promptVersion: MASTER_PROMPT_VERSION,

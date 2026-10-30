@@ -92,6 +92,40 @@ describe("Left-Edge Trim Math & Anchoring", () => {
     expect(result.startTime + result.duration).toBe(8.0);
   });
 
+  it("keeps an already source-limited short clip short when the timeline start prevents extension", () => {
+    const shortSourceClip: TimelineClip = {
+      ...sampleVideoClip,
+      startTime: 0,
+      duration: 0.2,
+      inPoint: 4.8,
+      outPoint: 5,
+      sourceDuration: 5,
+    };
+
+    const result = calculateLeftTrim(shortSourceClip, 0);
+    expect(result.startTime).toBe(0);
+    expect(result.duration).toBeCloseTo(0.2, 3);
+    expect(result.inPoint).toBeCloseTo(4.8, 3);
+    expect(result.outPoint).toBe(5);
+    expect(result.inPoint + result.duration).toBeCloseTo(result.outPoint, 3);
+  });
+
+  it("keeps source bounds when left trim uses overlap-aware clamping", () => {
+    const shortSourceClip: TimelineClip = {
+      ...sampleVideoClip,
+      startTime: 0,
+      duration: 0.2,
+      inPoint: 4.8,
+      outPoint: 5,
+      sourceDuration: 5,
+    };
+
+    const result = calculateLeftTrimWithOverlap(shortSourceClip, 0, [shortSourceClip]);
+    expect(result.duration).toBeCloseTo(0.2, 3);
+    expect(result.outPoint).toBe(5);
+    expect(result.inPoint + result.duration).toBeCloseTo(result.outPoint, 3);
+  });
+
   it("correctly trims still image left edge while anchoring right edge and keeping inPoint at 0", () => {
     // Image: start 4.0, duration 4.0 -> right edge is 8.0
     const result = calculateLeftTrim(sampleImageClip, 2.0);
@@ -144,6 +178,21 @@ describe("Right-Edge Trim Math", () => {
   it("clamps right edge at MIN_CLIP_DURATION when shrinking", () => {
     const result = calculateRightTrim(sampleVideoClip, -3.9);
     expect(result.duration).toBe(MIN_CLIP_DURATION);
+  });
+
+  it("uses the remaining source duration even when it is below the usual minimum", () => {
+    const shortTail: TimelineClip = {
+      ...sampleVideoClip,
+      duration: 1,
+      inPoint: 4.8,
+      sourceDuration: 5,
+      outPoint: 5.8,
+    };
+
+    const result = calculateRightTrim(shortTail, 5);
+    expect(result.duration).toBeCloseTo(0.2, 3);
+    expect(result.outPoint).toBe(5);
+    expect(result.inPoint + result.duration).toBeCloseTo(5, 3);
   });
 
   it("scales max right-trim duration and calculates outPoint according to clip speed", () => {
@@ -261,6 +310,7 @@ describe("P1 — Left Trim Overlap Clamping & Source Synchronization", () => {
       speed: 2.0, // 2x speed
       inPoint: 4.0,
       outPoint: 12.0, // 4.0 + 4.0 * 2 = 12.0
+      sourceDuration: 12.0,
     };
 
     // Try to drag left by -4.0s (blocked by clip1 ending at 4.0s, allowed delta is -2.0s)

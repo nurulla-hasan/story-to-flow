@@ -239,6 +239,90 @@ describe("Fit Visuals to Voiceover - Layer-Aware Processing", () => {
     const visuals = result.updatedClips.filter((c) => c.trackId === "visual-1");
     expect(visuals[0].duration).toBeGreaterThanOrEqual(0.5);
   });
+
+  it("keeps a source-limited video within bounds and allocates the rest to images", () => {
+    const clips = [
+      createClip({ id: "voice", trackId: "audio", type: "audio", duration: 10 }),
+      createClip({
+        id: "video-short",
+        type: "video",
+        duration: 8,
+        sourceDuration: 3,
+        inPoint: 0,
+        outPoint: 8,
+      }),
+      createClip({ id: "image-a", type: "image", duration: 2 }),
+      createClip({ id: "image-b", type: "image", duration: 2 }),
+    ];
+
+    const result = calculateFitVisualsToVoiceover(clips, []);
+    expect(result.success).toBe(true);
+
+    const visuals = result.updatedClips.filter((clip) => clip.trackId === "visual-1");
+    const video = visuals.find((clip) => clip.id === "video-short")!;
+    const images = visuals.filter((clip) => clip.type === "image");
+
+    expect(video.duration).toBe(3);
+    expect(video.outPoint).toBeLessThanOrEqual(video.sourceDuration!);
+    expect(images.reduce((total, clip) => total + clip.duration, 0)).toBeCloseTo(7, 3);
+    expect(visuals[visuals.length - 1].startTime + visuals[visuals.length - 1].duration).toBeCloseTo(10, 3);
+  });
+
+  it("does not report success when two minimum-length images cannot fit", () => {
+    const clips = [
+      createClip({ id: "voice", trackId: "audio", type: "audio", duration: 0.6 }),
+      createClip({ id: "image-a", type: "image", duration: 0.3 }),
+      createClip({ id: "image-b", type: "image", duration: 0.3, startTime: 0.3 }),
+    ];
+
+    const result = calculateFitVisualsToVoiceover(clips, []);
+    expect(result.success).toBe(false);
+    expect(result.updatedClips).toEqual(clips);
+    expect(result.message).toContain("cannot fit");
+  });
+
+  it("caps video-only tracks at source EOF and warns when voiceover remains uncovered", () => {
+    const clips = [
+      createClip({ id: "voice", trackId: "audio", type: "audio", duration: 10 }),
+      createClip({
+        id: "video-short",
+        type: "video",
+        duration: 4,
+        sourceDuration: 4,
+        inPoint: 0,
+        outPoint: 4,
+      }),
+    ];
+
+    const result = calculateFitVisualsToVoiceover(clips, []);
+    expect(result.success).toBe(true);
+    const video = result.updatedClips.find((clip) => clip.id === "video-short")!;
+    expect(video.duration).toBe(4);
+    expect(video.outPoint).toBe(4);
+    expect(video.startTime + video.duration).toBeLessThan(10);
+    expect(result.message).toContain("end before the voiceover");
+  });
+
+  it("does not extend a source-limited video beyond its remaining source time", () => {
+    const clips = [
+      createClip({ id: "voice", trackId: "audio", type: "audio", duration: 8 }),
+      createClip({
+        id: "video-limited",
+        type: "video",
+        duration: 4,
+        inPoint: 2,
+        sourceDuration: 5,
+        outPoint: 6,
+      }),
+      createClip({ id: "image-fill", type: "image", duration: 3 }),
+    ];
+
+    const result = calculateFitVisualsToVoiceover(clips, []);
+    expect(result.success).toBe(true);
+    const video = result.updatedClips.find((clip) => clip.id === "video-limited")!;
+    expect(video.duration).toBe(3);
+    expect(video.outPoint).toBeLessThanOrEqual(5);
+  });
 });
 
 describe("Fit Visuals to Voiceover - Transition Reconciliation", () => {

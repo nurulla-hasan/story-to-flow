@@ -113,7 +113,11 @@ export function clampLeftTrimToPreventOverlap(
   }
 
   const clampedStart = Math.max(minAllowedStart, proposedStartTime);
-  const clampedDuration = Math.max(0.5, originalRightEdge - clampedStart);
+  // Never force a minimum duration that pushes the clip past its anchored
+  // right edge. If a pre-existing overlap makes the minimum impossible, keep
+  // the clip within the available interval instead of recreating an overlap.
+  const availableDuration = Math.max(0, originalRightEdge - clampedStart);
+  const clampedDuration = Math.min(proposedDuration, availableDuration);
 
   return {
     startTime: parseFloat(clampedStart.toFixed(3)),
@@ -153,6 +157,24 @@ export function clampRightTrimToPreventOverlap(
 
   const clampedDuration = Math.max(0.5, Math.min(maxAllowedDuration, proposedDuration));
   return parseFloat(clampedDuration.toFixed(3));
+}
+
+/**
+ * Returns the end of the last clip on a track. Unlike "next available slot",
+ * this deliberately ignores earlier gaps and is used for explicit append actions.
+ */
+export function findTrackEndTime(
+  trackId: TrackId,
+  allClips: TimelineClip[],
+  tracks?: readonly TimelineTrack[]
+): number {
+  let latestEnd = 0;
+  for (const clip of allClips) {
+    if (areClipsOnSameTrack(trackId, clip.trackId, tracks)) {
+      latestEnd = Math.max(latestEnd, clip.startTime + clip.duration);
+    }
+  }
+  return parseFloat(latestEnd.toFixed(3));
 }
 
 /**

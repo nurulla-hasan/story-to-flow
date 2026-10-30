@@ -157,6 +157,53 @@ describe("Ripple Delete for Timeline Clips", () => {
     expect(updatedClips).toEqual(allClips);
   });
 
+  it("does not extend a short left-overlap clip past the deletion splice", () => {
+    const shortOverlap: TimelineClip = {
+      ...clipA,
+      id: "short-overlap",
+      startTime: 4.6,
+      duration: 1,
+      outPoint: 1,
+    };
+    const downstream: TimelineClip = {
+      ...clipC,
+      id: "downstream-after-short-overlap",
+      startTime: 8,
+    };
+
+    const { updatedClips } = applyRippleDelete("clip-B", [
+      shortOverlap,
+      clipB,
+      downstream,
+    ]);
+    const left = updatedClips.find((clip) => clip.id === shortOverlap.id)!;
+    const right = updatedClips.find((clip) => clip.id === downstream.id)!;
+
+    expect(left.duration).toBeCloseTo(0.4, 3);
+    expect(left.startTime + left.duration).toBeLessThanOrEqual(5);
+    expect(right.startTime).toBe(5);
+  });
+
+  it("respects source bounds when trimming a video at the ripple splice", () => {
+    const shortSource: TimelineClip = {
+      ...clipA,
+      id: "short-source",
+      type: "video",
+      startTime: 4.6,
+      duration: 1,
+      inPoint: 0.8,
+      outPoint: 1.8,
+      sourceDuration: 1,
+    };
+
+    const { updatedClips } = applyRippleDelete("clip-B", [shortSource, clipB, clipC]);
+    const left = updatedClips.find((clip) => clip.id === shortSource.id)!;
+
+    expect(left.duration).toBeCloseTo(0.2, 3);
+    expect(left.outPoint).toBeLessThanOrEqual(left.sourceDuration!);
+    expect(left.startTime + left.duration).toBeLessThanOrEqual(5);
+  });
+
   it("supports full atomic undo and redo for ripple delete", () => {
     const undoStack: TimelineClip[][] = [];
     const redoStack: TimelineClip[][] = [];

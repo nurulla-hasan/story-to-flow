@@ -183,6 +183,48 @@ describe("Ripple Editing / Ripple Extend (CapCut-style)", () => {
     expect(areClipsAdjacentForTransition(b, c)).toBe(true);
   });
 
+  it("ignores non-finite or non-positive requested durations", () => {
+    expect(applyRippleExtend("clip-B", Number.NaN, initialClips)).toEqual(initialClips);
+    expect(applyRippleExtend("clip-B", Number.POSITIVE_INFINITY, initialClips)).toEqual(initialClips);
+    expect(applyRippleExtend("clip-B", 0, initialClips)).toEqual(initialClips);
+    expect(applyRippleExtend("clip-B", -1, initialClips)).toEqual(initialClips);
+  });
+
+  it("keeps ordinary image clips at the minimum duration for short requests", () => {
+    const updated = applyRippleExtend("clip-B", 0.2, initialClips);
+    const edited = updated.find((clip) => clip.id === "clip-B")!;
+    const downstream = updated.find((clip) => clip.id === "clip-C")!;
+
+    expect(edited.duration).toBe(0.5);
+    expect(downstream.startTime).toBe(5.5);
+    expect(edited.startTime + edited.duration).toBe(downstream.startTime);
+  });
+
+  it("never extends a source-limited video past a short remaining source tail", () => {
+    const shortVideo: TimelineClip = {
+      ...clipB,
+      id: "short-video",
+      type: "video",
+      duration: 1,
+      inPoint: 4.8,
+      outPoint: 5.8,
+      sourceDuration: 5,
+      speed: 1,
+    };
+    const downstream: TimelineClip = {
+      ...clipC,
+      startTime: 6,
+    };
+
+    const updated = applyRippleExtend(shortVideo.id, 5, [shortVideo, downstream]);
+    const video = updated.find((clip) => clip.id === shortVideo.id)!;
+    const next = updated.find((clip) => clip.id === downstream.id)!;
+
+    expect(video.duration).toBeCloseTo(0.2, 3);
+    expect(video.outPoint).toBeLessThanOrEqual(video.sourceDuration!);
+    expect(next.startTime).toBeCloseTo(video.startTime + video.duration, 3);
+  });
+
   it("supports single undo/redo reversion across all shifted clips", () => {
     const undoStack: TimelineClip[][] = [];
     const redoStack: TimelineClip[][] = [];

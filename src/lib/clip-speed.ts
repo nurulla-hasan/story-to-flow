@@ -14,6 +14,8 @@ export function buildClipSpeedUpdate(
   clip: TimelineClip,
   speed: number
 ): Partial<TimelineClip> {
+  if (!Number.isFinite(speed) || speed <= 0) return {};
+
   const updates: Partial<TimelineClip> = { speed };
 
   if (
@@ -21,14 +23,29 @@ export function buildClipSpeedUpdate(
     clip.sourceDuration > 0 &&
     (clip.type === "video" || clip.type === "audio")
   ) {
-    const maxDuration = (clip.sourceDuration - clip.inPoint) / speed;
+    const maxDuration = Math.max(
+      0,
+      (clip.sourceDuration - clip.inPoint) / speed
+    );
 
     if (clip.duration > maxDuration) {
-      const clampedDuration = Math.max(0.5, parseFloat(maxDuration.toFixed(3)));
+      // Never round a source limit upward. A short tail may legitimately be
+      // less than 500ms when that is all the source footage has left.
+      const roundedMax = parseFloat(maxDuration.toFixed(3));
+      const clampedDuration = Math.min(
+        maxDuration,
+        Math.max(0.5, roundedMax)
+      );
       updates.duration = clampedDuration;
-      updates.outPoint = clip.inPoint + clampedDuration * speed;
+      updates.outPoint = Math.min(
+        clip.sourceDuration,
+        clip.inPoint + clampedDuration * speed
+      );
     } else {
-      updates.outPoint = clip.inPoint + clip.duration * speed;
+      updates.outPoint = Math.min(
+        clip.sourceDuration,
+        clip.inPoint + clip.duration * speed
+      );
     }
   }
 

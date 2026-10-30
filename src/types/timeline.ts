@@ -1,6 +1,7 @@
 import type { ClipTransform } from "@/lib/clip-transform";
 import type { ClipZoomEffect } from "@/lib/zoom-effect";
-export type { ClipTransform, ClipZoomEffect };
+import type { ScenePlan, ScenePlanItem, ShotPlanItem } from "@/lib/scene-plan";
+export type { ClipTransform, ClipZoomEffect, ScenePlan, ScenePlanItem, ShotPlanItem };
 
 /**
  * Dynamic Track Identifiers.
@@ -270,6 +271,7 @@ export interface TimelineProjectState {
   tracks: TimelineTrack[];
   clips: TimelineClip[];
   transitions: TimelineTransition[];
+  scenePlan?: ScenePlan;
   playhead: number;
   zoom: number; // 50 to 200, default 100
   selectedClipId: string | null;

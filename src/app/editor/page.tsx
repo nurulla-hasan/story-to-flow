@@ -3,6 +3,7 @@
 import * as React from "react";
 import { MediaLibraryProvider } from "@/lib/use-media-library";
 import { TimelineProvider } from "@/lib/timeline-context";
+import { ScenePlanAutoHandoff } from "@/components/editor/scene-plan-auto-handoff";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { MediaLibraryPanel } from "@/components/editor/media-library-panel";
 import { PreviewCanvasPanel } from "@/components/editor/preview-canvas-panel";
@@ -15,6 +16,7 @@ export default function VideoEditorPage() {
   return (
     <MediaLibraryProvider>
       <TimelineProvider>
+        <ScenePlanAutoHandoff />
         <div className="flex h-dvh w-full flex-col overflow-hidden bg-background p-2 select-none sm:p-3">
           {/* Unified studio frame: one chrome surface split by hairline seams */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-editor-chrome shadow-sm">

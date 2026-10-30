@@ -25,8 +25,6 @@ import { parseProductionPackage } from "@/lib/output-parser";
 interface OutputCardProps {
   result: StoryProcessResponse | null;
   error: string | null;
-  copied: boolean;
-  onCopyAll: () => void;
 }
 
 export function OutputCard({ result, error }: OutputCardProps) {

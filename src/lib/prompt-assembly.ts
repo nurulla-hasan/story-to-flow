@@ -41,38 +41,90 @@ Silent Video selected (Default). Video-shot prompts must explicitly request sile
   }
 }
 
+export function getMachineReadablePlanDirective(videoDurationSec: number = 4): string {
+  return `
+MACHINE-READABLE SCENE & SHOT PLAN CONTRACT:
+At the very end of your response, after all individual Story Scene code blocks, you MUST output a single machine-readable JSON code block containing the full structured timeline plan:
+\`\`\`json
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "sceneId": "scene-01",
+      "sceneNumber": 1,
+      "title": "Scene title",
+      "shots": [
+        {
+          "shotId": "scene-01-shot-01",
+          "shotNumber": 1,
+          "startTime": 0.0,
+          "duration": 4.0,
+          "mediaKind": "image",
+          "voiceover": "Consecutive Bengali voiceover segment",
+          "prompt": "Full English image prompt",
+          "motion": {
+            "type": "zoom-in",
+            "amount": 0.15
+          },
+          "transitionToNext": {
+            "type": "cross-dissolve",
+            "duration": 0.5
+          }
+        }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+SCHEMA & VALIDATION RULES:
+1. schemaVersion MUST be 1.
+2. sceneId and shotId must be stable, unique strings without duplicates (e.g. "scene-01", "scene-01-shot-01").
+3. sceneNumber and shotNumber must be sequential positive integers.
+4. startTime (seconds from timeline 0.0) and duration (seconds) must be finite positive numbers.
+5. mediaKind MUST be strictly "image" or "video".
+6. For video shots: set "mediaKind": "video", "sourceDuration": ${videoDurationSec}.0, and "duration" to the timeline coverage seconds.
+7. Allowed motion.type values: "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "pan-up" | "pan-down". If motion is static/off, set "motion": null or omit it. Unsupported motion names are strictly rejected.
+8. motion.amount: number between 0.05 and 0.5 (default 0.15).
+9. transitionToNext: boundary transition suggestion between this shot and the next sequential shot. The last shot of the final scene MUST NOT have transitionToNext.
+10. Allowed transitionToNext.type values: "cross-dissolve" | "fade-black" | "slide-left" | "slide-right". Unsupported transition types are strictly rejected.
+11. transitionToNext.duration: number between 0.2 and 1.5 seconds (default 0.5).
+`.trim();
+}
+
 /**
  * Assemble system message for Stage 1: Master Voiceover Script Generation Only.
  */
 export function assembleVoiceoverSystemMessage(settings: ResolvedSettings): string {
   void settings;
-  const masterPrompt = loadMasterPrompt();
 
   const voiceoverContext = `
 ==================================================
 PRODUCTION CONTEXT — STAGE 1: MASTER VOICEOVER SCRIPT
 ==================================================
 
-The website has already collected all production settings.
-Do NOT display or repeat the Phase 1 settings menu.
+This stage only needs the original story; do NOT display or repeat production settings.
 There is NO Target Video Duration setting. Determine the story and narration length naturally.
 Your task in this stage is EXCLUSIVELY to write the complete, continuous Bangladeshi Bengali master voiceover script based on the original story.
 Do NOT generate any scene blocks, shots, or image/video prompts in this stage.
 The voiceover generated here will be reviewed and exported by the user to Cartesia for audio synthesis before visuals are planned.
 
 VOICEOVER SPECIFICATIONS:
-- Natural Bangladeshi Bengali narrator persona: warm, intimate, conversational, emotionally attuned human storyteller (PHASE 2).
-- Audience-retention hook within the first 5 seconds.
-- Dynamic rhythm and sentence length mirroring the emotional progression.
-- Strict source-fidelity: preserve all characters, motives, causality, and ending. No invented facts.
-- Word count calibration: approximately 2.4 spoken words per second.
+NARRATOR PERSONA — AN EXPRESSIVE BENGALI STORYTELLER
+Speak naturally in Bangladeshi Bengali as a warm, intimate, emotionally attuned human storyteller—not as a plot summary, news bulletin, or robotic script.
+- Open within the first five seconds with a concise, story-specific hook grounded in the source. Create curiosity without revealing a later answer, twist, climax, or ending early. Do not invent stakes or force a greeting.
+- Preserve the source chronology and reveal order. Keep every material event, character motivation, cause-and-effect relationship, and ending; add no unsupported facts, backstory, accidents, or melodrama.
+- Follow the story's emotional arc and use spoken-friendly rhythm: short sentences for urgency and more flowing lines for reflection. Use concrete actions and sensory detail only when supported by the story. Keep dialogue faithful to each character's intent.
+- Write a complete continuous narration. Do not omit or rush story material to meet a runtime. There is no target-duration setting; approximately 2.4 Bengali words per second is only a rough planning estimate.
+- Use natural paragraphs of roughly 2–4 sentences, with breaks at narrative beats for comfortable Cartesia pauses.
+- The narration is the single source of truth for later scene prompts and captions.
 
 OUTPUT FORMAT:
-Output the master voiceover script cleanly in a single code block or text section. Do not output any scene blocks.
+Output ONLY the final spoken Bengali narration in one clean copyable code block. Include no title, headings, scene or shot blocks, image/video prompts, acting notes, English text, music cues, or explanation.
 ==================================================
 `.trim();
 
-  return `${voiceoverContext}\n\n${masterPrompt.content}`;
+  return voiceoverContext;
 }
 
 /**
@@ -96,6 +148,10 @@ export function assembleSceneSystemMessage(
       ? "Auto (AI recommends appropriate natural storytelling pacing, defaulting to approximately 4.0 seconds per static shot)"
       : `${settings.staticFramePacing} seconds per static image`;
 
+  const staticShotPacingDirective =
+    settings.staticFramePacing === "Auto"
+      ? "Static-image shots should use natural storytelling pacing, defaulting to approximately 4.0 seconds per shot and adjusting to fit each narration beat."
+      : "Static-image shots should default to approximately " + settings.staticFramePacing + " seconds per shot, adjusted when needed to fit the narration beat naturally.";
   const assetModeDirective = getAssetModeDirective(settings.visualAssetMode, videoDurationSec);
   const soundModeDirective = getVideoSoundDirective(settings.videoSoundMode);
 
@@ -126,7 +182,7 @@ CRITICAL SCENE VS. SHOT ARCHITECTURE:
 - A Shot is one visual composition used to depict part of that scene.
 - One scene can contain multiple shots! Do not force every story scene to last exactly as long as one image.
 - Do not treat the duration of a whole story scene as the duration of a single static image.
-- Static-image shots should default to approximately ${settings.staticFramePacing} seconds per shot (or adjusted to fit the narration beat naturally).
+- ${staticShotPacingDirective}
 - Hero-video source assets must strictly match the selected duration (${videoDurationSec}.0 SECONDS).
 - The overall visual plan must provide complete, continuous coverage matching the actual voiceover duration (${actualDuration.toFixed(2)}s).
 
@@ -159,6 +215,8 @@ EDIT NOTE: [Hold final frame or trim note if timeline coverage differs from asse
 PROMPT: VIDEO GENERATION — NOT A STATIC IMAGE. Create one continuous ${videoDurationSec}.0-second animated video shot [Action feasible in ${videoDurationSec}.0s]. This must remain a moving video for the full ${videoDurationSec}.0 seconds, ending with [specific visible final state]. Strictly ${videoDurationSec}.0 seconds duration.
 
 Do not invent new story events. When an original story outline is provided, it is authoritative for facts; the voiceover controls narration pacing. When direct voiceover is provided without a separate story outline, the voiceover script itself is the sole authoritative narrative source for all characters, scenes, emotions, and visual events.
+
+${getMachineReadablePlanDirective(videoDurationSec)}
 ==================================================
 `.trim();
 
@@ -252,6 +310,8 @@ generating the production package, and wait for the user's answer.
 Do NOT display or repeat the full Phase 1 settings menu when asking for clarification.
 If the story has no material contradiction or essential ambiguity, proceed directly using the
 confirmed settings without an extra confirmation round.
+
+${getMachineReadablePlanDirective(videoDurationSec)}
 
 ==================================================
 `.trim();

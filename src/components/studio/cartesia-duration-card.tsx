@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { MAX_SAFE_EXPORT_DURATION } from "@/lib/video-export-engine";
 import type { ProductionSettingsState } from "@/lib/settings-storage";
 import type {
   VisualAssetMode,
@@ -251,13 +252,15 @@ export function CartesiaDurationCard({
           </div>
 
           {/* Export Duration Safety Limit Notice */}
-          {totalSeconds > 300 && (
+          {totalSeconds > MAX_SAFE_EXPORT_DURATION && (
             <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning-subtle p-3 text-3xs leading-relaxed text-warning-subtle-foreground animate-in fade-in">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
               <div>
-                <span className="font-semibold">Browser Export Limit Notice (5 minutes / 300s)</span>
+                <span className="font-semibold">
+                  Browser Export Limit Notice ({Math.floor(MAX_SAFE_EXPORT_DURATION / 60)} minutes / {MAX_SAFE_EXPORT_DURATION}s)
+                </span>
                 <p className="mt-0.5 opacity-90">
-                  Your voiceover duration ({totalSeconds.toFixed(1)}s) exceeds the 5-minute safe limit of the in-browser MP4 exporter. You can generate scene &amp; shot prompts for this story, but in-browser video rendering requires timelines to be within 5:00 (300s).
+                  Your voiceover duration ({totalSeconds.toFixed(1)}s) exceeds the {Math.floor(MAX_SAFE_EXPORT_DURATION / 60)}-minute safe limit of the in-browser MP4 exporter. You can generate scene &amp; shot prompts for this story, but in-browser video rendering requires timelines to be within {Math.floor(MAX_SAFE_EXPORT_DURATION / 60)}:00 ({MAX_SAFE_EXPORT_DURATION}s).
                 </p>
               </div>
             </div>

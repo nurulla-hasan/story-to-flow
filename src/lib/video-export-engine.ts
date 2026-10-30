@@ -21,7 +21,7 @@ import { getTransitionProgress } from "./transition-helpers";
 import { calculateCanvasDrawParams } from "./clip-transform";
 import { getClipMotionAtTime } from "./zoom-effect";
 
-export const MAX_SAFE_EXPORT_DURATION = 300; // 5 minutes max safe browser export duration
+export const MAX_SAFE_EXPORT_DURATION = 1200; // 20 minutes safe browser export duration
 export const MAX_VIDEO_QUEUE_SIZE = 5; // Conservative max pending frames in GPU/RAM encoder queue
 export const MAX_AUDIO_QUEUE_SIZE = 10; // Conservative max pending audio chunks in encoder queue
 
@@ -120,11 +120,12 @@ export function validateExportSafety(
   if (plan.totalDuration > MAX_SAFE_EXPORT_DURATION) {
     return {
       safe: false,
-      error: `Project duration (${plan.totalDuration.toFixed(1)}s) exceeds the safe browser limit (${MAX_SAFE_EXPORT_DURATION}s / 5 minutes). Please shorten your timeline for in-browser export.`,
+      error: `Project duration (${plan.totalDuration.toFixed(1)}s) exceeds the safe browser limit (${MAX_SAFE_EXPORT_DURATION}s / ${Math.floor(MAX_SAFE_EXPORT_DURATION / 60)} minutes). Please shorten your timeline for in-browser export.`,
     };
   }
 
-  if (options.width >= 1080 && plan.totalDuration > 120) {
+  const is1080pOrHigher = Math.min(options.width, options.height) >= 1080;
+  if (is1080pOrHigher && plan.totalDuration > 120) {
     return {
       safe: true,
       warning: `Exporting ${plan.totalDuration.toFixed(1)}s at 1080p requires significant memory and GPU resources. 720p is recommended for longer projects.`,
@@ -778,7 +779,13 @@ export async function exportTimelineToMp4({
   const width = options.width || 720;
   const height = options.height || 1280;
   const fps = options.fps || 30;
-  const bitrate = options.bitrate || (width >= 1080 ? 5_000_000 : 2_500_000);
+  const is1080p = Math.min(width, height) >= 1080;
+  const bitrate = options.bitrate || (is1080p ? 5_000_000 : 2_500_000);
+
+  const webCodecs = checkWebCodecsSupport();
+  if (!webCodecs.supported) {
+    throw new Error(webCodecs.reason || "WebCodecs is not supported in this browser.");
+  }
 
   const plan = calculateExportPlan(clips, fps, tracks);
   const safety = validateExportSafety(plan, { width, height });
@@ -1402,9 +1409,22 @@ export async function exportTimelineToMp4({
         } finally {
           audioData.close();
         }
+
+        if (offset % (chunkSize * 100) === 0 || offset + currentChunkSize >= renderedBuffer.length) {
+          const audioFraction = Math.min(1, (offset + currentChunkSize) / renderedBuffer.length);
+          const percent = 85 + Math.round(audioFraction * 12);
+          onProgress({
+            phase: "encoding_audio",
+            currentFrame: plan.totalFrames,
+            totalFrames: plan.totalFrames,
+            percent,
+            message: `Encoding audio (${Math.round(offset / sampleRate)}s / ${Math.round(plan.totalDuration)}s)...`,
+          });
+        }
       }
 
       await audioEncoder.flush();
+      decodedBuffersCache.clear();
       if (signal?.aborted) throw new Error("Export cancelled by user");
       const postAudioErr = checkAllErrors();
       if (postAudioErr) throw postAudioErr;

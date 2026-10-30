@@ -96,15 +96,6 @@ describe("Export Preflight Safety Validation", () => {
     expect(res.error).toContain("no media clips");
   });
 
-  it("rejects projects exceeding maximum safe duration (300s / 5min)", () => {
-    const res = validateExportSafety(
-      { totalDuration: MAX_SAFE_EXPORT_DURATION + 10, totalFrames: (MAX_SAFE_EXPORT_DURATION + 10) * 30 },
-      { width: 720, height: 1280 }
-    );
-    expect(res.safe).toBe(false);
-    expect(res.error).toContain("exceeds the safe browser limit");
-  });
-
   it("approves safe 720p projects without warning", () => {
     const res = validateExportSafety({ totalDuration: 60, totalFrames: 1800 }, { width: 720, height: 1280 });
     expect(res.safe).toBe(true);
@@ -115,6 +106,85 @@ describe("Export Preflight Safety Validation", () => {
     const res = validateExportSafety({ totalDuration: 150, totalFrames: 4500 }, { width: 1080, height: 1920 });
     expect(res.safe).toBe(true);
     expect(res.warning).toContain("significant memory and GPU");
+  });
+
+  describe("Safety duration boundaries (300s, 300.1s, 389.1s, 420s, 420.1s)", () => {
+    it("approves 300s timeline for 720p and 1080p", () => {
+      const res720 = validateExportSafety(
+        { totalDuration: 300, totalFrames: 300 * 30 },
+        { width: 720, height: 1280 }
+      );
+      expect(res720.safe).toBe(true);
+      expect(res720.error).toBeUndefined();
+
+      const res1080 = validateExportSafety(
+        { totalDuration: 300, totalFrames: 300 * 30 },
+        { width: 1080, height: 1920 }
+      );
+      expect(res1080.safe).toBe(true);
+      expect(res1080.warning).toContain("significant memory and GPU");
+    });
+
+    it("approves 300.1s timeline without error (previously blocked by 300s cap)", () => {
+      const res720 = validateExportSafety(
+        { totalDuration: 300.1, totalFrames: Math.ceil(300.1 * 30) },
+        { width: 720, height: 1280 }
+      );
+      expect(res720.safe).toBe(true);
+      expect(res720.error).toBeUndefined();
+
+      const res1080 = validateExportSafety(
+        { totalDuration: 300.1, totalFrames: Math.ceil(300.1 * 30) },
+        { width: 1080, height: 1920 }
+      );
+      expect(res1080.safe).toBe(true);
+      expect(res1080.warning).toBeDefined();
+    });
+
+    it("approves user's 389.1s timeline for browser export", () => {
+      const res720 = validateExportSafety(
+        { totalDuration: 389.1, totalFrames: Math.ceil(389.1 * 30) },
+        { width: 720, height: 1280 }
+      );
+      expect(res720.safe).toBe(true);
+      expect(res720.error).toBeUndefined();
+      expect(res720.warning).toBeUndefined();
+
+      const res1080 = validateExportSafety(
+        { totalDuration: 389.1, totalFrames: Math.ceil(389.1 * 30) },
+        { width: 1080, height: 1920 }
+      );
+      expect(res1080.safe).toBe(true);
+      expect(res1080.error).toBeUndefined();
+      expect(res1080.warning).toContain("significant memory and GPU resources");
+    });
+
+    it("approves 420s timeline for 720p and 1080p", () => {
+      const res = validateExportSafety(
+        { totalDuration: 420, totalFrames: 420 * 30 },
+        { width: 720, height: 1280 }
+      );
+      expect(res.safe).toBe(true);
+      expect(res.error).toBeUndefined();
+    });
+
+    it("approves 1200s (20 minutes) timeline at the new maximum safe cap", () => {
+      const res = validateExportSafety(
+        { totalDuration: MAX_SAFE_EXPORT_DURATION, totalFrames: MAX_SAFE_EXPORT_DURATION * 30 },
+        { width: 720, height: 1280 }
+      );
+      expect(res.safe).toBe(true);
+      expect(res.error).toBeUndefined();
+    });
+
+    it("rejects projects exceeding 1200s (e.g. 1200.1s)", () => {
+      const res = validateExportSafety(
+        { totalDuration: MAX_SAFE_EXPORT_DURATION + 0.1, totalFrames: Math.ceil((MAX_SAFE_EXPORT_DURATION + 0.1) * 30) },
+        { width: 720, height: 1280 }
+      );
+      expect(res.safe).toBe(false);
+      expect(res.error).toContain("exceeds the safe browser limit (1200s / 20 minutes)");
+    });
   });
 });
 

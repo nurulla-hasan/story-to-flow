@@ -23,6 +23,7 @@ export interface ParsedOutput {
   scenes: ParsedScene[];
   visualStyle?: string;
   timingNote?: string;
+  planJson: string | null;
   rawText: string;
   fallbackMessage?: string;
 }
@@ -37,6 +38,17 @@ function stripCodeFences(text: string): string {
   // Remove ending ```
   cleaned = cleaned.replace(/\n?```\s*$/i, "");
   return cleaned.trim();
+}
+
+function extractPlanJson(rawText: string): string | null {
+  const match = rawText.match(/\x60{3}json[ \t]*\r?\n([\s\S]*?)\r?\n?\x60{3}/i);
+  if (!match?.[1]) return null;
+
+  try {
+    return JSON.stringify(JSON.parse(match[1]), null, 2);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -61,6 +73,7 @@ export function parseProductionPackage(raw: string | null | undefined): ParsedOu
     voiceover: null,
     scenesText: null,
     scenes: [],
+    planJson: null,
     rawText: raw || "",
   };
 
@@ -69,6 +82,7 @@ export function parseProductionPackage(raw: string | null | undefined): ParsedOu
   }
 
   const rawText = raw.trim();
+  const planJson = extractPlanJson(rawText);
 
   try {
     // 1. Extract Visual Style if stated in header
@@ -199,6 +213,7 @@ export function parseProductionPackage(raw: string | null | undefined): ParsedOu
       scenes,
       visualStyle,
       timingNote,
+      planJson,
       rawText,
       fallbackMessage: success ? undefined : "Output structure deviated from expected template.",
     };
@@ -247,6 +262,7 @@ function extractRelaxedFormat(rawText: string, visualStyle?: string): ParsedOutp
     scenesText: scenes.map((s) => s.fullBlock).join("\n\n"),
     scenes,
     visualStyle,
+    planJson: extractPlanJson(rawText),
     rawText,
   };
 }

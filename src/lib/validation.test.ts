@@ -139,8 +139,8 @@ describe("P2 — API Request Validation & Precedence Consistency", () => {
     }).success).toBe(true);
   });
 
-  it("supports direct voiceover mode without requiring a story", () => {
-    // Stage: scenes with voiceoverScript and valid duration, but no story
+  it("supports direct voiceover mode without requiring a story or visual context", () => {
+    // Stage: scenes with voiceoverScript and valid duration, but no story/context
     const directVoiceoverBody = {
       stage: "scenes",
       voiceoverScript: "একটি শান্ত নদীর তীরে ছোট্ট কুটিরে এক জেলে বাস করত...",
@@ -151,6 +151,30 @@ describe("P2 — API Request Validation & Precedence Consistency", () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.story).toBe("");
+    expect(parsed.data.voiceoverScript).toContain("একটি শান্ত নদীর তীরে");
+    expect(parsed.data.actualVoiceoverDuration).toBe(45.5);
+
+    // Also verify when story is explicitly empty or whitespace-only
+    const withWhitespaceContext = {
+      ...directVoiceoverBody,
+      story: "    ",
+    };
+    const parsedWhitespace = StoryProcessRequestSchema.safeParse(withWhitespaceContext);
+    expect(parsedWhitespace.success).toBe(true);
+  });
+
+  it("supports direct voiceover mode with optional visual context notes", () => {
+    const directVoiceoverWithVisualContext = {
+      stage: "scenes",
+      story: "Main character is an elderly fisherman wearing a worn blue lungi and traditional gamcha. Sunset river setting.",
+      voiceoverScript: "একটি শান্ত নদীর তীরে ছোট্ট কুটিরে এক জেলে বাস করত...",
+      actualVoiceoverDuration: 45.5,
+    };
+
+    const parsed = StoryProcessRequestSchema.safeParse(directVoiceoverWithVisualContext);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.story).toContain("elderly fisherman wearing a worn blue lungi");
     expect(parsed.data.voiceoverScript).toContain("একটি শান্ত নদীর তীরে");
     expect(parsed.data.actualVoiceoverDuration).toBe(45.5);
   });

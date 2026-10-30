@@ -166,8 +166,8 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
     expect(systemMessage).toContain("There is NO Target Video Duration setting.");
     expect(systemMessage).toContain("EXCLUSIVELY to write the complete, continuous Bangladeshi Bengali master voiceover script");
     expect(systemMessage).toContain("Do NOT generate any scene blocks, shots, or image/video prompts in this stage.");
-    expect(systemMessage).toContain("Natural Bangladeshi Bengali narrator persona");
-    expect(systemMessage).toContain("Audience-retention hook within the first 5 seconds");
+    expect(systemMessage).toContain("Speak naturally in Bangladeshi Bengali");
+    expect(systemMessage).toContain("within the first five seconds");
     expect(systemMessage).not.toContain("TARGET DURATION:");
   });
 
@@ -230,4 +230,61 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
     expect(msg8s).toContain("Create one continuous 8.0-second animated video shot");
     expect(msg8s).toContain("Strictly 8.0 seconds duration.");
   });
+
+  describe("Phase A: Machine-Readable Scene & Shot Plan Prompt Contract", () => {
+    const defaultSettings = {
+      model: "antigravity/gemini-3.8-flash-high",
+      visualStyle: "Cinematic Realism",
+      aspectRatio: "16:9" as const,
+      staticFramePacing: 4.0,
+      videoAssetDuration: 4 as const,
+      visualAssetMode: "Hybrid" as const,
+      videoSoundMode: "Silent Video" as const,
+    };
+
+    it("does NOT inject scene plan contract into voiceover-only stage", () => {
+      const voMessage = assembleVoiceoverSystemMessage(defaultSettings);
+      expect(voMessage).not.toContain("MACHINE-READABLE SCENE & SHOT PLAN CONTRACT");
+      expect(voMessage).not.toContain("schemaVersion");
+      expect(voMessage).toContain("MASTER VOICEOVER SCRIPT");
+      expect(voMessage).toContain("NARRATOR PERSONA — AN EXPRESSIVE BENGALI STORYTELLER");
+      expect(voMessage).toContain("Preserve the source chronology and reveal order");
+      expect(voMessage).not.toContain("MASTER PROMPT — AI STORY-TO-PRODUCTION STUDIO");
+      expect(voMessage).not.toContain("VIDEO ACTION STRUCTURE");
+      expect(voMessage.length).toBeLessThan(3_000);
+    });
+
+    it("injects versioned machine-readable schema and whitelist rules into scene generation stage", () => {
+      const sceneMessage = assembleSceneSystemMessage(defaultSettings, 120.0);
+      expect(sceneMessage).toContain("MACHINE-READABLE SCENE & SHOT PLAN CONTRACT");
+      expect(sceneMessage).toContain('"schemaVersion": 1');
+      expect(sceneMessage).toContain('"zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "pan-up" | "pan-down"');
+      expect(sceneMessage).toContain('"cross-dissolve" | "fade-black" | "slide-left" | "slide-right"');
+      expect(sceneMessage).toContain("SCENE & SHOT OUTPUT FORMAT (ONE CODE BLOCK PER STORY SCENE):"); // human-readable preserved
+      expect(sceneMessage).toContain("MASTER PROMPT — AI STORY-TO-PRODUCTION STUDIO"); // master prompt preserved
+    });
+  });
+
+  it("keeps Auto static-shot pacing instructions coherent and preserves fixed pacing", () => {
+    const autoSettings = {
+      ...DEFAULT_SETTINGS,
+      staticFramePacing: "Auto" as const,
+    };
+    const autoMessage = assembleSceneSystemMessage(autoSettings, 60);
+    expect(autoMessage).toContain(
+      "Static-image shots should use natural storytelling pacing, defaulting to approximately 4.0 seconds per shot"
+    );
+    expect(autoMessage).not.toContain("approximately Auto seconds per shot");
+
+    const fixedSettings = {
+      ...DEFAULT_SETTINGS,
+      staticFramePacing: 5.0 as const,
+    };
+    const fixedMessage = assembleSceneSystemMessage(fixedSettings, 60);
+    expect(fixedMessage).toContain(
+      "Static-image shots should default to approximately 5 seconds per shot"
+    );
+    expect(fixedMessage).not.toContain("approximately Auto seconds per shot");
+  });
+
 });

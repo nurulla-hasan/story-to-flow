@@ -136,10 +136,6 @@ export async function POST(request: NextRequest) {
       userMessageContent = `Story to convert into master voiceover:
 ${story}
 
-Configured Production Settings:
-- Visual Style: ${resolvedSettings.visualStyle}
-- Aspect Ratio: ${resolvedSettings.aspectRatio}
-
 Write the complete, continuous Bangladeshi Bengali master voiceover script based strictly on the story. Output ONLY the voiceover script.`;
     } else if (stage === "scenes") {
       systemMessage = assembleSceneSystemMessage(resolvedSettings, actualVoiceoverDuration!);

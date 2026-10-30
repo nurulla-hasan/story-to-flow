@@ -22,6 +22,7 @@ import { OutputCard } from "@/components/studio/output-card";
 import { HowItWorksCard } from "@/components/studio/how-it-works-card";
 import { OutputFormatCard } from "@/components/studio/output-format-card";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -48,6 +49,7 @@ import {
   ChevronRight,
   ChevronDown,
   Film,
+  Trash2,
 } from "lucide-react";
 
 function formatSeconds(sec: number): string {
@@ -883,23 +885,44 @@ export default function StudioPage() {
                 )}
 
                 {isDirectMode && (
-                  <details className="group rounded-xl border border-border bg-card">
-                    <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
-                      <span className="flex items-center gap-2">
-                        <FileText className="size-3.5" />
-                        <span>
-                          Optional: story background or character notes
+                  <details className="group rounded-xl border border-border bg-card overflow-hidden">
+                    <summary className="flex cursor-pointer list-none items-center justify-between p-3 text-xs font-medium text-foreground hover:bg-muted/30 transition-colors">
+                      <div className="flex flex-col gap-0.5 text-left">
+                        <span className="flex items-center gap-2 font-semibold">
+                          <FileText className="size-3.5 text-primary" />
+                          <span>Optional visual context</span>
                         </span>
-                      </span>
-                      <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                        <span className="text-2xs font-normal text-muted-foreground">
+                          Add character appearance, setting, or visual continuity notes. Leave blank if your voiceover has enough detail.
+                        </span>
+                      </div>
+                      <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                     </summary>
-                    <div className="border-t border-border p-3">
-                      <StoryInputCard
-                        story={story}
-                        onChange={handleStoryChange}
-                        onClear={() => handleStoryChange("")}
+                    <div className="border-t border-border p-3 space-y-2">
+                      <Textarea
+                        id="direct-visual-context-input"
+                        value={story}
+                        onChange={(e) => handleStoryChange(e.target.value)}
                         disabled={isGenerating}
+                        placeholder="চরিত্রের রূপ, পোশাক, পরিবেশ বা ধারাবাহিকতার বিবরণ এখানে লিখুন (ভয়েসওভার পুনরায় পেস্ট করবেন না)... / Describe character appearance, setting, or visual continuity notes here. Do not re-paste your narration script."
+                        className="w-full min-h-24 max-h-60 font-bangla text-xs leading-relaxed resize-y border-border/80 focus:border-primary p-3"
                       />
+                      <div className="flex items-center justify-between text-2xs text-muted-foreground">
+                        <span>{story.length.toLocaleString()} / 50,000 characters</span>
+                        {story && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleStoryChange("")}
+                            disabled={isGenerating}
+                            className="gap-1 text-muted-foreground hover:text-foreground h-6 px-1.5"
+                          >
+                            <Trash2 className="size-3" />
+                            <span>Clear</span>
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </details>
                 )}

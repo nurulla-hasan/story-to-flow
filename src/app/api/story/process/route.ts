@@ -141,7 +141,7 @@ Write the complete, continuous Bangladeshi Bengali master voiceover script based
     } else if (stage === "scenes") {
       systemMessage = assembleSceneSystemMessage(resolvedSettings, actualVoiceoverDuration!);
       const storySection = story && story.trim()
-        ? `Original Story:\n${story}\n\n`
+        ? `Visual Context & Character/Setting Notes (Supplementary — does not replace voiceover):\n${story.trim()}\n\n`
         : `Narration Context:\nDirect Voiceover Script provided by user (no separate story outline)\n\n`;
 
       userMessageContent = `${storySection}Final Confirmed Master Voiceover Script (from Cartesia synthesis):

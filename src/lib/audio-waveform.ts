@@ -1,92 +1,88 @@
 "use client";
 
-// In-memory cache for decoded waveform peaks to avoid redundant audio decoding
-const waveformCache = new Map<string, number[]>();
+// Weakly keyed by the source Blob so equal-sized audio files never share the wrong
+// waveform, and cached peaks are released when the media asset is removed.
+const waveformCache = new WeakMap<Blob, Map<number, number[]>>();
 
-/**
- * Generate a cache key for a blob
- */
-function getBlobKey(blob: Blob): string {
-  return `${blob.size}_${blob.type}_${(blob as File).lastModified || 0}`;
+function getCachedWaveform(blob: Blob, numPeaks: number): number[] | undefined {
+  return waveformCache.get(blob)?.get(numPeaks);
 }
 
-/**
- * Fallback procedural waveform peaks in case audio decoding fails or codec is unsupported
- */
-function generateFallbackPeaks(numPeaks: number): number[] {
-  const peaks: number[] = [];
-  for (let i = 0; i < numPeaks; i++) {
-    const norm = i / numPeaks;
-    // Gentle natural voice-like envelope
-    const envelope = Math.sin(norm * Math.PI);
-    const noise = 0.3 + 0.7 * Math.abs(Math.sin(i * 12.5) * Math.cos(i * 3.7));
-    peaks.push(Math.max(0.15, Math.min(1.0, envelope * noise)));
+function cacheWaveform(blob: Blob, numPeaks: number, peaks: number[]): number[] {
+  let variants = waveformCache.get(blob);
+  if (!variants) {
+    variants = new Map<number, number[]>();
+    waveformCache.set(blob, variants);
   }
+  variants.set(numPeaks, peaks);
   return peaks;
 }
 
-/**
- * Extract normalized waveform peaks (0.0 to 1.0) from an audio Blob using client-side Web Audio API
- */
+/** Extract real normalized amplitude peaks (0.0 to 1.0) from an audio Blob. */
 export async function extractWaveformPeaks(
   blob: Blob,
   numPeaks: number = 64
 ): Promise<number[]> {
-  const cacheKey = getBlobKey(blob);
-  if (waveformCache.has(cacheKey)) {
-    return waveformCache.get(cacheKey)!;
+  const binCount = Math.max(1, Math.floor(numPeaks));
+  const cached = getCachedWaveform(blob, binCount);
+  if (cached) return cached;
+
+  const silentWaveform = () => cacheWaveform(blob, binCount, Array(binCount).fill(0));
+
+  if (
+    typeof window === "undefined" ||
+    (typeof window.AudioContext === "undefined" &&
+      typeof (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext === "undefined")
+  ) {
+    return silentWaveform();
   }
 
-  // Safety check for browser environment
-  if (typeof window === "undefined" || (typeof window.AudioContext === "undefined" && typeof (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext === "undefined")) {
-    return generateFallbackPeaks(numPeaks);
-  }
-
+  let audioCtx: AudioContext | undefined;
   try {
-    const arrayBuffer = await blob.arrayBuffer();
-    const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const audioCtx = new AudioCtxClass();
+    const AudioCtxClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    audioCtx = new AudioCtxClass();
+    const audioBuffer = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+    const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, channel) =>
+      audioBuffer.getChannelData(channel)
+    );
+    const totalFrames = audioBuffer.length;
+    const peaks: number[] = [];
+    let maxPeak = 0;
 
-    try {
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      const rawData = audioBuffer.getChannelData(0); // Left channel or mono
-      const totalSamples = rawData.length;
-      const blockSize = Math.floor(totalSamples / numPeaks);
-      const peaks: number[] = [];
+    for (let bin = 0; bin < binCount; bin++) {
+      const start = Math.floor((totalFrames * bin) / binCount);
+      const end = Math.max(start + 1, Math.floor((totalFrames * (bin + 1)) / binCount));
+      let blockPeak = 0;
+      let sumSquares = 0;
+      let frameCount = 0;
 
-      let maxPeak = 0;
-      for (let i = 0; i < numPeaks; i++) {
-        const start = i * blockSize;
-        let sum = 0;
-        let blockMax = 0;
-
-        for (let j = 0; j < blockSize; j++) {
-          const val = Math.abs(rawData[start + j] || 0);
-          if (val > blockMax) blockMax = val;
-          sum += val;
+      for (let frame = start; frame < Math.min(end, totalFrames); frame++) {
+        let framePeak = 0;
+        for (const channel of channels) {
+          framePeak = Math.max(framePeak, Math.abs(channel[frame] ?? 0));
         }
-
-        const avg = sum / blockSize;
-        // Blend peak and average for smoother aesthetic visualization
-        const combined = blockMax * 0.7 + avg * 0.3;
-        peaks.push(combined);
-        if (combined > maxPeak) maxPeak = combined;
+        blockPeak = Math.max(blockPeak, framePeak);
+        sumSquares += framePeak * framePeak;
+        frameCount++;
       }
 
-      // Normalize peaks against maximum amplitude
-      const normalized = peaks.map((p) => (maxPeak > 0 ? Math.max(0.1, p / maxPeak) : 0.2));
-      waveformCache.set(cacheKey, normalized);
-      return normalized;
-    } finally {
-      // Close context to release system audio handles
-      if (audioCtx.state !== "closed") {
-        await audioCtx.close();
-      }
+      const rms = frameCount > 0 ? Math.sqrt(sumSquares / frameCount) : 0;
+      const amplitude = blockPeak * 0.85 + rms * 0.15;
+      peaks.push(amplitude);
+      maxPeak = Math.max(maxPeak, amplitude);
     }
-  } catch (err) {
-    console.warn("Waveform extraction failed, using procedural fallback:", err);
-    const fallback = generateFallbackPeaks(numPeaks);
-    waveformCache.set(cacheKey, fallback);
-    return fallback;
+
+    const normalized = peaks.map((peak) => (maxPeak > 0 ? peak / maxPeak : 0));
+    return cacheWaveform(blob, binCount, normalized);
+  } catch (error) {
+    console.warn("Unable to decode audio for waveform display:", error);
+    // Do not invent a fake waveform: a flat line is more honest than random bars.
+    return silentWaveform();
+  } finally {
+    if (audioCtx && audioCtx.state !== "closed") {
+      await audioCtx.close().catch(() => undefined);
+    }
   }
 }

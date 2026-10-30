@@ -82,6 +82,8 @@ export function OutputCard({ result, error }: OutputCardProps) {
     );
   }
 
+  if (!result) return null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 text-xs">

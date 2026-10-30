@@ -257,6 +257,20 @@ export function deleteMediaAssetFromDb(id: string): Promise<void> {
 }
 
 /**
+ * Delete every stored media asset in one IndexedDB transaction.
+ * Resolves only after the transaction commits.
+ */
+export function clearAllMediaAssetsFromDb(): Promise<void> {
+  return runMediaTransaction<void>(
+    "readwrite",
+    (store, trackRequest) => {
+      trackRequest(store.clear());
+    },
+    () => undefined
+  );
+}
+
+/**
  * Query estimated storage usage if supported by browser
  */
 export async function getStorageEstimate(): Promise<{ usedBytes: number; quotaBytes: number | null }> {

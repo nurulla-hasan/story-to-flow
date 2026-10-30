@@ -13,9 +13,10 @@ import {
 
 import { sanitizeClipTransform } from "@/lib/clip-transform";
 import { sanitizeZoomEffect } from "@/lib/zoom-effect";
+import { validateScenePlan } from "@/lib/scene-plan";
 
 export const TIMELINE_STORAGE_KEY = "story_forge_timeline_state_v1";
-export const TIMELINE_STORAGE_VERSION = 2;
+export const TIMELINE_STORAGE_VERSION = 3;
 export const TIMELINE_STORAGE_EVENT = "story_forge_timeline_storage_change";
 
 export const DEFAULT_TIMELINE_STATE: TimelineProjectState = {
@@ -298,6 +299,14 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
       }))
     : [];
 
+  let scenePlan = undefined;
+  if (record.scenePlan) {
+    const validated = validateScenePlan(record.scenePlan);
+    if (validated.success) {
+      scenePlan = validated.plan;
+    }
+  }
+
   return {
     version: TIMELINE_STORAGE_VERSION,
     projectTitle:
@@ -305,6 +314,7 @@ export function deserializeTimelineState(parsed: unknown): TimelineProjectState 
     tracks,
     clips: migratedClips,
     transitions: migratedTransitions,
+    scenePlan,
     playhead,
     zoom,
     selectedClipId: typeof record.selectedClipId === "string" ? record.selectedClipId : null,

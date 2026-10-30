@@ -410,4 +410,54 @@ describe("legacy saved-state compatibility", () => {
     expect(sfxTrack?.volume).toBe(0.8);
     expect(sfxTrack?.locked).toBe(true);
   });
+
+  it("safely migrates older v1/v2 projects without scenePlan (scenePlan: undefined)", () => {
+    const v2Project = {
+      version: 2,
+      projectTitle: "Legacy Project",
+      tracks: DEFAULT_TIMELINE_STATE.tracks,
+      clips: [],
+      transitions: [],
+      playhead: 0,
+      zoom: 100,
+      selectedClipId: null,
+      selectedTransitionId: null,
+    };
+
+    const deserialized = deserializeTimelineState(v2Project);
+    expect(deserialized?.version).toBe(3);
+    expect(deserialized?.scenePlan).toBeUndefined();
+  });
+
+  it("persists and restores valid scenePlan in version 3 storage", () => {
+    const stateWithPlan = {
+      ...DEFAULT_TIMELINE_STATE,
+      scenePlan: {
+        schemaVersion: 1 as const,
+        scenes: [
+          {
+            sceneId: "scene-01",
+            sceneNumber: 1,
+            title: "Scene 1",
+            shots: [
+              {
+                shotId: "scene-01-shot-01",
+                shotNumber: 1,
+                startTime: 0,
+                duration: 4.0,
+                mediaKind: "image" as const,
+                prompt: "Village at sunrise",
+              },
+            ],
+          },
+        ],
+        totalDuration: 4.0,
+      },
+    };
+
+    const deserialized = deserializeTimelineState(stateWithPlan);
+    expect(deserialized?.scenePlan).toBeDefined();
+    expect(deserialized?.scenePlan?.schemaVersion).toBe(1);
+    expect(deserialized?.scenePlan?.scenes[0].shots[0].shotId).toBe("scene-01-shot-01");
+  });
 });

@@ -15,11 +15,24 @@ import {
   Monitor,
   Smartphone,
   Layers,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { useTimeline } from "@/lib/timeline-context";
+import { useTimelineState } from "@/lib/timeline-context";
+import { useMediaLibrary } from "@/lib/use-media-library";
+import { clearStoredTimelineState } from "@/lib/timeline-storage";
+import { saveStoredStudioData } from "@/lib/studio-storage";
 import { isAudioTrack, isVisualTrack } from "@/types/timeline";
 import { ExportDialog } from "@/components/editor/export-dialog";
 
@@ -40,16 +53,40 @@ export function EditorHeader() {
     aspectRatio,
     setAspectRatio,
     fitVisualsToVoiceover,
-  } = useTimeline();
+  } = useTimelineState();
+  const { clearAllAssets, isLoading: isMediaLoading, isImporting } = useMediaLibrary();
 
   const [feedback, setFeedback] = React.useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
   const [isExportDialogOpen, setIsExportDialogOpen] = React.useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = React.useState(false);
+  const [isResetting, setIsResetting] = React.useState(false);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setProjectTitle(e.target.value);
+  };
+
+  const handleResetEditor = async () => {
+    setIsResetting(true);
+    try {
+      const timelineResult = clearStoredTimelineState();
+      if (!timelineResult.ok) throw timelineResult.error;
+
+      await clearAllAssets();
+      // Keep the source story and settings, but clear the generated scene result
+      // so opening the editor cannot restore the plan that was just reset.
+      saveStoredStudioData({ currentStage: 3, lastResult: null });
+      window.location.reload();
+    } catch (err) {
+      setFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Could not reset the editor.",
+      });
+      setIsResetting(false);
+      setIsResetDialogOpen(false);
+    }
   };
 
   const handleFit = () => {
@@ -63,8 +100,14 @@ export function EditorHeader() {
     }, 4000);
   };
 
-  const hasAudio = isHydrated && clips.some((c) => isAudioTrack(c.trackId, tracks));
-  const hasVisual = isHydrated && clips.some((c) => isVisualTrack(c.trackId, tracks));
+  const hasAudio = React.useMemo(
+    () => isHydrated && clips.some((c) => isAudioTrack(c.trackId, tracks)),
+    [isHydrated, clips, tracks]
+  );
+  const hasVisual = React.useMemo(
+    () => isHydrated && clips.some((c) => isVisualTrack(c.trackId, tracks)),
+    [isHydrated, clips, tracks]
+  );
   const canExport = isHydrated && clips.length > 0;
 
   const statusTone = saveError
@@ -101,12 +144,14 @@ export function EditorHeader() {
             <Film className="size-4" />
           </span>
 
-          <div className="min-w-0">
-            <Input
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <input
               type="text"
               value={isHydrated ? projectTitle : "Untitled Story Video"}
               onChange={handleTitleChange}
               aria-label="Project Title"
+              placeholder="Untitled Project"
+              className="h-6 w-56 truncate rounded-md border border-transparent bg-transparent px-1.5 text-xs font-semibold text-foreground transition-colors hover:border-border hover:bg-muted/50 focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/40 focus:outline-none"
             />
             <div className="flex items-center gap-1.5 px-1.5">
               <span className={`size-1.5 shrink-0 rounded-full ${statusTone}`} />
@@ -229,6 +274,17 @@ export function EditorHeader() {
           </Button>
 
           <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setIsResetDialogOpen(true)}
+            disabled={!isHydrated || isMediaLoading || isImporting || isResetting}
+            title="Clear the timeline, Story Plan, and all imported media"
+          >
+            <Trash2 className="size-3.5" />
+            <span>Reset</span>
+          </Button>
+
+          <Button
             variant="default"
             size="sm"
             onClick={() => setIsExportDialogOpen(true)}
@@ -242,6 +298,35 @@ export function EditorHeader() {
           <ThemeToggle />
         </div>
       </header>
+
+      <AlertDialog
+        open={isResetDialogOpen}
+        onOpenChange={(open) => {
+          if (!isResetting) setIsResetDialogOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset the editor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes all timeline clips, transitions, the active Story Plan, and imported media from this browser. Your story and production settings in Studio will stay; the generated scene result will be cleared. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isResetting || isMediaLoading || isImporting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleResetEditor();
+              }}
+            >
+              {isResetting ? "Resetting…" : "Reset everything"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ExportDialog
         open={isExportDialogOpen}

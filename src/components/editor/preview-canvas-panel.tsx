@@ -30,7 +30,6 @@ import { useMediaLibrary } from "@/lib/use-media-library";
 import {
   isVisualTrack,
   getVisualTrackLayerIndex,
-  isTrackVisible,
   isTrackMuted,
   getTrackVolume,
   calculateEffectivePlaybackRate,
@@ -38,11 +37,11 @@ import {
   getVisualTracks,
   areClipsOnSameTrack,
 } from "@/types/timeline";
-import { getTransitionProgress } from "@/lib/transition-helpers";
+import { type ActiveTransitionData, getActiveTransitionsByTrack, getActiveVisualClips } from "@/features/editor/domain/preview-selectors";
 import { formatFrameTimecode } from "@/lib/frame-navigation";
-import { sanitizeClipTransform } from "@/lib/clip-transform";
-import { getClipMotionAtTime } from "@/lib/zoom-effect";
 import { PreviewTransformGizmo } from "@/components/editor/preview-transform-gizmo";
+import { useCanvasViewport, useStageDimensions } from "@/features/editor/hooks/use-canvas-viewport";
+import { PreviewMediaNode } from "@/features/editor/components/preview/preview-media-node";
 
 function formatTimecode(seconds: number): string {
   return formatFrameTimecode(seconds, 30);
@@ -78,32 +77,13 @@ export function PreviewCanvasPanel() {
   const { assets } = useMediaLibrary();
   const videoRefs = React.useRef<Map<string, HTMLVideoElement>>(new Map());
 
-  // Viewport Zoom & Pan Navigation State (strictly visual viewport - never affects export or clip transforms)
-  const [viewportZoom, setViewportZoom] = React.useState<number>(100); // 25% to 400%, default 100%
-  const [viewportPan, setViewportPan] = React.useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isSpacePressed, setIsSpacePressed] = React.useState<boolean>(false);
-  const [isCtrlPressed, setIsCtrlPressed] = React.useState<boolean>(false);
-  const [isPanning, setIsPanning] = React.useState<boolean>(false);
-  const [isFullscreen, setIsFullscreen] = React.useState<boolean>(false);
-  const [showGrid, setShowGrid] = React.useState<boolean>(false);
+  const {
+    viewportZoom, viewportPan, isSpacePressed, setIsSpacePressed, isCtrlPressed, isPanning, isFullscreen, showGrid, setShowGrid,
+    isHoveringCanvasRef, canvasOuterStageRef, handleZoomIn, handleZoomOut, handleResetView,
+    handleToggleFullscreen, handleToggleMute, handleViewportPointerDown,
+  } = useCanvasViewport({ isPlaying, togglePlay, cancelSpaceAction, setIsMuted });
   const [showVolumeSlider, setShowVolumeSlider] = React.useState<boolean>(false);
-  const isHoveringCanvasRef = React.useRef<boolean>(false);
-  const canvasOuterStageRef = React.useRef<HTMLDivElement>(null);
   const volumeDropdownRef = React.useRef<HTMLDivElement>(null);
-  const panStartRef = React.useRef<{ x: number; y: number; panX: number; panY: number }>({
-    x: 0,
-    y: 0,
-    panX: 0,
-    panY: 0,
-  });
-
-  const handleZoomIn = () => setViewportZoom((prev) => Math.min(400, prev + 25));
-  const handleZoomOut = () => setViewportZoom((prev) => Math.max(25, prev - 25));
-  const handleResetView = () => {
-    setViewportZoom(100);
-    setViewportPan({ x: 0, y: 0 });
-  };
-
   // Sync video volume with master volume & mute
   React.useEffect(() => {
     const vol = isMuted ? 0 : Math.max(0, Math.min(1.0, masterVolume));
@@ -138,218 +118,9 @@ export function PreviewCanvasPanel() {
     };
   }, [showVolumeSlider]);
 
-  // Synchronize fullscreen state with document events
-  React.useEffect(() => {
-    const onFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, []);
+  const { stageContainerRef, stageDimensions } = useStageDimensions();
 
-  const handleToggleFullscreen = async () => {
-    const stageEl = canvasOuterStageRef.current;
-    if (!stageEl) return;
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await stageEl.requestFullscreen();
-      }
-    } catch (err) {
-      console.warn("Fullscreen toggle warning:", err);
-    }
-  };
 
-  const handleToggleMute = React.useCallback(() => {
-    setIsMuted((prev) => !prev);
-  }, [setIsMuted]);
-
-  // Modifier keys detection for Pan and Zoom
-  React.useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      const isInput =
-        activeEl?.tagName === "INPUT" ||
-        activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.tagName === "SELECT" ||
-        activeEl?.getAttribute("contenteditable") === "true" ||
-        activeEl?.getAttribute("role") === "slider";
-      if (isInput) return;
-
-      const isInsideDialog = Boolean(
-        activeEl?.closest('[role="dialog"]') ||
-        activeEl?.closest('[role="alertdialog"]')
-      );
-      if (isInsideDialog) return;
-
-      if (e.key === "Control" || e.key === "Meta") {
-        setIsCtrlPressed(true);
-      }
-      if (e.code === "Space" || e.key === " ") {
-        // Space acts as the Hand / Pan modifier on canvas
-        setIsSpacePressed(true);
-      }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (e.key.toLowerCase() === "m") {
-          e.preventDefault();
-          handleToggleMute();
-        } else if (e.key.toLowerCase() === "f") {
-          e.preventDefault();
-          handleToggleFullscreen();
-        }
-      }
-    };
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Control" || e.key === "Meta") {
-        setIsCtrlPressed(false);
-      }
-      if (e.code === "Space" || e.key === " ") {
-        setIsSpacePressed(false);
-      }
-    };
-
-    const onBlur = () => {
-      setIsCtrlPressed(false);
-      setIsSpacePressed(false);
-      setIsPanning(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [handleToggleMute]);
-
-  // CapCut-style Canvas Zoom & Pan with Mouse Wheel
-  // CRITICAL: Must use native `{ passive: false }` listener with `e.preventDefault()`
-  // to prevent Chromium from triggering native browser window zoom (page scale)!
-  React.useEffect(() => {
-    const stageEl = canvasOuterStageRef.current;
-    if (!stageEl) return;
-
-    const handleNativeWheel = (e: WheelEvent) => {
-      // When Ctrl or Meta is held: zoom the canvas and PREVENT browser zoom
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const zoomDelta = e.deltaY < 0 ? 15 : -15;
-        setViewportZoom((prev) => Math.max(25, Math.min(400, prev + zoomDelta)));
-      } else {
-        // Normal wheel (without Ctrl): smoothly pan the canvas (CapCut UX)
-        e.preventDefault();
-        const dx = e.shiftKey ? -e.deltaY : -e.deltaX;
-        const dy = e.shiftKey ? 0 : -e.deltaY;
-        setViewportPan((prev) => ({
-          x: Math.round(prev.x + dx),
-          y: Math.round(prev.y + dy),
-        }));
-      }
-    };
-
-    stageEl.addEventListener("wheel", handleNativeWheel, { passive: false });
-    return () => {
-      stageEl.removeEventListener("wheel", handleNativeWheel);
-    };
-  }, []);
-
-  // Window-level guard: unconditionally block browser zoom if mouse is over canvas
-  React.useEffect(() => {
-    const preventBrowserZoom = (e: WheelEvent) => {
-      if (isHoveringCanvasRef.current && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-      }
-    };
-    window.addEventListener("wheel", preventBrowserZoom, { passive: false });
-    return () => {
-      window.removeEventListener("wheel", preventBrowserZoom);
-    };
-  }, []);
-
-  const handleViewportPointerDown = (e: React.PointerEvent) => {
-    // Pan trigger: middle click (button 1) OR left click with Space held OR left click with Ctrl held
-    const isPanTrigger = e.button === 1 || (e.button === 0 && isSpacePressed) || (e.button === 0 && e.ctrlKey);
-    if (!isPanTrigger) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    // If Space is being used to pan, cancel any pending Space togglePlay action
-    if (isSpacePressed) {
-      cancelSpaceAction();
-    }
-
-    if (isPlaying) {
-      togglePlay();
-    }
-    setIsPanning(true);
-    panStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      panX: viewportPan.x,
-      panY: viewportPan.y,
-    };
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault();
-      const dx = moveEvent.clientX - panStartRef.current.x;
-      const dy = moveEvent.clientY - panStartRef.current.y;
-      setViewportPan({
-        x: panStartRef.current.panX + dx,
-        y: panStartRef.current.panY + dy,
-      });
-    };
-
-    const onPointerUp = () => {
-      setIsPanning(false);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-  };
-
-  // Measure stage dimensions dynamically with ResizeObserver for gizmo coordinate mapping
-  const stageContainerRef = React.useRef<HTMLDivElement>(null);
-  const [stageDimensions, setStageDimensions] = React.useState<{ width: number; height: number }>({
-    width: 0,
-    height: 0,
-  });
-
-  React.useEffect(() => {
-    const el = stageContainerRef.current;
-    if (!el) return;
-
-    const updateDimensions = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setStageDimensions({ width: rect.width, height: rect.height });
-      }
-    };
-
-    updateDimensions();
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          setStageDimensions({ width, height });
-        }
-      }
-    });
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
   // Find currently selected visual clip
   const selectedClip = React.useMemo(() => {
@@ -357,51 +128,18 @@ export function PreviewCanvasPanel() {
     return clips.find((c) => c.id === selectedClipId && isVisualTrack(c.trackId, tracks)) || null;
   }, [clips, selectedClipId, tracks]);
 
-  const clipMap = React.useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
   const assetMap = React.useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const clipMap = React.useMemo(() => new Map(clips.map((c) => [c.id, c])), [clips]);
 
-  interface ActiveTransitionData {
-    transition: typeof transitions[0];
-    fromClip: typeof clips[0];
-    toClip: typeof clips[0];
-    progress: number;
-  }
-
-  // Map active transitions by normalized track ID so multiple visual tracks can have simultaneous transitions
   const activeTransitionsByTrack = React.useMemo(() => {
-    const map = new Map<string, ActiveTransitionData>();
-    if (!isHydrated || transitions.length === 0) return map;
-
-    for (const trans of transitions) {
-      const fromClip = clipMap.get(trans.fromClipId);
-      const toClip = clipMap.get(trans.toClipId);
-      if (!fromClip || !toClip) continue;
-      // Skip transition if its visual track is hidden
-      if (!isTrackVisible(fromClip.trackId, tracks)) continue;
-
-      const progress = getTransitionProgress(playhead, trans, fromClip, toClip);
-      if (progress !== null) {
-        const key = normalizeVisualTrackId(fromClip.trackId);
-        if (!map.has(key)) {
-          map.set(key, { transition: trans, fromClip, toClip, progress });
-        }
-      }
-    }
-    return map;
+    if (!isHydrated) return new Map<string, ActiveTransitionData>();
+    return getActiveTransitionsByTrack(transitions, clipMap, tracks, playhead);
   }, [isHydrated, transitions, clipMap, playhead, tracks]);
 
-  // Find all active visual clips under current playhead sorted by z-order
-  // Excludes visual clips on hidden tracks
-  const visualClips = React.useMemo(
-    () => clips.filter((c) => isVisualTrack(c.trackId, tracks) && isTrackVisible(c.trackId, tracks)),
-    [clips, tracks]
+  const activeVisuals = React.useMemo(
+    () => (isHydrated ? getActiveVisualClips(clips, tracks, playhead) : []),
+    [isHydrated, clips, tracks, playhead]
   );
-  const activeVisuals = React.useMemo(() => {
-    if (!isHydrated) return [];
-    return visualClips
-      .filter((c) => playhead >= c.startTime && playhead < c.startTime + c.duration)
-      .sort((a, b) => getVisualTrackLayerIndex(a.trackId, tracks) - getVisualTrackLayerIndex(b.trackId, tracks));
-  }, [isHydrated, visualClips, playhead, tracks]);
 
   // Canonical visual tracks sorted from bottom (background z-index 1) to top (highest z-index)
   const orderedVisibleVisualTracks = React.useMemo(() => {
@@ -474,61 +212,23 @@ export function PreviewCanvasPanel() {
 
   const topActiveClip = activeVisuals[activeVisuals.length - 1];
 
-  // Render a visual clip node (Image or Video) with transform & click selection
-  const renderVisualNode = (clip: typeof clips[0], baseStyle?: React.CSSProperties) => {
-    const asset = assetMap.get(clip.assetId);
-    if (!asset) return null;
+  const registerVideoElement = React.useCallback((clipId: string, element: HTMLVideoElement | null) => {
+    if (element) videoRefs.current.set(clipId, element);
+    else videoRefs.current.delete(clipId);
+  }, []);
 
-    const transform = sanitizeClipTransform(clip.transform);
-    const isSelected = clip.id === selectedClipId;
-    const motion = getClipMotionAtTime(clip, playhead);
-
-    const netX = (transform.x + motion.offsetX) * 100;
-    const netY = (transform.y + motion.offsetY) * 100;
-    const netScale = parseFloat((transform.scale * motion.scale).toFixed(4));
-
-    const transformStr = `translate(${netX}%, ${netY}%) scale(${netScale}) rotate(${transform.rotation || 0}deg)`;
-    const nodeStyle: React.CSSProperties = {
-      ...baseStyle,
-      transform: baseStyle?.transform
-        ? `${baseStyle.transform} ${transformStr}`
-        : transformStr,
-      transformOrigin: "center center",
-    };
-
-    return (
-      <div
-        key={clip.id}
-        onClick={(e) => {
-          e.stopPropagation();
-          selectClip(clip.id);
-        }}
-        style={nodeStyle}
-        className={`absolute inset-0 w-full h-full overflow-hidden select-none cursor-pointer transition-shadow ${
-          isSelected ? "ring-1 ring-primary/40" : ""
-        }`}
-      >
-        {asset.category === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={asset.url}
-            alt={asset.name}
-            className="w-full h-full object-cover rounded-xl pointer-events-none"
-          />
-        ) : asset.category === "video" ? (
-          <video
-            ref={(el) => {
-              if (el) videoRefs.current.set(clip.id, el);
-              else videoRefs.current.delete(clip.id);
-            }}
-            src={asset.url}
-            playsInline
-            className="w-full h-full object-cover rounded-xl pointer-events-none"
-          />
-        ) : null}
-      </div>
-    );
-  };
+  const renderVisualNode = (clip: (typeof clips)[number], baseStyle?: React.CSSProperties) => (
+    <PreviewMediaNode
+      key={clip.id}
+      clip={clip}
+      asset={assetMap.get(clip.assetId)}
+      baseStyle={baseStyle}
+      playhead={playhead}
+      selectedClipId={selectedClipId}
+      onSelectClip={selectClip}
+      onVideoElementChange={registerVideoElement}
+    />
+  );
 
   return (
     <EditorPanel>

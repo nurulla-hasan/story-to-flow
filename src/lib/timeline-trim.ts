@@ -46,9 +46,6 @@ export function calculateLeftTrim(
     typeof clip.sourceDuration === "number" &&
     clip.sourceDuration > 0;
 
-  // Maximum delta: cannot shrink clip below minDuration
-  const maxDelta = originalDuration - minDuration;
-
   // Minimum delta:
   // 1. Cannot move startTime below 0 on the timeline
   let minDelta = -originalStartTime;
@@ -58,7 +55,14 @@ export function calculateLeftTrim(
     minDelta = Math.max(minDelta, -originalInPoint / speed);
   }
 
-  // Clamp deltaSeconds within [minDelta, maxDelta]
+  // Preserve the 500ms minimum only if it can be reached without moving
+  // before timeline/source start. Short source tails at timeline 0 must remain
+  // short rather than being expanded beyond their anchored source out-point.
+  const minimumReachableDuration = Math.max(0, originalDuration - minDelta);
+  const effectiveMinDuration = Math.min(minDuration, minimumReachableDuration);
+  const maxDelta = originalDuration - effectiveMinDuration;
+
+  // Clamp deltaSeconds within the feasible interval.
   const clampedDelta = Math.max(minDelta, Math.min(maxDelta, deltaSeconds));
 
   const newStartTime = parseFloat((originalStartTime + clampedDelta).toFixed(3));
@@ -70,7 +74,7 @@ export function calculateLeftTrim(
 
   return {
     startTime: Math.max(0, newStartTime),
-    duration: Math.max(minDuration, newDuration),
+    duration: Math.max(effectiveMinDuration, newDuration),
     inPoint: Math.max(0, newInPoint),
     outPoint: newOutPoint,
   };
@@ -138,21 +142,30 @@ export function calculateRightTrim(
     typeof clip.sourceDuration === "number" &&
     clip.sourceDuration > 0;
 
-  let maxDuration = 9999;
-  if (isMediaWithSource && clip.sourceDuration) {
-    maxDuration = (clip.sourceDuration - clip.inPoint) / speed;
+  let maxDuration = Number.POSITIVE_INFINITY;
+  if (isMediaWithSource && typeof clip.sourceDuration === "number") {
+    maxDuration = Math.max(0, (clip.sourceDuration - clip.inPoint) / speed);
   }
 
+  // Source bounds are a hard upper limit. If less than the normal 500ms
+  // minimum remains, allow a shorter clip rather than reading past EOF.
+  const minimumAllowed = Math.min(minDuration, maxDuration);
   const requestedDuration = originalDuration + deltaSeconds;
-  const clampedDuration = parseFloat(
-    Math.max(minDuration, Math.min(maxDuration, requestedDuration)).toFixed(3)
+  const boundedDuration = Math.max(
+    minimumAllowed,
+    Math.min(maxDuration, requestedDuration)
   );
+  const roundedDuration = parseFloat(boundedDuration.toFixed(3));
+  const clampedDuration = Math.min(maxDuration, roundedDuration);
 
   return {
     startTime: clip.startTime,
     duration: clampedDuration,
     inPoint: clip.inPoint,
-    outPoint: clip.inPoint + clampedDuration * speed,
+    outPoint:
+      isMediaWithSource && typeof clip.sourceDuration === "number"
+        ? Math.min(clip.sourceDuration, clip.inPoint + clampedDuration * speed)
+        : clip.inPoint + clampedDuration * speed,
   };
 }
 
@@ -200,14 +213,17 @@ export function applyRippleExtend(
   allClips: TimelineClip[],
   tracks?: readonly TimelineTrack[]
 ): TimelineClip[] {
+  if (!Number.isFinite(newDuration) || newDuration <= 0) return allClips;
   const target = allClips.find((c) => c.id === editedClipId);
   if (!target) return allClips;
   if (isTrackLocked(target.trackId, tracks)) return allClips;
 
   const speed = target.speed && target.speed > 0 ? target.speed : 1.0;
 
-  // Constraint 1: Source media duration limit (cannot exceed source bounds)
-  let maxDuration = newDuration;
+  // Hard upper bound from source media and locked neighbors. Keep the
+  // requested duration separate from this bound so short requests for images
+  // still obey MIN_CLIP_DURATION when that minimum is feasible.
+  let maxDuration = Number.POSITIVE_INFINITY;
   if (
     (target.type === "video" || target.type === "audio") &&
     typeof target.sourceDuration === "number" &&
@@ -235,17 +251,33 @@ export function applyRippleExtend(
     }
   }
 
-  const effectiveDuration = parseFloat(Math.max(MIN_CLIP_DURATION, maxDuration).toFixed(3));
+  // Source and locked-neighbor boundaries are hard upper bounds. The usual
+  // minimum duration yields to those bounds when less than 500ms is available.
+  maxDuration = Math.max(0, maxDuration);
+  const minimumAllowed = Math.min(MIN_CLIP_DURATION, maxDuration);
+  const boundedDuration = Math.max(
+    minimumAllowed,
+    Math.min(maxDuration, newDuration)
+  );
+  const effectiveDuration = Math.min(
+    maxDuration,
+    parseFloat(boundedDuration.toFixed(3))
+  );
   const originalEndTime = target.startTime + target.duration;
   const newEndTime = target.startTime + effectiveDuration;
   const durationDelta = parseFloat((effectiveDuration - target.duration).toFixed(3));
 
   return allClips.map((clip) => {
     if (clip.id === editedClipId) {
+      const sourceOutPoint = clip.inPoint + effectiveDuration * speed;
+      const outPoint =
+        typeof clip.sourceDuration === "number" && clip.sourceDuration > 0
+          ? Math.min(clip.sourceDuration, sourceOutPoint)
+          : sourceOutPoint;
       return {
         ...clip,
         duration: effectiveDuration,
-        outPoint: clip.inPoint + effectiveDuration * speed,
+        outPoint,
       };
     }
 
@@ -339,11 +371,23 @@ export function applyRippleDelete(
         clip.startTime < deletedStartTime &&
         clipEnd > deletedStartTime + RIPPLE_EPSILON
       ) {
-        clip.duration = parseFloat(Math.max(MIN_CLIP_DURATION, deletedStartTime - clip.startTime).toFixed(3));
-        if (clip.outPoint) {
-          const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-          clip.outPoint = clip.inPoint + clip.duration * speed;
-        }
+        const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+        const timelineAvailable = Math.max(0, deletedStartTime - clip.startTime);
+        const sourceAvailable =
+          (clip.type === "video" || clip.type === "audio") &&
+          typeof clip.sourceDuration === "number" &&
+          clip.sourceDuration > 0
+            ? Math.max(0, (clip.sourceDuration - clip.inPoint) / speed)
+            : Number.POSITIVE_INFINITY;
+        const boundedDuration = Math.min(timelineAvailable, sourceAvailable);
+        clip.duration = Math.min(
+          boundedDuration,
+          Math.max(0, parseFloat(boundedDuration.toFixed(3)))
+        );
+        clip.outPoint =
+          typeof clip.sourceDuration === "number" && clip.sourceDuration > 0
+            ? Math.min(clip.sourceDuration, clip.inPoint + clip.duration * speed)
+            : clip.inPoint + clip.duration * speed;
       }
 
       let proposedStart: number;

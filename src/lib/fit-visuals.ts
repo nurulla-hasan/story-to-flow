@@ -94,6 +94,7 @@ export function calculateFitVisualsToVoiceover(
   const fittedClips: TimelineClip[] = [];
   let fittedCount = 0;
   let unlockedTrackCount = 0;
+  let hasVideoSourceCoverageGap = false;
 
   for (const [key, layerClips] of visualClipsByTrack.entries()) {
     if (layerClips.length > 0) {
@@ -104,8 +105,18 @@ export function calculateFitVisualsToVoiceover(
       }
       unlockedTrackCount++;
       const fitted = fitVisualLayer(layerClips, voiceoverEnd);
-      fittedClips.push(...fitted);
-      fittedCount += fitted.length;
+      if (!fitted) {
+        return {
+          success: false,
+          message:
+            "These visual clips cannot fit the voiceover duration without exceeding source media or minimum clip durations. Adjust the voiceover or scene durations and try again.",
+          updatedClips: clips,
+          updatedTransitions: transitions,
+        };
+      }
+      fittedClips.push(...fitted.clips);
+      fittedCount += fitted.clips.length;
+      hasVideoSourceCoverageGap ||= fitted.hasCoverageGap;
     }
   }
 
@@ -134,6 +145,10 @@ export function calculateFitVisualsToVoiceover(
   if (droppedCount > 0) {
     message += ` Removed ${droppedCount} stale transition${droppedCount === 1 ? "" : "s"}.`;
   }
+  if (hasVideoSourceCoverageGap) {
+    message +=
+      " Some video-only tracks end before the voiceover because the source footage is too short; add images or shorten the voiceover for full coverage.";
+  }
 
   return {
     success: true,
@@ -143,142 +158,247 @@ export function calculateFitVisualsToVoiceover(
   };
 }
 
-function computeClipOutPoint(clip: TimelineClip, dur: number): number {
-  if (clip.type === "video" || clip.type === "audio") {
-    const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-    return parseFloat((clip.inPoint + dur * speed).toFixed(3));
-  }
-  return parseFloat((clip.inPoint + dur).toFixed(3));
-}
-
-function clampClipDurationToSource(clip: TimelineClip, proposedDur: number): number {
-  let dur = proposedDur;
+function getClipDurationBounds(
+  clip: TimelineClip
+): { min: number; max: number } {
+  let max = Number.POSITIVE_INFINITY;
   if (
-    (clip.type === "video" || clip.type === "audio") &&
+    clip.type === "video" &&
     typeof clip.sourceDuration === "number" &&
     clip.sourceDuration > 0
   ) {
     const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
-    const maxAvailable = (clip.sourceDuration - clip.inPoint) / speed;
-    dur = Math.min(dur, maxAvailable);
+    max = Math.max(0, (clip.sourceDuration - clip.inPoint) / speed);
   }
-  return parseFloat(Math.max(MIN_CLIP_DURATION, dur).toFixed(3));
+
+  return { min: Math.min(MIN_CLIP_DURATION, max), max };
+}
+
+function computeClipOutPoint(clip: TimelineClip, dur: number): number {
+  if (clip.type === "video" || clip.type === "audio") {
+    const speed = clip.speed && clip.speed > 0 ? clip.speed : 1.0;
+    const outPoint = clip.inPoint + dur * speed;
+    if (
+      typeof clip.sourceDuration === "number" &&
+      clip.sourceDuration > 0
+    ) {
+      return parseFloat(Math.min(clip.sourceDuration, outPoint).toFixed(3));
+    }
+    return parseFloat(outPoint.toFixed(3));
+  }
+  return parseFloat((clip.inPoint + dur).toFixed(3));
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+/**
+ * Allocate a precise target duration while respecting each clip's minimum
+ * and maximum. Shrinking scales the flexible portion above each minimum;
+ * growing scales preferred durations until clips hit their source limits.
+ */
+function allocateDurations(
+  targetDuration: number,
+  preferredDurations: number[],
+  minimums: number[],
+  maximums: number[]
+): number[] | null {
+  if (
+    preferredDurations.length === 0 ||
+    preferredDurations.length !== minimums.length ||
+    preferredDurations.length !== maximums.length
+  ) {
+    return null;
+  }
+
+  const target = parseFloat(targetDuration.toFixed(3));
+  const minimumTotal = sum(minimums);
+  const maximumTotal = sum(maximums);
+
+  if (
+    target < minimumTotal - 0.000001 ||
+    target > maximumTotal + 0.000001
+  ) {
+    return null;
+  }
+
+  const preferred = preferredDurations.map((duration, index) =>
+    Math.min(maximums[index], Math.max(minimums[index], duration))
+  );
+  const preferredTotal = sum(preferred);
+  let allocated: number[];
+
+  if (Math.abs(preferredTotal - target) <= 0.000001) {
+    allocated = preferred;
+  } else if (target < preferredTotal) {
+    const flexibleTotal = preferredTotal - minimumTotal;
+    if (flexibleTotal <= 0) {
+      allocated = [...minimums];
+    } else {
+      const factor = Math.max(0, Math.min(1, (target - minimumTotal) / flexibleTotal));
+      allocated = preferred.map(
+        (duration, index) =>
+          minimums[index] + (duration - minimums[index]) * factor
+      );
+    }
+  } else {
+    // Bounded proportional growth. Exponential search guarantees a suitable
+    // upper factor when the target is feasible, then bisection finds it.
+    const durationAtFactor = (factor: number) =>
+      preferred.map((duration, index) =>
+        Math.min(maximums[index], Math.max(minimums[index], duration * factor))
+      );
+    let low = 1;
+    let high = 2;
+    for (let attempt = 0; attempt < 80 && sum(durationAtFactor(high)) < target; attempt++) {
+      high *= 2;
+    }
+    if (sum(durationAtFactor(high)) < target - 0.001) return null;
+
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const middle = (low + high) / 2;
+      if (sum(durationAtFactor(middle)) < target) low = middle;
+      else high = middle;
+    }
+    allocated = durationAtFactor(high);
+  }
+
+  // Round regular values to millisecond precision without rounding beyond a
+  // source cap. Any small rounding remainder is absorbed by available headroom.
+  allocated = allocated.map((duration, index) =>
+    Math.min(maximums[index], Math.max(minimums[index], parseFloat(duration.toFixed(3))))
+  );
+  let remainder = parseFloat((target - sum(allocated)).toFixed(3));
+  for (let index = allocated.length - 1; index >= 0 && Math.abs(remainder) >= 0.001; index--) {
+    const capacity = remainder > 0
+      ? maximums[index] - allocated[index]
+      : allocated[index] - minimums[index];
+    const adjustment = Math.sign(remainder) * Math.min(Math.abs(remainder), Math.max(0, capacity));
+    allocated[index] = Math.min(
+      maximums[index],
+      Math.max(minimums[index], parseFloat((allocated[index] + adjustment).toFixed(3)))
+    );
+    remainder = parseFloat((target - sum(allocated)).toFixed(3));
+  }
+
+  if (Math.abs(sum(allocated) - target) > 0.0005) return null;
+  return allocated;
 }
 
 /**
  * Fit a single visual layer's clips sequentially to the target duration.
- * Preserves layer identity and processes clips in their original timeline order.
+ * Video source limits are hard bounds. Images absorb remaining duration when
+ * possible; otherwise all clips are adjusted within their valid bounds.
  */
-function fitVisualLayer(layerClips: TimelineClip[], targetDuration: number): TimelineClip[] {
-  if (layerClips.length === 0) return [];
+interface FitVisualLayerResult {
+  clips: TimelineClip[];
+  hasCoverageGap: boolean;
+}
 
-  // Sort clips in their original timeline order
+function fitVisualLayer(
+  layerClips: TimelineClip[],
+  targetDuration: number
+): FitVisualLayerResult | null {
+  if (layerClips.length === 0) return { clips: [], hasCoverageGap: false };
+
   const sortedClips = [...layerClips].sort((a, b) => a.startTime - b.startTime);
+  const imageIndexes = sortedClips
+    .map((clip, index) => (clip.type === "image" ? index : -1))
+    .filter((index) => index >= 0);
+  const videoIndexes = sortedClips
+    .map((clip, index) => (clip.type === "video" ? index : -1))
+    .filter((index) => index >= 0);
+  const bounds = sortedClips.map(getClipDurationBounds);
+  // A video already at/past source EOF has no usable frames left. Do not
+  // silently create a zero-duration clip while claiming the layer was fitted.
+  if (bounds.some((bound) => bound.max <= 0)) return null;
+  const preferred = sortedClips.map((clip) => clip.duration);
+  let durations: number[] | null = null;
 
-  // Separate images and videos
-  const imageClips = sortedClips.filter((c) => c.type === "image");
-  const videoClips = sortedClips.filter((c) => c.type === "video");
+  if (imageIndexes.length > 0 && videoIndexes.length > 0) {
+    const videoPreferred = videoIndexes.map((index) =>
+      Math.min(bounds[index].max, Math.max(bounds[index].min, preferred[index]))
+    );
+    const videoTotal = sum(videoPreferred);
+    const imageMinimumTotal = sum(imageIndexes.map((index) => bounds[index].min));
+    const availableForImages = parseFloat((targetDuration - videoTotal).toFixed(3));
 
-  let fitted: TimelineClip[] = [];
-
-  if (imageClips.length > 0 && videoClips.length > 0) {
-    // Mixed: Keep videos at their durations, scale images to fill the gap
-    const totalVideoDuration = videoClips.reduce((sum, v) => sum + v.duration, 0);
-    const availableForImages = targetDuration - totalVideoDuration;
-
-    if (availableForImages >= imageClips.length * MIN_CLIP_DURATION) {
-      // Scale images proportionally to fill remaining duration
-      const currentImageTotal = imageClips.reduce((sum, img) => sum + img.duration, 0);
-      const scale =
-        currentImageTotal > 0
-          ? availableForImages / currentImageTotal
-          : availableForImages / imageClips.length;
-
-      let currentTime = 0;
-      fitted = sortedClips.map((clip) => {
-        let dur = clip.duration;
-        if (clip.type === "image") {
-          dur = parseFloat(Math.max(MIN_CLIP_DURATION, clip.duration * scale).toFixed(3));
-        } else {
-          dur = clampClipDurationToSource(clip, dur);
-        }
-        const updated: TimelineClip = {
-          ...clip,
-          startTime: parseFloat(currentTime.toFixed(3)),
-          duration: dur,
-          outPoint: computeClipOutPoint(clip, dur),
-        };
-        currentTime += dur;
-        return updated;
-      });
-    } else {
-      // Not enough room: scale all clips proportionally
-      const currentTotal = sortedClips.reduce((sum, c) => sum + c.duration, 0);
-      const scale = currentTotal > 0 ? targetDuration / currentTotal : 1;
-
-      let currentTime = 0;
-      fitted = sortedClips.map((clip) => {
-        let dur = clip.duration * scale;
-        if (clip.type === "video") {
-          dur = clampClipDurationToSource(clip, dur);
-        } else {
-          dur = parseFloat(Math.max(MIN_CLIP_DURATION, dur).toFixed(3));
-        }
-        const updated: TimelineClip = {
-          ...clip,
-          startTime: parseFloat(currentTime.toFixed(3)),
-          duration: dur,
-          outPoint: computeClipOutPoint(clip, dur),
-        };
-        currentTime += dur;
-        return updated;
-      });
-    }
-  } else if (imageClips.length > 0) {
-    // All images: scale proportionally to match target duration exactly
-    const currentTotal = imageClips.reduce((sum, img) => sum + img.duration, 0);
-    const scale =
-      currentTotal > 0 ? targetDuration / currentTotal : targetDuration / imageClips.length;
-
-    let currentTime = 0;
-    fitted = imageClips.map((clip, index) => {
-      // Last clip absorbs rounding discrepancy
-      let dur: number;
-      if (index === imageClips.length - 1) {
-        dur = parseFloat(Math.max(MIN_CLIP_DURATION, targetDuration - currentTime).toFixed(3));
-      } else {
-        dur = parseFloat(Math.max(MIN_CLIP_DURATION, clip.duration * scale).toFixed(3));
+    // Preserve video durations whenever the images can absorb the remaining
+    // duration without dropping below their minimums.
+    if (availableForImages >= imageMinimumTotal - 0.001) {
+      const imageDurations = allocateDurations(
+        availableForImages,
+        imageIndexes.map((index) => preferred[index]),
+        imageIndexes.map((index) => bounds[index].min),
+        imageIndexes.map((index) => bounds[index].max)
+      );
+      if (imageDurations) {
+        durations = [...videoPreferred];
+        // Place the per-type durations back in their original clip order.
+        const byIndex = new Map<number, number>();
+        videoIndexes.forEach((index, i) => byIndex.set(index, videoPreferred[i]));
+        imageIndexes.forEach((index, i) => byIndex.set(index, imageDurations[i]));
+        durations = sortedClips.map((_, index) => byIndex.get(index) ?? preferred[index]);
       }
+    }
 
-      const updated: TimelineClip = {
-        ...clip,
-        startTime: parseFloat(currentTime.toFixed(3)),
-        duration: dur,
-        outPoint: parseFloat((clip.inPoint + dur).toFixed(3)),
-      };
-      currentTime += dur;
-      return updated;
-    });
+    // The original video duration plus minimum image durations does not fit:
+    // shrink all flexible portions proportionally if the target is still feasible.
+    if (!durations) {
+      durations = allocateDurations(
+        targetDuration,
+        preferred,
+        bounds.map((bound) => bound.min),
+        bounds.map((bound) => bound.max)
+      );
+    }
   } else {
-    // All videos: scale within source limits
-    const currentTotal = videoClips.reduce((sum, v) => sum + v.duration, 0);
-    const scale = currentTotal > 0 ? targetDuration / currentTotal : 1;
+    durations = allocateDurations(
+      targetDuration,
+      preferred,
+      bounds.map((bound) => bound.min),
+      bounds.map((bound) => bound.max)
+    );
 
-    let currentTime = 0;
-    fitted = videoClips.map((clip) => {
-      const dur = clampClipDurationToSource(clip, clip.duration * scale);
-      const updated: TimelineClip = {
-        ...clip,
-        startTime: parseFloat(currentTime.toFixed(3)),
-        duration: dur,
-        outPoint: computeClipOutPoint(clip, dur),
-      };
-      currentTime += dur;
-      return updated;
-    });
+    // Preserve established behavior for video-only tracks: if all available
+    // source footage ends before the voiceover, cap at source EOF and report
+    // the uncovered remainder instead of making the entire fit operation fail.
+    const maximumSourceCoverage = sum(bounds.map((bound) => bound.max));
+    if (
+      !durations &&
+      videoIndexes.length === sortedClips.length &&
+      Number.isFinite(maximumSourceCoverage) &&
+      targetDuration > maximumSourceCoverage
+    ) {
+      durations = allocateDurations(
+        maximumSourceCoverage,
+        preferred,
+        bounds.map((bound) => bound.min),
+        bounds.map((bound) => bound.max)
+      );
+    }
   }
 
-  return fitted;
+  if (!durations) return null;
+
+  let currentTime = 0;
+  const fitted = sortedClips.map((clip, index) => {
+    const duration = durations![index];
+    const updated: TimelineClip = {
+      ...clip,
+      startTime: parseFloat(currentTime.toFixed(3)),
+      duration,
+      outPoint: computeClipOutPoint(clip, duration),
+    };
+    currentTime += duration;
+    return updated;
+  });
+
+  return {
+    clips: fitted,
+    hasCoverageGap: currentTime < targetDuration - 0.001,
+  };
 }
 
 /**

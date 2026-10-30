@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { StoryProcessResponse } from "@/lib/validation";
+import { stripMarkdownCodeFence } from "@/lib/voiceover-cleaner";
 
 export const STUDIO_STORAGE_VERSION = 1;
 export const STUDIO_STORAGE_KEY = "story_forge_studio_state_v1";
@@ -57,7 +58,7 @@ export function getStoredStudioState(): StoredStudioState {
         version: STUDIO_STORAGE_VERSION,
         inputMode: parsed.inputMode === "direct-voiceover" ? "direct-voiceover" : "story",
         story: typeof parsed.story === "string" ? parsed.story : "",
-        voiceoverScript: typeof parsed.voiceoverScript === "string" ? parsed.voiceoverScript : "",
+        voiceoverScript: typeof parsed.voiceoverScript === "string" ? stripMarkdownCodeFence(parsed.voiceoverScript) : "",
         voiceoverDurationMinutes: typeof parsed.voiceoverDurationMinutes === "string" ? parsed.voiceoverDurationMinutes : (parsed.voiceoverDurationMinutes?.toString() || ""),
         voiceoverDurationSeconds: typeof parsed.voiceoverDurationSeconds === "string" ? parsed.voiceoverDurationSeconds : (parsed.voiceoverDurationSeconds?.toString() || ""),
         actualVoiceoverDuration: typeof parsed.actualVoiceoverDuration === "number" ? parsed.actualVoiceoverDuration : null,
@@ -90,6 +91,10 @@ export function saveStoredStudioData(partial: Partial<StoredStudioState>): void 
     const updated: StoredStudioState = {
       ...current,
       ...partial,
+      voiceoverScript:
+        typeof partial.voiceoverScript === "string"
+          ? stripMarkdownCodeFence(partial.voiceoverScript)
+          : current.voiceoverScript,
       savedAt: Date.now(),
     };
     const serialized = JSON.stringify(updated);

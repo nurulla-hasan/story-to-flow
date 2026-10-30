@@ -249,6 +249,7 @@ describe("Master Prompt Loader & Version v1.6.1 Validation", () => {
       expect(voMessage).toContain("MASTER VOICEOVER SCRIPT");
       expect(voMessage).toContain("NARRATOR PERSONA — AN EXPRESSIVE BENGALI STORYTELLER");
       expect(voMessage).toContain("Preserve the source chronology and reveal order");
+      expect(voMessage).toContain("Do NOT wrap the output in Markdown code fences");
       expect(voMessage).not.toContain("MASTER PROMPT — AI STORY-TO-PRODUCTION STUDIO");
       expect(voMessage).not.toContain("VIDEO ACTION STRUCTURE");
       expect(voMessage.length).toBeLessThan(3_000);

@@ -202,4 +202,14 @@ describe("P1 — Studio State Invalidation & Storage Persistence", () => {
     expect(state.inputMode).toBe("direct-voiceover");
     expect(state.voiceoverScript).toBe("Direct narration text");
   });
+
+  it("defensively strips markdown code fences when saving and reading stored studio state", () => {
+    saveStoredStudioData({
+      voiceoverScript: "```text\nমাটির সোঁদা গন্ধ আর মেঘলা আকাশ...\n```",
+    });
+
+    const state = getStoredStudioState();
+    expect(state.voiceoverScript).not.toContain("```");
+    expect(state.voiceoverScript).toBe("মাটির সোঁদা গন্ধ আর মেঘলা আকাশ...");
+  });
 });
